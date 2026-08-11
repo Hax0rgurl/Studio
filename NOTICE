@@ -1,0 +1,21 @@
+Studio
+Copyright 2026 the Studio contributors
+
+This product includes software developed as part of Wasserman's Filmmaker Suite
+(https://github.com/wassermanproductions), Copyright Sam Wasserman, licensed under
+the Apache License, Version 2.0.
+
+Studio began as a fork of ScriptBreak and consolidates behaviour and data models from
+several suite applications into a single application:
+
+  ScriptBreak                  screenplay parsing, breakdown, bibles, look, shot list,
+                               scheduling, prompt packs, export
+  Cork Board                   index cards, status columns
+  Slate                        per-shot prompts, prompt history, take logging
+  Circle Take                  take ratings and provenance
+  Storyboard Reference Studio  frame/shot metadata concepts
+
+The original applications remain available from their own repositories under the
+Apache License, Version 2.0. See LICENSE for the full license text.
+
+Changes made in this fork are described in ARCHITECTURE.md.
