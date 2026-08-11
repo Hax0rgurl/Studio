@@ -3407,6 +3407,10 @@ function renderExport(){
         <button class="btn" id="expDoodCsv">DOOD CSV</button>
       </div></div>
 
+    <div class="exp-card" style="border-color:var(--amber)"><h3><span class="ic">🎞</span> Send to PitchDeck <span class="badge">.json</span></h3>
+      <p>Everything here as a PitchDeck project — scenes, shots, camera, prompts, board frames, and your bibles as locked identity fields. PitchDeck holds the local image and video models, so this is where the plan turns into footage.</p>
+      <button class="btn primary" id="expPitchDeck">Export project</button></div>
+
     <div class="exp-card"><h3><span class="ic">💾</span> Project File <span class="badge util">.scriptbreak</span></h3>
       <p>Your whole project — script, tags, shots, bibles, look — as one portable JSON file. Open it on any machine running Studio.</p>
       <button class="btn" id="expProj">Save project</button></div>
@@ -3438,6 +3442,8 @@ function renderExport(){
   el('expDoodSheet').addEventListener('click', openDoodSheet);
   el('expDoodCsv').addEventListener('click', ()=>{ download(fileStub()+'_day_out_of_days.csv', buildDoodCSV(exportScenes(), SCHED), 'text/csv'); toast('Day Out of Days downloaded', true); });
   el('expProj').addEventListener('click', ()=>el('btnSaveProj').click());
+  const pdBtn = el('expPitchDeck');
+  if (pdBtn) pdBtn.addEventListener('click', exportToPitchDeck);
 }
 
 /* ============================================================
@@ -6671,6 +6677,218 @@ function offerAdaptation(text, filename){
     ss.addEventListener('change', ()=>{ S.boardStyle = ss.value; persist(); renderBoards(); });
   }
 })();
+
+/* ============================================================
+   STUDIO → PITCHDECK
+
+   PitchDeck holds the local image and video models and can actually
+   render; Studio holds the plan. This writes the plan into PitchDeck's
+   own project shape (src/pipeline.js: emptyProject / normalizeMinute),
+   so it opens there already filled in and ready to generate.
+
+   PitchDeck groups shots into minutes of twelve, five seconds each.
+   ============================================================ */
+const PD_SHOTS_PER_MINUTE = 12;
+
+function pdTimeOfDay(sc){
+  const t = (sc.tod || '').trim();
+  if (t) return t.toLowerCase();
+  return (sc.todBucket || 'day').toLowerCase();
+}
+function pdInteriorExterior(sc){
+  const ie = sc.intExt || '';
+  if (ie.includes('INT') && ie.includes('EXT')) return 'interior/exterior';
+  return ie.includes('EXT') ? 'exterior' : 'interior';
+}
+/** PitchDeck wants a plain camera phrase, not our column codes. */
+const PD_SIZE = {
+  EWS:'extreme wide shot', WS:'wide shot', MWS:'medium wide shot', MS:'medium shot',
+  MCU:'medium close-up', CU:'close-up', ECU:'extreme close-up', Insert:'insert',
+  OTS:'over-the-shoulder shot', POV:'point-of-view shot', 'Two-shot':'two shot',
+  Group:'group shot', Aerial:'aerial shot', Establishing:'establishing shot',
+};
+function pdCamera(sh){
+  const size = PD_SIZE[sh.size] || (sh.size ? String(sh.size).toLowerCase() : 'medium shot');
+  const angle = sh.angle ? ' at ' + String(sh.angle).toLowerCase() : '';
+  const move = sh.move && sh.move !== 'Static' ? ', ' + String(sh.move).toLowerCase() : ', locked off';
+  const lens = sh.lens ? ', ' + sh.lens + ' lens' : '';
+  return (size + angle + move + lens).trim();
+}
+function pdVisualStyle(){
+  const L = S.look;
+  return [L.format, L.lensing, L.palette, L.lighting].filter(x=>x && x.trim()).join('; ');
+}
+function pdPlot(){
+  const first = S.scenes.slice(0, 6).map(sc=>sc.synopsis).filter(Boolean).join(' ');
+  return (first || S.scenes.map(sc=>sc.synopsis).filter(Boolean).join(' ')).slice(0, 1200);
+}
+function pdFinalScript(){
+  return S.scenes.map(sc=>sc.slug + '\n\n' + String(sc.text||'').trim()).join('\n\n');
+}
+
+/* Character bibles are prose; PitchDeck wants locked physical and wardrobe fields.
+   Split it with the local model — this is exactly the extraction it is good at. */
+const PD_CHAR_SPINE = `You are turning a written character bible into locked identity fields for an image generator.
+
+Return JSON and nothing else:
+{"role":"","physical":{"age":"","sex":"","face":"","hair":"","eyes":"","nose":"","mouth":"","body":"","bodyType":"","skinTone":""},
+ "clothing":{"shirtColor":"","shirtType":"","pants":"","pantsColor":"","pantsType":"","pantsLength":"","skirt":"","skirtColor":"","skirtType":"","skirtLength":"","shorts":"","shortsColor":"","shortsType":"","shortsLength":"","shoes":"","accessories":"","description":""}}
+
+RULES
+- Fill only what the bible actually states or unmistakably implies. Everything else is exactly "N/A".
+- Never invent a garment, a colour, or a feature. A generator will lock whatever you write and repeat it in every frame, so a guess becomes canon.
+- Keep the bible's own words where you can.
+- role is their function in the story if the bible says it, otherwise "N/A".
+- clothing.description is one short sentence describing the outfit as written.`;
+
+async function pdCharacterProfiles(names, onStep){
+  const out = [];
+  for (let i = 0; i < names.length; i++){
+    const name = names[i];
+    const b = S.bibles.characters[name] || {};
+    const desc = (b.desc || '').trim();
+    if (onStep) onStep(i + 1, names.length, name);
+    const base = { id: uid(), name, role:'N/A', physical:{}, clothing:{}, faceRefDataUrl:'', avatarDataUrl:'' };
+    if (!desc){ out.push(base); continue; }
+    try{
+      const j = aiParseJson(await aiStream(PD_CHAR_SPINE,
+        'CHARACTER: ' + name + '\n\nBIBLE:\n' + desc + '\n', null, null, { json:true, temperature:0.1 }));
+      out.push(Object.assign(base, {
+        role: aiAsLine(j.role) || 'N/A',
+        physical: j.physical && typeof j.physical === 'object' ? j.physical : {},
+        clothing: j.clothing && typeof j.clothing === 'object' ? j.clothing : {},
+        bible: desc,
+      }));
+    }catch(e){
+      out.push(Object.assign(base, { bible: desc }));
+    }
+  }
+  return out;
+}
+
+/** Attach board frames as data URLs so PitchDeck opens with the stills already in place. */
+async function pdFrameDataUrl(sh){
+  try{
+    const b = sh.board && sh.board.frame;
+    if (!b) return '';
+    const blob = await FrameStore.get(b);
+    if (!blob) return '';
+    return await new Promise(res=>{ const r = new FileReader(); r.onload = ()=>res(String(r.result)); r.onerror = ()=>res(''); r.readAsDataURL(blob); });
+  }catch(e){ return ''; }
+}
+
+async function buildPitchDeckProject(opts){
+  const withChars = !!(opts && opts.characters);
+  const onStep = opts && opts.onStep;
+  const shots = allShotsB();
+  const minutes = [];
+  for (let i = 0; i < shots.length; i += PD_SHOTS_PER_MINUTE){
+    const slice = shots.slice(i, i + PD_SHOTS_PER_MINUTE);
+    const number = Math.floor(i / PD_SHOTS_PER_MINUTE) + 1;
+    const built = [];
+    for (let k = 0; k < slice.length; k++){
+      const { sc, sh } = slice[k];
+      const board = sh.board || {};
+      const f = board.fields || {};
+      built.push({
+        id: 'm' + number + '-s' + (k + 1),
+        durationSeconds: 5,
+        shotNumber: k + 1,
+        location: f.location || titleCaseLoc(sc.master || sc.location || '') || 'scripted location',
+        interiorExterior: pdInteriorExterior(sc),
+        timeOfDay: pdTimeOfDay(sc),
+        lighting: S.look.lighting || 'scripted lighting source',
+        visualStyle: f.styleDesc || pdVisualStyle(),
+        camera: f.shotType || pdCamera(sh),
+        subjectAction: board.desc || sh.desc || sc.synopsis || '',
+        environmentDetails: f.technical || sc.slug,
+        charactersInShot: f.characters ? f.characters.split(/[,;]+/).map(x=>x.trim()).filter(Boolean) : sc.characters.slice(),
+        propsInShot: (sc.elements.props || []).slice(0, 8),
+        prompt: (sh.prompt && sh.prompt.text) || '',
+        generationPrompt: (sh.prompt && sh.prompt.text) || '',
+        imageDataUrl: await pdFrameDataUrl(sh),
+        imageUrl: '',
+        // provenance, so a shot can be traced back into Studio
+        studioSceneNumber: sc.num,
+        studioShotNumber: sh.num,
+      });
+    }
+    minutes.push({
+      minuteNumber: number,
+      durationSeconds: 60,
+      sceneCanon: [...new Set(slice.map(x=>x.sc.slug))],
+      shots: built,
+    });
+  }
+
+  const cast = [...new Set(shots.flatMap(x=>x.sc.characters))];
+  const characterProfiles = withChars ? await pdCharacterProfiles(cast, onStep) : [];
+
+  return {
+    id: 'studio-' + uid(),
+    movieTitle: S.title || 'Untitled',
+    plot: pdPlot(),
+    genreIdea: S.look.tone || 'cinematic drama',
+    eraSetting: S.look.design || 'present day',
+    photoStyle: pdVisualStyle() || 'cinematic realistic',
+    minutesToExtract: Math.min(5, Math.max(1, minutes.length)),
+    characterProfiles,
+    extrasProfiles: [],
+    references: [],
+    finalScript: pdFinalScript(),
+    minutes,
+    sourceApp: 'studio',
+  };
+}
+
+async function exportToPitchDeck(){
+  if (!S.scenes.length){ toast('Import a script first.'); return; }
+  const shots = allShotsB();
+  if (!shots.length){ toast('Plan some shots first — PitchDeck generates per shot.'); return; }
+  const cast = [...new Set(shots.flatMap(x=>x.sc.characters))];
+  const canAI = AI.status === 'on';
+
+  openModal('Send to PitchDeck',
+    '<p style="line-height:1.6">' + shots.length + ' shots across ' + S.scenes.length + ' scenes, packed into '
+      + Math.ceil(shots.length / PD_SHOTS_PER_MINUTE) + ' minute' + (Math.ceil(shots.length/PD_SHOTS_PER_MINUTE)===1?'':'s')
+      + ' of twelve. Board frames travel with it.</p>'
+    + '<label style="display:flex;gap:9px;align-items:flex-start;margin-top:14px;font-size:12.5px">'
+    + '<input type="checkbox" id="pdChars" ' + (canAI ? 'checked' : 'disabled') + ' style="width:auto;margin-top:3px">'
+    + '<span><b>Convert ' + cast.length + ' character bible' + (cast.length===1?'':'s') + ' into locked identity fields</b>'
+    + '<br><span class="auto-note">PitchDeck locks wardrobe and features per character so they stay the same in every frame. This splits your prose bibles into those fields — one model call each, and it fills "N/A" rather than guessing.'
+    + (canAI ? '' : ' Needs a local model; connect one first.') + '</span></span></label>'
+    + '<div class="auto-note" style="margin-top:12px">In PitchDeck press <b>Open project…</b> and choose the file.</div>',
+    [
+      { label:'Cancel' },
+      { label:'Export', primary:true, onClick: async ()=>{
+          const doChars = !!(el('pdChars') && el('pdChars').checked);
+          closeModal();
+          if (doChars){
+            openModal('Reading the bibles',
+              '<div class="ai-prog"><i id="pdProg"></i></div><div class="ai-stat" id="pdStat">1 of ' + cast.length + '</div>',
+              [{ label:'Cancel', onClick:()=>{ if (AI.ctrl){ try{ AI.ctrl.abort(); }catch(e){} } closeModal(); } }]);
+          } else {
+            toast('Building the PitchDeck project…');
+          }
+          try{
+            const project = await buildPitchDeckProject({
+              characters: doChars,
+              onStep: (i, n, name)=>{
+                const st = el('pdStat'), bar = el('pdProg');
+                if (st) st.textContent = i + ' of ' + n + ' · ' + name;
+                if (bar) bar.style.width = Math.round((i-1)/n*100) + '%';
+              },
+            });
+            closeModal();
+            download(fileStub() + '_pitchdeck.json', JSON.stringify(project, null, 2), 'application/json');
+            toast('Exported — open it in PitchDeck with “Open project…”', true);
+          }catch(e){
+            closeModal();
+            toast('Export failed: ' + ((e && e.message) || e));
+          }
+        } },
+    ]);
+}
 
 /* ================= boot ================= */
 (function init(){
