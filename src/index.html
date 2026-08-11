@@ -775,6 +775,7 @@ const blankState = () => ({
   title: 'Untitled Project',
   scriptName: '',
   cards: [],
+  tasteNotes: '',
   scenes: [],
   bibles: { characters:{}, locations:{}, props:{} },
   look: { aspect:'', format:'', lensing:'', framing:'', camera:'', lighting:'', palette:'', design:'', wardrobe:'', music:'', tone:'', refs:'', negative:'' },
@@ -5507,6 +5508,145 @@ document.addEventListener('paste', e=>{
 });
 
 /* ============================================================
+   TASTE — what this filmmaker keeps, learned from what they kept.
+
+   The craft critic asks "is this correct?" — contiguous timeline,
+   canon-locked, one camera move. Correct is not the same as good.
+   This asks the other question: "is this the kind of thing Muse keeps?"
+
+   There is no training here and no model to fine-tune. Every take you
+   circle is already a labelled preference attached to the prompt that
+   produced it, so taste is read out of the Takes log as few-shot
+   examples, blended with a statement you can write by hand for the
+   cold start when there is nothing to learn from yet.
+   ============================================================ */
+
+const TASTE_KEEP_CAP = 10;
+const TASTE_KILL_CAP = 10;
+
+/** Every judged take, with the prompt that produced it. */
+function tasteExamples(){
+  const kept = [], killed = [];
+  allShotsB().forEach(({ sc, sh })=>{
+    const prompt = (sh.prompt && sh.prompt.text) || (sh.board && sh.board.desc) || sh.desc || '';
+    (sh.takes || []).forEach(t=>{
+      if (!t.rating || t.rating === 'good') return;      // "good" is not a signal, it is a shrug
+      const row = {
+        rating: t.rating,
+        note: (t.notes || '').trim(),
+        model: t.model || '',
+        shot: [sh.size, sh.angle, sh.move].filter(Boolean).join(' · '),
+        scene: sc.slug,
+        prompt: prompt.slice(0, 700),
+      };
+      (t.rating === 'circled' ? kept : killed).push(row);
+    });
+  });
+  // A judgement with a reason attached teaches more than a bare verdict.
+  const byValue = (a,b)=> (b.note.length ? 1 : 0) - (a.note.length ? 1 : 0);
+  return { kept: kept.sort(byValue).slice(0, TASTE_KEEP_CAP), killed: killed.sort(byValue).slice(0, TASTE_KILL_CAP),
+           totalKept: kept.length, totalKilled: killed.length };
+}
+
+function tasteBlock(ex){
+  let s = '';
+  if (S.tasteNotes && S.tasteNotes.trim()){
+    s += '=== WHAT THE FILMMAKER SAYS THEY WANT — their own words, and they outrank the examples ===\n'
+       + S.tasteNotes.trim() + '\n\n';
+  }
+  if (ex.kept.length){
+    s += '=== KEPT — they circled these takes. This is the target. ===\n';
+    ex.kept.forEach((r,i)=>{
+      s += '\n[' + (i+1) + '] ' + r.scene + (r.shot ? ' · ' + r.shot : '') + '\n';
+      if (r.note) s += 'Why they kept it: ' + r.note + '\n';
+      if (r.prompt) s += 'From this prompt: ' + r.prompt + '\n';
+    });
+    s += '\n';
+  }
+  if (ex.killed.length){
+    s += '=== KILLED — they marked these no good. Do not produce this. ===\n';
+    ex.killed.forEach((r,i)=>{
+      s += '\n[' + (i+1) + '] ' + r.scene + (r.shot ? ' · ' + r.shot : '') + '\n';
+      if (r.note) s += 'Why they killed it: ' + r.note + '\n';
+      if (r.prompt) s += 'From this prompt: ' + r.prompt + '\n';
+    });
+    s += '\n';
+  }
+  return s;
+}
+
+const TASTE_SPINE = `You are the filmmaker's own eye, reading a shot prompt before it is rendered. You are not checking whether it is correct — somebody else does that. You are answering one question: is this the kind of thing THIS filmmaker keeps?
+
+=== HOW TO JUDGE ===
+- Everything you know about their taste is below: what they said they want, what they circled, what they killed. That is the whole basis. Do not import your own idea of what is cinematic, tasteful, or crowd-pleasing.
+- Look for the pattern, not the surface. If they killed three prompts that all announced an emotion, the pattern is "no telegraphing", not "never use that word".
+- Their written statement outranks the examples. The examples outrank your instincts.
+- If they have kept very little, say so and judge gently — an unsure verdict is worth more than a confident guess.
+- Never judge the story. They wrote it. Judge the treatment: framing, light, restraint, pace, what the camera attends to, what it refuses to show.
+
+=== OUTPUT ===
+Return JSON and nothing else:
+{"verdict":"keep"|"maybe"|"kill","confidence":"high"|"low",
+ "reads":"<one sentence on what this prompt is actually going for>",
+ "against":[{"pattern":"<the taste pattern it breaks>","evidence":"<exact words from the prompt>","fix":"<one instruction, under 20 words>"}],
+ "why":"<one sentence: why they would or would not keep it>"}
+
+verdict "kill" only when it clearly contradicts something they killed or said they hate.
+"maybe" when it is inoffensive but has nothing of them in it — that is the most common honest answer.
+Report at most four entries in "against". If nothing breaks, "against" is empty.`;
+
+/** Judge one prompt against the filmmaker's history. Resolves to a verdict or null. */
+async function critiqueTaste(promptText, ctx){
+  const ex = tasteExamples();
+  if (!ex.kept.length && !ex.killed.length && !(S.tasteNotes || '').trim()) return null;
+  let user = 'FILM: ' + S.title + '\n';
+  if (ctx && ctx.scene) user += 'SHOT: ' + ctx.scene + (ctx.shot ? ' · ' + ctx.shot : '') + '\n';
+  user += 'They have circled ' + ex.totalKept + ' take' + (ex.totalKept===1?'':'s')
+        + ' and killed ' + ex.totalKilled + ' so far.\n\n';
+  user += tasteBlock(ex);
+  user += '=== THE PROMPT UNDER JUDGEMENT ===\n\n' + promptText + '\n\nJudge it now.\n';
+  const raw = await aiStream(TASTE_SPINE, user, null, null, { json:true, temperature:0.2 });
+  let v;
+  try { v = aiParseJson(raw); } catch(e){ return null; }
+  if (!v || typeof v !== 'object') return null;
+  v.against = Array.isArray(v.against) ? v.against.slice(0, 4).filter(x=>x && x.pattern) : [];
+  v.verdict = ['keep','maybe','kill'].includes(v.verdict) ? v.verdict : 'maybe';
+  v.confidence = v.confidence === 'high' ? 'high' : 'low';
+  v.basedOn = { kept: ex.totalKept, killed: ex.totalKilled, statement: !!(S.tasteNotes||'').trim() };
+  v.at = new Date().toISOString();
+  return v;
+}
+function tasteToNote(v){
+  if (!v || !v.against.length) return '';
+  return '\n=== THE FILMMAKER\'S OWN EYE REJECTED YOUR LAST ATTEMPT ===\n'
+    + 'These are patterns from what they have kept and killed. Fix every one.\n'
+    + v.against.map((a,i)=>(i+1) + '. [' + a.pattern + '] ' + (a.fix||'')
+        + (a.evidence ? '  (at fault: "' + String(a.evidence).slice(0,110) + '")' : '')).join('\n') + '\n';
+}
+
+/* ---------- the taste panel, in Takes where the verdicts live ---------- */
+function renderTastePanel(){
+  const ex = tasteExamples();
+  const n = ex.totalKept + ex.totalKilled;
+  const strength = n === 0 ? 'nothing yet'
+    : n < 6 ? 'thin — ' + n + ' judgement' + (n===1?'':'s')
+    : n < 20 ? 'forming — ' + n + ' judgements'
+    : 'solid — ' + n + ' judgements';
+  return '<div class="ai-panel" style="margin-bottom:16px;max-width:1080px">'
+    + '<h4>Your taste</h4>'
+    + '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:10px">'
+    +   '<span class="ai-badge ok">' + ex.totalKept + ' kept</span>'
+    +   '<span class="ai-badge err">' + ex.totalKilled + ' killed</span>'
+    +   '<span class="ai-stat">' + esc(strength) + '</span>'
+    + '</div>'
+    + '<label class="bd-f"><span>What you want, in your own words</span>'
+    +   '<textarea id="tasteNotes" rows="4" placeholder="Restraint over spectacle. Hold the frame. Never tell me what to feel. No golden hour. If it looks like a stock advert, kill it.">'
+    +   esc(S.tasteNotes||'') + '</textarea></label>'
+    + '<div class="auto-note" style="margin-top:8px">This outranks the examples. Circling and killing takes teaches the rest — a note on <i>why</i> teaches far more than the verdict alone.</div>'
+    + '</div>';
+}
+
+/* ============================================================
    PROMPT LIST — one finished video prompt per shot, written
    locally and saved onto the shot so it travels with the project.
 
@@ -5636,7 +5776,7 @@ Close with a line reading: Duration: Ns · Aspect: R · Negative: (camera moves 
 
 ` + PL_SHARED_CRAFT;
 
-let PL = { target:'seedance', seconds:8, scope:'all', range:'', refs:false, redo:false, licence:false, critic:true, autofix:true, running:false, cancel:false, _at:0, _total:0, _cur:'' };
+let PL = { target:'seedance', seconds:8, scope:'all', range:'', refs:false, redo:false, licence:false, critic:true, autofix:true, taste:true, running:false, cancel:false, _at:0, _total:0, _cur:'' };
 
 /* ============================================================
    CANON AUDIT — the prompt may only contain what the script contains.
@@ -5917,6 +6057,13 @@ async function plRun(only){
           try { verdict = await critique('prompt', text, ctx); } catch(e){ /* critic is advisory */ }
           target.prompt.verdict = verdict;
 
+          if (PL.taste && !PL.cancel){
+            if (stream) stream.textContent = 'judging it against your taste…';
+            try {
+              target.prompt.taste = await critiqueTaste(text, { scene: sc.slug, shot: sh ? sh.num : '' });
+            } catch(e){ /* taste is advisory */ }
+          }
+
           // One repair pass, using the critique as the instruction.
           if (PL.autofix && verdict && verdict.verdict !== 'pass' && !PL.cancel){
             if (stream) stream.textContent = 'fixing what the critic found…';
@@ -6055,6 +6202,7 @@ function renderPrompts(){
   +     '<label style="font-size:12px;display:flex;gap:7px;align-items:center" title="Off: the script is canon and nothing may be added. On: the model may enrich the frame, still bound by the physical checks."><input type="checkbox" id="plLicence" '+(PL.licence?'checked':'')+' style="width:auto">Let it invent</label>'
   +     '<label style="font-size:12px;display:flex;gap:7px;align-items:center" title="A second, adversarial model reviews every prompt against the Seedance guide, the craft rules and the physical checks, and reports exactly what is wrong."><input type="checkbox" id="plCritic" '+(PL.critic?'checked':'')+' style="width:auto">Critique it</label>'
   +     (PL.critic ? '<label style="font-size:12px;display:flex;gap:7px;align-items:center" title="When the critic rejects a prompt, rewrite it once against the critique and keep whichever scores better."><input type="checkbox" id="plAutofix" '+(PL.autofix?'checked':'')+' style="width:auto">Fix what it finds</label>' : '')
+  +     '<label style="font-size:12px;display:flex;gap:7px;align-items:center" title="Judge each prompt against what you have circled and killed, and what you wrote in Takes."><input type="checkbox" id="plTaste" '+(PL.taste?'checked':'')+' style="width:auto">Judge my taste</label>'
   +     '<label style="font-size:12px;display:flex;gap:7px;align-items:center"><input type="checkbox" id="plRedo" '+(PL.redo?'checked':'')+' style="width:auto">Rewrite existing</label>'
   +   '</div>'
   +   '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center">'
@@ -6103,6 +6251,9 @@ function renderPrompts(){
               ? '<span class="ai-badge '+(r.p.verdict.verdict==='pass'?'ok':'err')+'" title="Critic score '+r.p.verdict.score+'/100">'
                 + (r.p.verdict.verdict==='pass' ? 'passed' : r.p.verdict.verdict+' '+r.p.verdict.failures.length) + '</span>'
               : '')
+        +   (r.p.taste
+              ? '<span class="ai-badge '+(r.p.taste.verdict==='keep'?'ok':(r.p.taste.verdict==='kill'?'err':''))+'" title="'+esc(r.p.taste.why||'')+'">taste: '+esc(r.p.taste.verdict)+(r.p.taste.confidence==='low'?'?':'')+'</span>'
+              : '')
         +   '<button class="btn small" data-plcrit="'+i+'|'+r.j+'">Critique</button>'
         +   '<button class="btn small" data-plcopy="'+i+'|'+r.j+'">Copy</button>'
         +   '<button class="btn small" data-plredo="'+i+'|'+r.j+'">Rewrite</button>'
@@ -6117,6 +6268,18 @@ function renderPrompts(){
                   + esc(r.p.offScript.slice(0,14).join(', ')) + (r.p.offScript.length>14?' …':'')
                   + '</b> — rewrite this shot, or tick “Let it invent” if you meant to allow it.</div>'
                 : '')
+              + (r.p.taste && r.p.taste.against && r.p.taste.against.length
+                  ? '<div class="crit" style="border-color:rgba(107,159,217,.4);background:rgba(107,159,217,.07)">'
+                    + '<div class="crit-head" style="color:var(--blue)">Your eye — ' + esc(r.p.taste.verdict)
+                      + (r.p.taste.confidence==='low' ? ' (thin history)' : '')
+                      + (r.p.taste.why ? ' · ' + esc(r.p.taste.why) : '') + '</div>'
+                    + r.p.taste.against.map(a=>
+                        '<div class="crit-row"><span class="crit-sev">'+esc(a.pattern||'')+'</span>'
+                        + '<span class="crit-fix">'+esc(a.fix||'')+'</span>'
+                        + (a.evidence ? '<span class="crit-ev">“'+esc(String(a.evidence).slice(0,100))+'”</span>' : '')
+                        + '</div>').join('')
+                    + '</div>'
+                  : '')
               + '<div class="pl-body">'+esc(r.p.text)+'</div>'
               + (r.p.verdict && r.p.verdict.failures.length
                   ? '<div class="crit">'
@@ -6146,6 +6309,7 @@ function renderPrompts(){
   on('plLicence','change',()=>{ PL.licence = el('plLicence').checked; renderPrompts(); });
   on('plCritic','change', ()=>{ PL.critic = el('plCritic').checked; renderPrompts(); });
   on('plAutofix','change',()=>{ PL.autofix = el('plAutofix').checked; });
+  on('plTaste','change',  ()=>{ PL.taste = el('plTaste').checked; renderPrompts(); });
   on('plRedo','change',   ()=>{ PL.redo = el('plRedo').checked; renderPrompts(); });
   on('plRun','click',     ()=>plRun());
   on('plStop','click',    ()=>{ PL.cancel = true; if (AI.ctrl){ try{ AI.ctrl.abort(); }catch(e){} } toast('Stopping…'); });
@@ -6303,7 +6467,8 @@ function renderTakes(){
   });
 
   w.innerHTML =
-    '<div class="stats" style="margin-bottom:16px">'
+    renderTastePanel()
+  + '<div class="stats" style="margin-bottom:16px">'
   +   '<div class="stat"><div class="v">'+c.shots+'</div><div class="k">Shots</div></div>'
   +   '<div class="stat"><div class="v">'+c.takes+'</div><div class="k">Takes logged</div></div>'
   +   '<div class="stat"><div class="v">'+c.circled+'</div><div class="k">Circled</div></div>'
@@ -6338,6 +6503,8 @@ function renderTakes(){
 
   const f = el('takeFilter');
   if (f && !f._wired){ f._wired = true; f.addEventListener('change', renderTakes); }
+  const tn = el('tasteNotes');
+  if (tn) tn.addEventListener('input', ()=>{ S.tasteNotes = tn.value; persist(); });
   w.querySelectorAll('[data-tkadd]').forEach(b=>b.addEventListener('click', ()=>editTake(b.dataset.tkadd, null)));
   w.querySelectorAll('[data-tkedit]').forEach(b=>b.addEventListener('click', ()=>{
     const [s,t] = b.dataset.tkedit.split('|'); editTake(s, t);
