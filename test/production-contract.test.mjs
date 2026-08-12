@@ -1,0 +1,845 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { test } from 'node:test';
+import vm from 'node:vm';
+
+const source = await readFile(new URL('../src/index.html', import.meta.url), 'utf8');
+
+function bodyBetween(start, end) {
+  const a = source.indexOf(start);
+  const b = source.indexOf(end, a + start.length);
+  assert.ok(a >= 0 && b > a, `missing source span ${start} -> ${end}`);
+  return source.slice(a, b);
+}
+
+function loadFunction(start, end, name, context) {
+  vm.createContext(context);
+  vm.runInContext(`${bodyBetween(start, end)}\nglobalThis.__fn = ${name};`, context, { filename: `${name}.js` });
+  return context.__fn;
+}
+
+function providerStubs() {
+  return {
+    videoProviderSelection: production => production?.videoProvider || { id: 'phosphene', model: '', billingApproved: false },
+    videoProviderDescriptor: id => ({ id, name: id === 'phosphene' ? 'Phosphene' : id, configured: true, requiresBillingApproval: false }),
+    videoReviewEnvelope: () => ({ schema: 'studio/video-review@1', gate: 'approved', reasons: [] }),
+    videoBlockedShots: () => [],
+    videoBillingApproval: selection => ({ approved: selection.billingApproved === true, providerId: selection.id })
+  };
+}
+
+test('all executable inline scripts parse', () => {
+  const blocks = [...source.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)]
+    .map(match => match[1])
+    .filter(block => block.trim());
+  assert.ok(blocks.length >= 3);
+  for (const block of blocks) new Function(block);
+});
+
+test('idea screenplay stays in the active Studio project', () => {
+  const writer = bodyBetween('async function crewWriteScript', 'async function crewCoverage');
+  const executable = writer.replace(/\/\/.*$/gm, '');
+  assert.match(writer, /CREW_SCREENPLAY_SCHEMA/);
+  assert.match(writer, /crewStructuredScreenplay/);
+  assert.match(writer, /S\.scenes\s*=\s*parsed\.scenes/);
+  assert.match(writer, /runAutoBreakdown\(\)/);
+  assert.match(writer, /schema:CREW_SCREENPLAY_SCHEMA/);
+  assert.doesNotMatch(executable, /importText\s*\(/);
+  assert.doesNotMatch(executable, /importParsed\s*\(/);
+  assert.doesNotMatch(executable, /parseScript\s*\(/);
+  assert.doesNotMatch(writer, /screenplay in Fountain/);
+});
+
+test('target length applies only to a bare idea and never constrains an existing script', () => {
+  const writer = bodyBetween('async function crewWriteScript', 'async function crewCoverage');
+  const start = bodyBetween('async function crewStart', 'function crewResumeOwnerMatches');
+  const room = bodyBetween('function renderCrew', '/* ================= render all + init ================= */');
+  assert.match(writer, /if \(S\.scenes\.length&&!rewriting\) return/);
+  assert.match(writer, /p&&p\.mode==='idea'/);
+  assert.match(writer, /This is a bare-idea production/);
+  assert.match(writer, /targetMinutes/);
+  assert.match(start, /const targetMinutes=mode==='idea'/);
+  assert.match(start, /if \(mode==='idea'\) S\.production\.targetMinutes=targetMinutes/);
+  assert.doesNotMatch(start, /targetMinutes, status/);
+  assert.match(room, /New idea target/);
+  assert.match(room, /Make the current script ignores it completely/);
+});
+
+test('the production run is resumable and queues every stable shot id', () => {
+  assert.match(source, /production:\s*null/);
+  assert.match(source, /function persistNow\(/);
+  const video = bodyBetween('async function crewVideo', 'function crewStatusRows');
+  assert.match(video, /studioShotId:sh\.id/);
+  assert.match(video, /queue-batch/);
+  assert.match(video, /p\.status='rendering'/);
+  assert.doesNotMatch(video, /shots\[0\]/);
+});
+
+test('queue acknowledgements are not logged as finished takes', () => {
+  const queue = bodyBetween('async function crewVideo', 'function crewStatusRows');
+  assert.doesNotMatch(queue, /addTake\s*\(/);
+  const poll = bodyBetween('async function crewRefreshJobs', 'function crewSchedulePoll');
+  assert.match(poll, /job\.status==='done'/);
+  assert.match(poll, /addTake\(shotId/);
+  assert.match(poll, /jobId:job\.id/);
+  assert.match(poll, /data\.missingIds/);
+  assert.match(poll, /job\.status='missing'/);
+});
+
+test('whole-film pipeline reaches taste, stills, video, and editor', () => {
+  const pipeline = bodyBetween('const CREW_PIPELINE', 'async function crewCall');
+  for (const role of ['script_supervisor', 'taste', 'stills_prompt', 'stills', 'second_unit', 'editor']) {
+    assert.match(pipeline, new RegExp(`['"]${role}['"]`));
+  }
+  assert.ok(pipeline.indexOf("'stills_prompt'") < pipeline.indexOf("'script_supervisor'"));
+  assert.ok(pipeline.indexOf("'script_supervisor'") < pipeline.indexOf("'taste'"));
+  assert.ok(pipeline.indexOf("'taste'") < pipeline.indexOf("'stills'"));
+});
+
+test('taste evidence is read across the Studio library', () => {
+  const taste = bodyBetween('function tasteLibraryStates', 'function tasteBlock');
+  assert.match(taste, /DB\.projects/);
+  assert.match(taste, /seen\.has\(key\)/);
+  assert.match(source, /studio\.taste\.v1/);
+});
+
+test('still and video providers are independent, model ids stay user-entered, and runs freeze both choices', () => {
+  const providerLayer = bodyBetween('const VIDEO_PROVIDER_KEY', '/** Prevent a project graph');
+  assert.match(providerLayer, /IMAGE_PROVIDER_KEY/);
+  assert.match(providerLayer, /function videoProviderSelection/);
+  assert.match(providerLayer, /function imageProviderSelection/);
+  assert.match(providerLayer, /allowsCustomModel/);
+  const start = bodyBetween('async function crewStart', 'function crewResumeOwnerMatches');
+  assert.match(start, /videoProvider:\{id:videoSelection\.id/);
+  assert.match(start, /imageProvider:\{id:imageSelection\.id/);
+  const room = bodyBetween('function renderCrew', '/* ================= render all + init ================= */');
+  assert.match(room, /Storyboard photo provider/);
+  assert.match(room, /Video provider/);
+  assert.match(room, /choose or type any model ID/);
+  assert.match(room, /Photo and video engines are independent/);
+});
+
+test('canon and TasteOS review gate every image or video provider before spend', () => {
+  const providerLayer = bodyBetween('function videoPromptFingerprint', '/** Prevent a project graph');
+  assert.match(providerLayer, /craft&&craft\.verdict&&craft\.verdict!=='pass'/);
+  assert.match(providerLayer, /taste&&taste\.verdict==='kill'/);
+  assert.match(providerLayer, /prompt\.offScript/);
+  assert.match(providerLayer, /still prompt has not passed script-supervisor review/);
+  assert.match(providerLayer, /craft:craft\?/);
+  const images = bodyBetween('async function crewImages', 'function crewJobId');
+  const videos = bodyBetween('async function crewVideo', 'function crewStatusRows');
+  assert.match(images, /imageReviewEnvelope/);
+  assert.match(images, /review\.gate==='blocked'/);
+  assert.match(images, /\/api\/image\/generate/);
+  assert.match(images, /status:'failed'/);
+  assert.doesNotMatch(images, /text-to-video for shots without frames/);
+  assert.match(videos, /videoBlockedShots\(submissionShots\)/);
+  assert.match(videos, /missingFrames/);
+  assert.match(videos, /will not fall back to text-to-video/);
+  assert.match(videos, /if \(!imageDataUrl\) throw new Error/);
+  assert.match(videos, /\/api\/video\/queue-batch/);
+  assert.match(videos, /review:videoReviewEnvelope\(sh\)/);
+});
+
+test('the script supervisor independently reviews storyboard-photo prompts', () => {
+  assert.match(source, /const CRITIC_STILL_SPINE/);
+  assert.match(source, /STILL-PROMPT RUBRIC/);
+  const supervisor = bodyBetween('async function crewSupervise', 'async function crewTaste');
+  assert.match(supervisor, /withStill/);
+  assert.match(supervisor, /critique\('still'/);
+  assert.match(supervisor, /board\.craft=v/);
+  assert.match(supervisor, /stillBad/);
+  const rework = bodyBetween('async function crewProcessShotReworks', 'function crewTranscriptEntries');
+  assert.match(rework, /await crewSupervise\(crewFind\('script_supervisor'\)/);
+  assert.match(rework, /await crewTaste\(crewFind\('taste'\)/);
+});
+
+test('PitchDeck adapter preserves shot identity and timing', () => {
+  const adapter = bodyBetween('async function buildPitchDeckProject', 'async function exportToPitchDeck');
+  assert.match(adapter, /studioShotId:\s*sh\.id/);
+  assert.match(adapter, /durationSeconds:\s*seconds/);
+  assert.match(adapter, /minutesToExtract:\s*Math\.max\(1, minutes\.length\)/);
+  assert.doesNotMatch(adapter, /Math\.min\(5/);
+  const promptWriter = bodyBetween('async function crewWritePrompts', 'async function crewSupervise');
+  assert.match(promptWriter, /capabilities\.defaultClipSeconds\|\|capabilities\.defaultSeconds\|\|PL\.seconds/);
+  assert.doesNotMatch(promptWriter, /target:'seedance',seconds:5/);
+  const video = bodyBetween('async function crewVideo', 'function crewStatusRows');
+  assert.match(video, /frames:Math\.round\(seconds\*24\)\+1/);
+});
+
+test('Greenroom credentials never return to browser storage', () => {
+  assert.doesNotMatch(source, /studio\.crew\.ids/);
+  assert.doesNotMatch(source, /display_name:\s*role\.at\s*\+/);
+  assert.match(source, /greenroom_open_production_thread/);
+  assert.match(source, /greenroom_post_role_step/);
+});
+
+test('resume preserves render polling instead of resetting the pipeline to running', () => {
+  const resume = bodyBetween('async function crewResume', '/* ---------- the room ---------- */');
+  assert.match(resume, /current\.status==='rendering'\s*\|\|\s*current\.status==='assembling'/);
+  assert.match(resume, /crewSchedulePoll\(\);\s*return/);
+  assert.match(resume, /incompleteAdmission/);
+  assert.match(resume, /await crewCall\(current\.brief/);
+  const scheduler = bodyBetween('function crewSchedulePoll', 'async function crewEdit');
+  assert.match(scheduler, /runId=p\.id, draftId=ACTIVE\.d/);
+  assert.match(scheduler, /current\.id!==runId/);
+  assert.match(scheduler, /\['rendering','assembling'\]\.includes\(productionState\(\)\.status\)/);
+});
+
+test('render queue is checkpointed per stable shot and incomplete films cannot assemble', () => {
+  const video = bodyBetween('async function crewVideo', 'function crewStatusRows');
+  assert.match(video, /p\.expectedShotIds=shots\.map/);
+  assert.match(video, /shots:\[spec\]/);
+  assert.match(video, /data\.errors/);
+  assert.match(video, /productionCheckpoint\(\)/);
+  const poll = bodyBetween('async function crewRefreshJobsOnce', 'function crewSchedulePoll');
+  assert.match(poll, /providerIds\.slice\(i,i\+500\)/);
+  const edit = bodyBetween('async function crewEditOnce', '/** Run one department. */');
+  assert.match(edit, /expectedShotIds/);
+  assert.match(edit, /expected\.filter\(id=>!jobs\[id\]\)/);
+  assert.doesNotMatch(edit, /filter\(Boolean\)/);
+});
+
+test('automated prompt writing ignores stale UI scope and refuses partial output', () => {
+  const prompts = bodyBetween('async function crewWritePrompts', 'async function crewSupervise');
+  assert.match(prompts, /scope:'all'/);
+  assert.match(prompts, /range:''/);
+  assert.match(prompts, /redo:false/);
+  assert.match(prompts, /Prompt generation is incomplete/);
+});
+
+test('render and assembly are single-flight and lock conflicting production actions', () => {
+  assert.match(source, /refreshPromise:null, assemblyPromise:null,[\s\S]*resumePromise:null,[\s\S]*calling:false/);
+  assert.match(source, /if \(CREW\.refreshPromise\) return CREW\.refreshPromise/);
+  assert.match(source, /if \(CREW\.assemblyPromise\) return CREW\.assemblyPromise/);
+  assert.match(bodyBetween('function loadProject(json)', '/* ---------- projects view ---------- */'), /crewMutationLocked\(\)/);
+  const bridgeListener = bodyBetween("window.addEventListener('message',event=>", 'return { mount, corkProject');
+  assert.match(bridgeListener, /crewMutationLocked\(\)/);
+  assert.match(bridgeListener, /crewCanonicalLocked\(\)/);
+  const draftSwitch = bodyBetween('function openDraft(pid, did)', '/* ================= utils ================= */');
+  assert.match(draftSwitch, /crewActivateLoadedProduction\(\)/);
+  const lifecycle = bodyBetween('function crewRecoverInterruptedProduction', 'function crewApplyMutationLock');
+  assert.match(lifecycle, /\['starting','running'\]\.includes\(p\.status\)/);
+  assert.match(lifecycle, /p\.status='paused'/);
+  assert.match(lifecycle, /clearTimeout\(CREW\.pollTimer\)/);
+  assert.match(lifecycle, /crewEnsureServices\(\)\.then\(\(\)=>crewSchedulePoll\(1200\)\)/);
+  const mutationUi = bodyBetween('function crewApplyMutationLock', '/* dept, and for each role');
+  assert.match(mutationUi, /button\.disabled=false/);
+  assert.match(mutationUi, /production-readonly/);
+  assert.match(mutationUi, /data-review-flag/);
+  assert.match(mutationUi, /title\.disabled=locked\|\|canonical/);
+  const bootstrap = bodyBetween('(function init(){', '</script>');
+  assert.match(bootstrap, /crewActivateLoadedProduction\(\)/);
+  const room = bodyBetween('function renderCrew', '/* ================= render all + init ================= */');
+  assert.match(room, /const active=crewMutationLocked\(\)/);
+});
+
+test('service startup is single-flight in the webview and model choice remains user-controlled', async () => {
+  let releaseStart;
+  let starts = 0;
+  let connects = 0;
+  const context = {
+    console, Promise, String,
+    CREW: { startPromise: null, startResults: [] },
+    crewInvoke: () => {
+      starts++;
+      return new Promise(resolve => { releaseStart = resolve; });
+    },
+    setTimeout: callback => { callback(); return 1; },
+    crewConnect: async () => {
+      connects++;
+      return { ollama: { ok: true }, greenroom: { ok: true }, pitchdeck: { ok: true } };
+    }
+  };
+  const ensure = loadFunction('async function crewEnsureServices', 'function productionState', 'crewEnsureServices', context);
+  const first = ensure();
+  const second = ensure();
+  assert.equal(starts, 1, 'concurrent callers must share one native start');
+  releaseStart([]);
+  await Promise.all([first, second]);
+  assert.equal(connects, 1);
+  assert.equal(context.CREW.startPromise, null);
+  const ensureSource = bodyBetween('async function crewEnsureServices', 'function productionState');
+  assert.match(ensureSource, /CREW\.startPromise=null/);
+  assert.match(ensureSource, /activeView\(\)==='crew'/);
+
+  const room = bodyBetween('function renderCrew', '/* ================= render all + init ================= */');
+  assert.match(room, /AI\.models\.map\(model/);
+  assert.match(room, /AI\.model=event\.target\.value; aiSave\(\)/);
+  const connect = bodyBetween('async function aiConnect', 'function aiController');
+  assert.match(connect, /if \(!AI\.model \|\| !hit\.models\.includes\(AI\.model\)\)/);
+});
+
+test('standalone AI work and delayed style-guide reads cannot cross project ownership', () => {
+  const workerLock = bodyBetween('function canonicalWorkerLocked', 'function crewMutationLocked');
+  assert.match(workerLock, /AI\.status==='probing' \|\| AI\.ctrl/);
+  const controller = bodyBetween('function aiController', 'function aiCancel');
+  assert.match(controller, /crewApplyMutationLock\(\)/);
+  const pdf = bodyBetween('async function handlePDF', '/* ---------- style guide');
+  assert.match(pdf, /await pdfExtract/);
+  assert.match(pdf, /fileLoadStillOwned\(owner\)/);
+  const style = bodyBetween('function importStyleGuide', "el('btnImport')");
+  assert.match(style, /owner && !fileLoadStillOwned\(owner\)/);
+  assert.match(style, /return false/);
+});
+
+test('Greenroom thread messages remain provenance-only and posts are ordered', () => {
+  assert.match(source, /function crewMergeRecord/);
+  const merge = bodyBetween('function crewMergeRecord', 'async function crewOpenRecord');
+  assert.match(merge, /p\.greenroomSteps\[roleId\]/);
+  assert.match(merge, /provenanceOnly:true/);
+  assert.doesNotMatch(merge, /p\.steps\[roleId\]\s*=/);
+  const run = bodyBetween('async function crewRun', '/** The whole crew, in order, on one idea. */');
+  assert.match(run, /await crewRecord/);
+});
+
+test('live resume returns to polling without rerunning departments', async () => {
+  const production = { id: 'run-1', status: 'rendering', jobs: { shot: { id: 'job-1', status: 'running' } }, brief: 'film' };
+  let polls = 0;
+  let calls = 0;
+  const context = {
+    console, Object,
+    ACTIVE: { p: 'project-1', d: 'draft-1' },
+    CREW: { busy: '', calling: false, refreshPromise: null, assemblyPromise: null, resumePromise: null, resumeOwner: '' },
+    canonicalWorkerLocked: () => false,
+    crewUnprovenJobs: () => [],
+    crewShotReworkQueue: () => [],
+    crewProcessShotReworks: async () => {},
+    productionState: () => production,
+    crewEnsureServices: async () => {},
+    tasteLoadSnapshot: async () => ({}),
+    crewOpenRecord: async () => {},
+    crewRefreshJobs: async () => {},
+    crewSchedulePoll: () => { polls++; },
+    crewCall: async () => { calls++; },
+    productionCheckpoint: () => {},
+    crewApplyMutationLock: () => {},
+    activeView: () => 'crew',
+    renderCrew: () => {}
+  };
+  const resume = loadFunction('function crewResumeOwnerMatches', '/* ---------- the room ---------- */', 'crewResume', context);
+  await resume();
+  assert.equal(polls, 1);
+  assert.equal(calls, 0);
+  assert.equal(production.status, 'rendering');
+});
+
+test('resume owns one draft across service awaits and cannot spill into another project', async () => {
+  const runA = { id: 'run-a', status: 'paused', jobs: {}, brief: 'A film' };
+  const runB = { id: 'run-b', status: 'paused', jobs: {}, brief: 'B film' };
+  let current = runA;
+  let releaseServices;
+  let opened = 0;
+  let calls = 0;
+  const context = {
+    console, Object, Number, String,
+    ACTIVE: { p: 'project-a', d: 'draft-a' },
+    CREW: { busy: '', calling: false, refreshPromise: null, assemblyPromise: null, resumePromise: null, resumeOwner: '' },
+    canonicalWorkerLocked: () => false,
+    crewUnprovenJobs: () => [],
+    productionState: () => current,
+    crewEnsureServices: () => new Promise(resolve => { releaseServices = resolve; }),
+    tasteLoadSnapshot: async () => ({}),
+    crewOpenRecord: async () => { opened++; },
+    crewRefreshJobs: async () => {},
+    crewSchedulePoll: () => {},
+    crewCall: async () => { calls++; },
+    productionCheckpoint: () => {},
+    crewApplyMutationLock: () => {},
+    activeView: () => 'projects',
+    renderCrew: () => {}
+  };
+  const resume = loadFunction('function crewResumeOwnerMatches', '/* ---------- the room ---------- */', 'crewResume', context);
+  const work = resume();
+  assert.ok(context.CREW.resumePromise, 'resume must acquire its in-memory owner lock before yielding');
+  current = runB;
+  context.ACTIVE.p = 'project-b';
+  context.ACTIVE.d = 'draft-b';
+  releaseServices();
+  await work;
+  assert.equal(opened, 0);
+  assert.equal(calls, 0);
+  assert.equal(context.CREW.resumePromise, null);
+});
+
+test('an ambiguous render manifest stays immutable until it is archived read-only', () => {
+  const production = {
+    id: 'run-ambiguous', status: 'needs_attention', expectedShotIds: ['shot-a'],
+    jobs: { 'shot-a': { id: '', status: 'failed', attempt: 0, error: 'response lost' } }
+  };
+  const context = {
+    console, Object, JSON, Date,
+    S: { production, productionHistory: [] },
+    CREW: { busy: '', calling: false, refreshPromise: null, assemblyPromise: null, resumePromise: null, pollTimer: null, pollOwner: '' },
+    productionState: () => context.S.production,
+    crewMutationLocked: () => false,
+    persistNow: () => true,
+    crewApplyMutationLock: () => {},
+    clearTimeout
+  };
+  vm.createContext(context);
+  vm.runInContext(`${bodyBetween('function crewCanonicalLocked', '/** A webview restart')}\n`
+    + 'globalThis.__lock=crewCanonicalLocked;globalThis.__archive=crewArchiveRenderForRevision;', context);
+  assert.equal(context.__lock(), true, 'a lost queue receipt can still represent accepted external work');
+  assert.equal(context.__archive(), true);
+  assert.equal(context.S.production, null, 'an archived manifest must not remain resumable');
+  assert.equal(context.S.productionHistory.length, 1);
+  assert.equal(context.S.productionHistory[0].jobs['shot-a'].attempt, 0);
+  assert.equal(context.S.productionHistory[0].renderManifestAbandonedAt, context.S.productionHistory[0].archivedAt);
+  assert.equal(context.__lock(), false);
+});
+
+test('Pause invalidates an already-fired render reconciliation and releases the UI lock', async () => {
+  const production = {
+    id: 'run-pause', status: 'rendering', pollEpoch: 0, expectedShotIds: ['shot-a'],
+    jobs: { 'shot-a': { id: 'job-a', status: 'running' } }
+  };
+  let releaseStatus;
+  let edits = 0;
+  let lockRefreshes = 0;
+  let roomRenders = 0;
+  const context = {
+    console, Object, Array, Map, Set, String, Number, Math, Date, AbortController,
+    CREW: { refreshPromise: null, reconcileCtrl: null },
+    productionState: () => production,
+    crewJobs: () => production.jobs,
+    allShots: () => [],
+    crewFetchJson: () => new Promise(resolve => { releaseStatus = resolve; }),
+    addTake: () => {},
+    crewMediaUrl: () => '',
+    productionCheckpoint: () => true,
+    crewFind: () => ({}),
+    crewEdit: async () => { edits++; },
+    crewRecord: async () => {},
+    crewApplyMutationLock: () => { lockRefreshes++; },
+    activeView: () => 'crew',
+    renderCrew: () => { roomRenders++; },
+    ...providerStubs()
+  };
+  const refresh = loadFunction('function crewStatusRows', 'function crewSchedulePoll', 'crewRefreshJobs', context);
+  const work = refresh();
+  production.pollEpoch += 1;
+  production.status = 'paused';
+  releaseStatus({ jobs: [{ id: 'job-a', status: 'done' }] });
+  const result = await work;
+  assert.equal(result.stale, true);
+  assert.equal(production.status, 'paused');
+  assert.equal(production.jobs['shot-a'].status, 'running');
+  assert.equal(edits, 0);
+  assert.equal(context.CREW.refreshPromise, null);
+  assert.ok(lockRefreshes > 0 && roomRenders > 0, 'settled stale work must visibly release Resume and navigation');
+});
+
+test('Pause aborts a direct Editor wait and ignores its late assembly result', async () => {
+  const production = {
+    id: 'run-editor-pause', status: 'needs_attention', pollEpoch: 0,
+    expectedShotIds: ['shot-a'], jobs: { 'shot-a': { id: 'job-a', status: 'done' } }
+  };
+  const context = {
+    console, Object, Array, String, Number, JSON, Date, Error, AbortController,
+    S: { title: 'Film', cut: null },
+    CREW: { assemblyPromise: null, reconcileCtrl: null },
+    productionState: () => production,
+    crewJobs: () => production.jobs,
+    allShots: () => [],
+    crewRefreshOwnerMatches: (runId, epoch) => production.id === runId && production.pollEpoch === epoch,
+    crewFetchJson: (_path, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+    }),
+    productionCheckpoint: () => true,
+    crewSchedulePoll: () => {},
+    productionStep: () => true,
+    crewApplyMutationLock: () => {},
+    activeView: () => 'projects',
+    renderCrew: () => {},
+    ...providerStubs()
+  };
+  const edit = loadFunction('async function crewEdit', '/** Run one department. */', 'crewEdit', context);
+  const work = edit({ id: 'editor' }, 'finish');
+  assert.ok(context.CREW.assemblyPromise);
+  assert.ok(context.CREW.reconcileCtrl);
+  production.pollEpoch += 1;
+  production.status = 'paused';
+  context.CREW.reconcileCtrl.abort();
+  const result = await work;
+  assert.equal(result.status, 'waiting');
+  assert.equal(context.S.cut, null);
+  assert.equal(production.status, 'paused');
+  assert.equal(context.CREW.assemblyPromise, null);
+  assert.equal(context.CREW.reconcileCtrl, null);
+});
+
+test('render admission fails closed when its pending attempt cannot be saved', async () => {
+  const production = { id: 'run-storage-full', status: 'running', jobs: {} };
+  const shots = [{ sc: { num: '1' }, sh: { id: 'shot-a', num: '1A', board:{frame:'frame-a'}, prompt: { text: 'A', seconds: 5 } } }];
+  let checkpoints = 0;
+  let externalCalls = 0;
+  const context = {
+    console, Date, String, Math, JSON, Error, Promise,
+    CREW: { cancel: false },
+    S: { title: 'Film' }, PL: { seconds: 5 },
+    allShots: () => shots,
+    productionState: () => production,
+    crewJobs: () => production.jobs,
+    boardOf: sh => sh.board,
+    pdFrameDataUrl: async () => 'data:image/png;base64,AA==',
+    crewJobId: value => value && value.id,
+    crewFetchJson: async () => { externalCalls++; return { ok: true, jobs: [{ id: 'should-not-exist' }] }; },
+    productionCheckpoint: () => ++checkpoints === 1,
+    crewSchedulePoll: () => {},
+    ...providerStubs()
+  };
+  const queue = loadFunction('async function crewVideo', 'function crewStatusRows', 'crewVideo', context);
+  await assert.rejects(queue({}, ''), /could not save the pending render attempt/i);
+  assert.equal(externalCalls, 0);
+  assert.equal(production.jobs['shot-a'].status, 'admitting');
+});
+
+test('a department result must be durable before provenance or later work continues', async () => {
+  const production = { id: 'run-durable-step', status: 'paused', steps: {} };
+  let checkpoints = 0;
+  let records = 0;
+  const role = { id: 'director', at: 'director', act: 'look:tone', blocked: false };
+  const context = {
+    console, Object, String, JSON, Date,
+    ACTIVE: { p: 'project-a', d: 'draft-a' },
+    CREW: { busy: '', calling: false, cancel: false, last: {} },
+    AI: { status: 'on' }, S: { title: 'Film' }, window: {},
+    crewFind: () => role,
+    canonicalWorkerLocked: () => false,
+    productionState: () => production,
+    crewApplyMutationLock: () => {}, activeView: () => 'projects', renderCrew: () => {}, toast: () => {},
+    aiConnect: async () => true,
+    tasteLoadSnapshot: async () => ({}),
+    productionStep: (id, status, out, error) => {
+      production.steps[id] = { status, out, error };
+      checkpoints++;
+      return checkpoints === 1;
+    },
+    crewLookJob: async () => 'look written', crewBibleJob: async () => '', crewImages: async () => '', crewVideo: async () => '',
+    crewArtifactForRole: () => null,
+    crewRecord: async () => { records++; }, crewEnsureCurrentProject: () => {}, productionCheckpoint: () => true,
+    uid: () => 'id'
+  };
+  const run = loadFunction('/** Run one department. */', '/** The whole crew, in order, on one idea. */', 'crewRun', context);
+  const result = await run('director', 'brief');
+  assert.equal(result.status, 'failed');
+  assert.match(result.out, /could not save @director/i);
+  assert.equal(records, 0, 'Greenroom must not claim an unsaved canonical result');
+  assert.equal(production.status, 'needs_attention');
+});
+
+test('an unproven Phosphene submission requires explicit durable authorization', () => {
+  const production = {
+    id: 'run-uncertain', status: 'needs_attention',
+    jobs: { 'shot-a': { id: '', status: 'failed', attempt: 0, code: 'PHOSPHENE_SUBMISSION_UNPROVEN' } }
+  };
+  const context = {
+    console, Object, JSON, Date,
+    productionState: () => production,
+    crewMutationLocked: () => false,
+    productionCheckpoint: () => true,
+    crewApplyMutationLock: () => {}, toast: () => {}
+  };
+  vm.createContext(context);
+  vm.runInContext(`${bodyBetween("const CREW_UNPROVEN_CODE", 'function crewMediaUrl')}\n`
+    + 'globalThis.__uncertain=crewUnprovenJobs;globalThis.__authorize=crewAuthorizeUnprovenAttempts;', context);
+  assert.equal(context.__uncertain(production).length, 1);
+  assert.equal(context.__authorize(), true);
+  assert.equal(production.jobs['shot-a'].retryAuthorized, true);
+  assert.ok(production.jobs['shot-a'].retryAuthorizedAt);
+  assert.equal(context.__uncertain(production).length, 0);
+});
+
+test('a manual department owns the draft before AI probing and consumes its own Stop', async () => {
+  const production = { id: 'run-manual', status: 'paused', steps: {} };
+  const connectResolvers = [];
+  let jobs = 0;
+  const role = { id: 'director', at: 'director', act: 'look:tone', blocked: false };
+  const context = {
+    console, Object, String, JSON, Date,
+    ACTIVE: { p: 'project-a', d: 'draft-a' },
+    CREW: { busy: '', calling: false, cancel: false, last: {} },
+    AI: { status: 'off' },
+    S: { title: 'Film' },
+    window: {},
+    canonicalWorkerLocked: () => false,
+    crewFind: () => role,
+    productionState: () => production,
+    crewApplyMutationLock: () => {},
+    activeView: () => 'projects',
+    renderCrew: () => {},
+    toast: () => {},
+    aiConnect: () => new Promise(resolve => { connectResolvers.push(resolve); }),
+    tasteLoadSnapshot: async () => ({}),
+    productionStep: (id, status, out, error) => { production.steps[id] = { status, out, error }; return true; },
+    crewLookJob: async () => { jobs++; return 'look'; },
+    crewArtifactForRole: () => null,
+    crewBibleJob: async () => '',
+    crewImages: async () => '',
+    crewVideo: async () => '',
+    crewRecord: async () => {},
+    crewEnsureCurrentProject: () => {},
+    productionCheckpoint: () => true,
+    uid: () => 'id'
+  };
+  const run = loadFunction('/** Run one department. */', '/** The whole crew, in order, on one idea. */', 'crewRun', context);
+
+  const first = run('director', 'A');
+  assert.equal(context.CREW.busy, 'director');
+  const duplicate = await run('director', 'duplicate');
+  assert.equal(duplicate.status, 'busy');
+  context.ACTIVE.d = 'draft-b';
+  while (!connectResolvers.length) await Promise.resolve();
+  connectResolvers.shift()(true);
+  assert.equal((await first).status, 'cancelled');
+  assert.equal(jobs, 0);
+  assert.equal(context.CREW.busy, '');
+
+  context.ACTIVE.d = 'draft-a';
+  const stopped = run('director', 'B');
+  while (!connectResolvers.length) await Promise.resolve();
+  context.CREW.cancel = true;
+  connectResolvers.shift()(true);
+  assert.equal((await stopped).status, 'cancelled');
+  assert.equal(context.CREW.cancel, false, 'manual Stop must not poison the next run');
+
+  context.AI.status = 'on';
+  const final = await run('director', 'C');
+  assert.equal(final.status, 'done');
+  assert.equal(jobs, 1);
+});
+
+test('a direct media department cannot leave its synthetic production permanently running', async () => {
+  let role = { id: 'stills', at: 'stills', act: 'image', blocked: false };
+  let serial = 0;
+  const context = {
+    console, Object, String, JSON, Date,
+    ACTIVE: { p: 'project-a', d: 'draft-a' },
+    CREW: { busy: '', calling: false, cancel: false, last: {} },
+    AI: { status: 'on' },
+    S: { title: 'Film', production: null },
+    window: { crewEdit: async () => { throw new Error('no cut manifest'); } },
+    canonicalWorkerLocked: () => false,
+    crewFind: () => role,
+    productionState: () => context.S.production,
+    crewApplyMutationLock: () => {},
+    activeView: () => 'projects',
+    renderCrew: () => {},
+    toast: () => {},
+    aiConnect: async () => true,
+    tasteLoadSnapshot: async () => ({}),
+    productionStep: (id, status, out, error) => {
+      const p = context.S.production;
+      if (!p) return true;
+      p.steps[id] = { status, out, error };
+      return true;
+    },
+    crewLookJob: async () => '',
+    crewArtifactForRole: () => null,
+    crewBibleJob: async () => '',
+    crewImages: async () => ({ status: 'skipped', text: 'still engine unavailable' }),
+    crewVideo: async () => '',
+    crewRecord: async () => {},
+    crewEnsureCurrentProject: () => {},
+    productionCheckpoint: () => true,
+    uid: () => `id-${++serial}`
+  };
+  const run = loadFunction('/** Run one department. */', '/** The whole crew, in order, on one idea. */', 'crewRun', context);
+
+  const stills = await run('stills', 'one frame');
+  assert.equal(stills.status, 'skipped');
+  assert.equal(context.S.production.status, 'paused');
+  assert.equal(context.CREW.busy, '');
+
+  context.S.production = null;
+  role = { id: 'editor', at: 'editor', act: 'run:crewEdit', blocked: false };
+  const editor = await run('editor', 'cut it');
+  assert.equal(editor.status, 'failed');
+  assert.equal(context.S.production.status, 'needs_attention');
+  assert.match(context.S.production.error, /no cut manifest/);
+  assert.equal(context.CREW.busy, '');
+});
+
+test('stopping an in-flight department cancels cleanly instead of becoming a false failure', async () => {
+  const production = { id: 'run-stop', status: 'running', steps: {}, brief: 'film' };
+  const messages = [];
+  const context = {
+    console,
+    CREW: { busy: '', calling: false, cancel: false },
+    CREW_PIPELINE: ['prompt_writer'],
+    crewReworkQueue: () => [],
+    crewPrepareRework: () => true,
+    productionState: () => production,
+    crewRun: async () => {
+      context.CREW.cancel = true;
+      return { ok: false, status: 'failed', out: 'AbortError' };
+    },
+    productionStep: (id, status, out, error) => { production.steps[id] = { status, out, error }; },
+    productionCheckpoint: () => {},
+    crewFind: () => ({ at: 'prompt-writer' }),
+    crewSchedulePoll: () => {},
+    crewApplyMutationLock: () => {},
+    activeView: () => 'crew',
+    renderCrew: () => {},
+    toast: value => messages.push(value)
+  };
+  const call = loadFunction('async function crewCall', 'async function crewStart', 'crewCall', context);
+  await call('film');
+  assert.equal(production.status, 'cancelled');
+  assert.equal(production.steps.prompt_writer.status, 'waiting');
+  assert.doesNotMatch(messages.join('\n'), /needs attention/i);
+
+  production.status = 'running';
+  production.steps = {};
+  context.crewRun = async () => {
+    production.steps.prompt_writer = { status: 'done', out: 'finished mutation' };
+    context.CREW.cancel = true;
+    return { ok: true, status: 'done', out: 'finished mutation' };
+  };
+  await call('film');
+  assert.equal(production.status, 'cancelled');
+  assert.equal(production.steps.prompt_writer.status, 'done', 'Stop during provenance must not rerun completed work');
+});
+
+test('a persisted running production becomes resumable after its webview restarts', () => {
+  const production = {
+    id: 'run-reload', status: 'running', currentStep: 'writer',
+    steps: { writer: { status: 'running', error: 'stale' } }
+  };
+  let saves = 0;
+  const context = {
+    console, Date,
+    CREW: { busy: '', calling: false },
+    productionState: () => production,
+    persistNow: () => { saves++; return true; }
+  };
+  const recover = loadFunction(
+    'function crewRecoverInterruptedProduction',
+    '/** Transfer the one poll owner',
+    'crewRecoverInterruptedProduction',
+    context
+  );
+  assert.equal(recover(), true);
+  assert.equal(production.status, 'paused');
+  assert.equal(production.currentStep, '');
+  assert.equal(production.steps.writer.status, 'waiting');
+  assert.equal(saves, 1);
+});
+
+test('a partial queue response persists the failed shot instead of dropping it from the film', async () => {
+  const production = { id: 'run-2', status: 'running', jobs: {} };
+  const shots = [
+    { sc: { num: '1' }, sh: { id: 'shot-a', num: '1A', board:{frame:'frame-a'}, prompt: { text: 'A', seconds: 5 } } },
+    { sc: { num: '1' }, sh: { id: 'shot-b', num: '1B', board:{frame:'frame-b'}, prompt: { text: 'B', seconds: 5 } } }
+  ];
+  let checkpoints = 0;
+  const context = {
+    console, Date, String, Math, JSON, Error, Promise,
+    CREW: { cancel: false },
+    S: { title: 'Film' }, PL: { seconds: 5 },
+    allShots: () => shots,
+    productionState: () => production,
+    crewJobs: () => production.jobs,
+    boardOf: sh => sh.board,
+    pdFrameDataUrl: async sh => 'data:image/png;base64,'+sh.id,
+    crewJobId: (value) => value && (value.id || value.job?.id),
+    crewFetchJson: async (_path, options) => {
+      const id = JSON.parse(options.body).shots[0].studioShotId;
+      return id === 'shot-a'
+        ? { ok: true, jobs: [{ studioShotId: id, id: 'job-a' }], errors: [] }
+        : { ok: false, jobs: [], errors: [{ studioShotId: id, error: 'bad prompt' }] };
+    },
+    productionCheckpoint: () => { checkpoints++; },
+    crewSchedulePoll: () => {},
+    ...providerStubs()
+  };
+  const queue = loadFunction('async function crewVideo', 'function crewStatusRows', 'crewVideo', context);
+  const result = await queue({}, '');
+  assert.equal(result.status, 'waiting');
+  assert.deepEqual(production.expectedShotIds, ['shot-a', 'shot-b']);
+  assert.equal(production.jobs['shot-a'].id, 'job-a');
+  assert.equal(production.jobs['shot-b'].status, 'failed');
+  assert.match(production.jobs['shot-b'].error, /bad prompt/);
+  assert.ok(checkpoints >= 3);
+});
+
+test('Stop during queue admission checkpoints accepted jobs and pauses before the next shot', async () => {
+  const production = { id: 'run-stop-queue', status: 'running', jobs: {} };
+  const shots = [
+    { sc: { num: '1' }, sh: { id: 'shot-a', num: '1A', board:{frame:'frame-a'}, prompt: { text: 'A', seconds: 5 } } },
+    { sc: { num: '1' }, sh: { id: 'shot-b', num: '1B', board:{frame:'frame-b'}, prompt: { text: 'B', seconds: 5 } } }
+  ];
+  let polls = 0;
+  const context = {
+    console, Date, String, Math, JSON, Error, Promise,
+    CREW: { cancel: false },
+    S: { title: 'Film' }, PL: { seconds: 5 },
+    allShots: () => shots,
+    productionState: () => production,
+    crewJobs: () => production.jobs,
+    boardOf: sh => sh.board,
+    pdFrameDataUrl: async sh => 'data:image/png;base64,'+sh.id,
+    crewJobId: value => value && (value.id || value.job?.id),
+    crewFetchJson: async (_path, options) => {
+      const spec = JSON.parse(options.body).shots[0];
+      context.CREW.cancel = true;
+      return { ok: true, jobs: [{ studioShotId: spec.studioShotId, id: 'job-a' }] };
+    },
+    productionCheckpoint: () => {},
+    crewSchedulePoll: () => { polls++; },
+    ...providerStubs()
+  };
+  const queue = loadFunction('async function crewVideo', 'function crewStatusRows', 'crewVideo', context);
+  const result = await queue({}, '');
+  assert.equal(result.status, 'waiting');
+  assert.equal(production.status, 'paused');
+  assert.equal(production.jobs['shot-a'].id, 'job-a');
+  assert.equal(production.jobs['shot-b'], undefined);
+  assert.deepEqual(production.expectedShotIds, ['shot-a', 'shot-b']);
+  assert.equal(polls, 0);
+});
+
+test('an ambiguous lost queue receipt reuses its attempt, while a known terminal job advances', async () => {
+  const production = {
+    id: 'run-retry', status: 'needs_attention',
+    jobs: { 'shot-a': { id: '', status: 'failed', attempt: 0, error: 'response lost' } }
+  };
+  const shots = [
+    { sc: { num: '1' }, sh: { id: 'shot-a', num: '1A', board:{frame:'frame-a'}, prompt: { text: 'A', seconds: 5 } } }
+  ];
+  const attempts = [];
+  let serial = 0;
+  const context = {
+    console, Date, String, Math, JSON, Error, Promise,
+    CREW: { cancel: false },
+    S: { title: 'Film' }, PL: { seconds: 5 },
+    allShots: () => shots,
+    productionState: () => production,
+    crewJobs: () => production.jobs,
+    boardOf: sh => sh.board,
+    pdFrameDataUrl: async sh => 'data:image/png;base64,'+sh.id,
+    crewJobId: value => value && (value.id || value.job?.id),
+    crewFetchJson: async (_path, options) => {
+      const spec = JSON.parse(options.body).shots[0];
+      attempts.push(spec.attempt);
+      serial += 1;
+      return { ok: true, jobs: [{ studioShotId: spec.studioShotId, attempt: spec.attempt, id: `job-${serial}` }] };
+    },
+    productionCheckpoint: () => {},
+    crewSchedulePoll: () => {},
+    ...providerStubs()
+  };
+  const queue = loadFunction('async function crewVideo', 'function crewStatusRows', 'crewVideo', context);
+
+  await queue({}, '');
+  assert.equal(attempts[0], 0, 'no-id failure must recover the original ledger receipt');
+
+  production.jobs['shot-a'] = { id: 'known-terminal', status: 'failed', attempt: 0, error: 'render failed' };
+  await queue({}, '');
+  assert.equal(attempts[1], 1, 'a real terminal job must create a fresh render attempt');
+
+  production.jobs['shot-a'] = { id: '', status: 'failed', attempt: 3, retryAuthorized: true };
+  await queue({}, '');
+  assert.equal(attempts[2], 4, 'explicit authorization must advance an otherwise unproven attempt');
+});

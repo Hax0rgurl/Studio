@@ -22,6 +22,55 @@
     return 'id' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   };
 
+  /* ---------- Studio shared-project bridge -------------------------
+     The standalone renderer still uses its original local project store.
+     Embedded Slate presents exactly one project: Studio's active project.
+     The public SlateApi stays intact; only its persistence adapter changes. */
+  var EMBEDDED = window.parent !== window;
+  var studioProject = null;
+  var studioWaiters = [];
+  var studioListeners = [];
+
+  function clone(value) {
+    if (typeof structuredClone === 'function') return structuredClone(value);
+    return JSON.parse(JSON.stringify(value));
+  }
+  function studioPost(type, project) {
+    if (!EMBEDDED) return;
+    window.parent.postMessage({
+      channel: 'studio-project-bridge', version: 1,
+      module: 'slate', type: type,
+      ...(project ? { project: project } : {})
+    }, '*');
+  }
+  function studioReady() {
+    if (studioProject) return Promise.resolve(clone(studioProject));
+    return new Promise(function (resolve) { studioWaiters.push(resolve); });
+  }
+  function studioMeta(project) {
+    var shots = (project.scenes || []).reduce(function (n, scene) { return n + ((scene.shots || []).length); }, 0);
+    return {
+      id: project.id, name: project.name, logline: project.logline || '',
+      path: 'studio://active-project/' + project.id,
+      updatedAt: project.updatedAt,
+      sceneCount: (project.scenes || []).length,
+      shotCount: shots
+    };
+  }
+  if (EMBEDDED) {
+    window.addEventListener('message', function (event) {
+      if (event.source !== window.parent) return;
+      var message = event.data || {};
+      if (message.channel !== 'studio-project-bridge' || message.version !== 1) return;
+      if (message.module !== 'slate' || message.type !== 'project' || !message.project) return;
+      studioProject = clone(message.project);
+      var waiting = studioWaiters.splice(0);
+      waiting.forEach(function (resolve) { resolve(clone(studioProject)); });
+      studioListeners.slice().forEach(function (cb) { try { cb(clone(studioProject)); } catch (e) {} });
+    });
+    studioPost('request');
+  }
+
   function readAll() {
     try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { return {}; }
   }
@@ -146,6 +195,7 @@
 
   var api = {
     listProjects: function () {
+      if (EMBEDDED) return studioReady().then(function (project) { return [studioMeta(project)]; });
       var all = readAll();
       var metas = Object.keys(all).map(function (id) {
         var p = all[id];
@@ -160,19 +210,38 @@
       return Promise.resolve(metas);
     },
     createProject: function (name) {
+      if (EMBEDDED) {
+        // The Studio shell, not a hosted module, owns project creation. If a
+        // user reaches Slate's Home screen and presses New, reopen the active
+        // shared project instead of replacing its screenplay with an empty one.
+        return studioReady();
+      }
       var all = readAll();
       var p = newProject(name);
       all[p.id] = p; writeAll(all); fire('projects');
       return Promise.resolve(p);
     },
-    openProject: function (id) { return Promise.resolve(readAll()[id] || null); },
+    openProject: function (id) {
+      if (EMBEDDED) return studioReady().then(function (project) { return project.id === id ? project : null; });
+      return Promise.resolve(readAll()[id] || null);
+    },
     saveProject: function (project) {
+      if (EMBEDDED) {
+        project.updatedAt = new Date().toISOString();
+        studioProject = clone(project);
+        studioPost('update', studioProject);
+        fire('projects');
+        return Promise.resolve();
+      }
       var all = readAll();
       project.updatedAt = new Date().toISOString();
       all[project.id] = project; writeAll(all); fire('projects');
       return Promise.resolve();
     },
     deleteProject: function (id) {
+      // Studio owns the active project's lifecycle. Closing/deleting inside
+      // the hosted Slate view must never silently delete the screenplay.
+      if (EMBEDDED) return Promise.resolve();
       var all = readAll(); delete all[id]; writeAll(all); fire('projects');
       return Promise.resolve();
     },
@@ -227,7 +296,17 @@
 
     onProjectsChanged: function (cb) { return subscribe('projects', cb); },
     onHelpOpen: function (cb) { return subscribe('help', cb); },
-    onAboutOpen: function (cb) { return subscribe('about', cb); }
+    onAboutOpen: function (cb) { return subscribe('about', cb); },
+
+    // Hosting-only hooks. The real renderer ignores these; the two-line hook
+    // in its compiled store uses them to open/refresh Studio's active project.
+    studioProject: function () { return EMBEDDED ? studioReady() : Promise.resolve(null); },
+    onStudioProject: function (cb) {
+      if (!EMBEDDED) return function () {};
+      studioListeners.push(cb);
+      if (studioProject) Promise.resolve().then(function () { cb(clone(studioProject)); });
+      return function () { studioListeners = studioListeners.filter(function (x) { return x !== cb; }); };
+    }
   };
 
   window.slate = api;

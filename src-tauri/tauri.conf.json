@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Studio",
-  "version": "0.1.0",
-  "identifier": "com.wasserman.studio",
+  "productName": "Agentic Movie Studio",
+  "version": "0.3.0",
+  "identifier": "com.abandonedmuse.agenticmoviestudio",
   "build": {
     "frontendDist": "../src",
     "beforeBuildCommand": ""
@@ -11,7 +11,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Studio",
+        "title": "Agentic Movie Studio",
         "width": 1500,
         "height": 900,
         "minWidth": 900,
@@ -37,11 +37,12 @@
     "fileAssociations": [
       {
         "ext": [
+          "ams",
           "studio",
           "scriptbreak"
         ],
-        "name": "Studio Project",
-        "description": "Studio production project",
+        "name": "Agentic Movie Studio Project",
+        "description": "Agentic Movie Studio production project",
         "role": "Editor",
         "mimeType": "application/json"
       }

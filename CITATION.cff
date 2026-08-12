@@ -1,30 +1,23 @@
 cff-version: 1.2.0
-message: "If you use ScriptBreak in your work or research, please cite it as below."
-title: "ScriptBreak"
+message: "If you use Agentic Movie Studio in your work or research, please cite this software."
+title: "Agentic Movie Studio"
 type: software
 authors:
-  - family-names: "Wasserman"
-    given-names: "Sam"
-    website: "https://wassermanproductions.com"
-version: "1.0.0"
-date-released: "2026-07-18"
-url: "https://wassermanproductions.com"
-repository-code: "https://github.com/wassermanproductions/scriptbreak"
+  - name: "Abandoned Muse"
+version: "0.3.0"
+date-released: "2026-08-11"
 license: Apache-2.0
 keywords:
+  - agentic-filmmaking
   - screenwriting
-  - filmmaking
   - screenplay-breakdown
+  - storyboards
   - shot-list
-  - previsualization
+  - local-ai
   - ai-video
-  - prompt-engineering
-  - final-draft
-  - fountain
+  - previsualization
 abstract: >-
-  ScriptBreak is a local-first screenplay breakdown studio in the Wasserman
-  Filmmaker Suite. It parses Final Draft, Fountain, and PDF screenplays into
-  scene breakdowns with exact page counts, auto-tagged elements, character
-  and location bibles, shot lists, and a visual timeline, then exports
-  self-executing AI prompt packs usable with any LLM and any video or image
-  generator — with no API keys, accounts, or server.
+  Agentic Movie Studio is a local-first macOS filmmaking application that
+  coordinates a role-based local-model crew across screenplay development,
+  breakdown, continuity bibles, shot planning, prompts, storyboard stills,
+  image-to-video rendering, take review, and final movie assembly.

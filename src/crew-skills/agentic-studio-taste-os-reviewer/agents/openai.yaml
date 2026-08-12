@@ -1,0 +1,4 @@
+interface:
+  display_name: "TasteOS Reviewer"
+  short_description: "Operating manual for this Studio crew agent"
+  default_prompt: "Use $agentic-studio-taste-os-reviewer to perform this department's Studio work."

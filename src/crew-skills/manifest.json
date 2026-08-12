@@ -1,0 +1,30 @@
+{
+  "schema": "agentic-movie-studio/crew-skills@1",
+  "version": "1.1.0",
+  "constitution": "STUDIO-CONSTITUTION.md",
+  "sources": "RESEARCH-SOURCES.md",
+  "roles": {
+    "director": "agentic-studio-director",
+    "story_editor": "agentic-studio-story-editor",
+    "writer": "agentic-studio-screenwriter",
+    "script_supervisor": "agentic-studio-script-supervisor",
+    "taste": "agentic-studio-taste-os-reviewer",
+    "first_ad": "agentic-studio-first-ad",
+    "dp": "agentic-studio-dp",
+    "camera_operator": "agentic-studio-camera-operator",
+    "gaffer": "agentic-studio-gaffer",
+    "key_grip": "agentic-studio-key-grip",
+    "production_designer": "agentic-studio-production-designer",
+    "location_scout": "agentic-studio-location-scout",
+    "prop_master": "agentic-studio-prop-master",
+    "costume_designer": "agentic-studio-costume-designer",
+    "casting_director": "agentic-studio-casting-director",
+    "colorist": "agentic-studio-colorist",
+    "prompt_writer": "agentic-studio-video-prompt-writer",
+    "stills_prompt": "agentic-studio-stills-prompt-writer",
+    "stills": "agentic-studio-stills-photographer",
+    "second_unit": "agentic-studio-second-unit",
+    "composer": "agentic-studio-composer",
+    "editor": "agentic-studio-editor"
+  }
+}

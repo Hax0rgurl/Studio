@@ -1,122 +1,53 @@
-# scriptbreak-mcp
+# Agentic Movie Studio MCP
 
-Headless MCP (Model Context Protocol) server for **[ScriptBreak](https://github.com/wassermanproductions/scriptbreak)** — the local-first screenplay breakdown app. With this server connected, an AI agent can read a ScriptBreak breakdown and export its prompt packs **without opening the desktop app** — it works directly on a saved `.scriptbreak` project file on disk.
+This zero-dependency MCP server lets an agent read a portable Agentic Movie Studio project without opening the desktop app. It exposes the screenplay breakdown, scenes, elements, bibles, shot list, prompt packs, draft shooting schedule, and cast Day Out of Days.
 
-An agent can pull the breakdown summary, list and read scenes, filter elements by category, read the character and location bibles, get the shot list, reproduce ScriptBreak's own AI prompt packs (video, stills, coverage consult, script companion) for any scene range, page range, or structured filter — the same markdown the app writes — and generate a draft shooting schedule and cast Day Out of Days.
+## Project files
 
-Zero dependencies. Node ≥ 18. One file.
+Save a portable `.ams` project from Agentic Movie Studio and pass its absolute path as `projectPath` or through `AGENTIC_MOVIE_STUDIO_PROJECT`.
 
-## What it operates on
-
-ScriptBreak keeps its live project library in the app's local storage; the portable, on-disk artifact is the **`.scriptbreak`** file the app writes with **Save project**. That file is the app's `serialize()` output:
-
-```
-{ app: "scriptbreak", version: 2, saved: "…", project: "…", draft: "…", state: { … } }
-```
-
-where `state` holds the breakdown: `title`, `scriptName`, `scenes[]` (each with slugline, INT/EXT, location, time of day, page length in 1/8ths, characters, tagged `elements` by category, and a `shots[]` list), the `bibles` (`characters`, `locations`, `props`), the PROJECT `look`, and an optional `styleGuide`. ScriptBreak's parser produces the breakdown inside the app, so this server reads an **already-saved** project — it does not re-parse raw screenplays. This server never writes; it only reads.
-
-The project file is resolved in this order:
-
-1. the `projectPath` argument on a tool call, if given;
-2. the `SCRIPTBREAK_PROJECT` environment variable;
-3. the default app-data location — `~/Library/Application Support/com.wasserman.scriptbreak/project.scriptbreak` on macOS (`%APPDATA%\com.wasserman.scriptbreak\…` on Windows, `$XDG_CONFIG_HOME/com.wasserman.scriptbreak/…` on Linux).
-
-Because ScriptBreak persists to local storage rather than a fixed file, you will normally point this server at a `.scriptbreak` file you exported with **Save project** — via `projectPath` or `SCRIPTBREAK_PROJECT`.
-
-## Requirements
-
-- **Node ≥ 18.** No build step, no `npm install` — the server uses only Node built-ins.
-- A saved ScriptBreak project (`.scriptbreak`) file. Make one in the app with **Save project**.
-
-## Connect
-
-### Claude Code
-
-```bash
-claude mcp add scriptbreak \
-  --env SCRIPTBREAK_PROJECT=/absolute/path/to/your/project.scriptbreak \
-  -- node /absolute/path/to/scriptbreak/mcp/scriptbreak-mcp.mjs
-```
-
-### Codex
-
-Add to your Codex MCP config (`~/.codex/config.toml`):
-
-```toml
-[mcp_servers.scriptbreak]
-command = "node"
-args = ["/absolute/path/to/scriptbreak/mcp/scriptbreak-mcp.mjs"]
-env = { SCRIPTBREAK_PROJECT = "/absolute/path/to/your/project.scriptbreak" }
-```
-
-### Hermes
-
-Add to `~/.hermes/config.yaml`:
-
-```yaml
-mcp_servers:
-  scriptbreak:
-    command: "node"
-    args: ["/absolute/path/to/scriptbreak/mcp/scriptbreak-mcp.mjs"]
-    env:
-      SCRIPTBREAK_PROJECT: "/absolute/path/to/your/project.scriptbreak"
-```
-
-### Any MCP client (generic stdio config)
+For compatibility, the reader also accepts `SCRIPTBREAK_PROJECT` and legacy `.studio` or `.scriptbreak` exports. It never writes to the project and does not open network connections.
 
 ```json
 {
   "mcpServers": {
-    "scriptbreak": {
+    "agentic-movie-studio": {
       "command": "node",
-      "args": ["/absolute/path/to/scriptbreak/mcp/scriptbreak-mcp.mjs"],
-      "env": { "SCRIPTBREAK_PROJECT": "/absolute/path/to/your/project.scriptbreak" }
+      "args": ["/absolute/path/to/Agentic Movie Studio/mcp/scriptbreak-mcp.mjs"],
+      "env": {
+        "AGENTIC_MOVIE_STUDIO_PROJECT": "/absolute/path/to/movie.ams"
+      }
     }
   }
 }
 ```
 
-## Tools (11)
+Node 18 or newer is required. There is no build step or dependency install.
 
-Call **`get_breakdown` first** — its response explains the data conventions (scenes, elements by category, page counts in 1/8ths, bibles, generators).
+## Tools
 
-| Tool | What it does |
-| --- | --- |
-| `get_breakdown` | Read the project and summarize title, page count, scene/INT-EXT/day-night tallies, unique characters & locations, element totals by category, shot count, bible sizes, filled PROJECT LOOK fields, and the supported generators. Start here. |
-| `list_scenes` | List scenes with number, slugline, INT/EXT, location, time of day, page length, characters, shot count, and element count. Filterable by scene range, page range, INT/EXT, day/night, character, or location. |
-| `get_scene` | Full detail of one scene by number: slugline + parsed parts, page length, synopsis, script text, characters, tagged elements by category, and the full shot list. |
-| `list_elements` | Tagged production elements, with the scene numbers each appears in. Optionally scoped to one category (props, wardrobe, vehicles, vfx, …). |
-| `get_character_bible` | The character bible — canonical descriptions (all, or one by name). |
-| `get_location_bible` | The location bible — canonical descriptions (all, or one by name). |
-| `get_shot_list` | The shot list grouped by scene (size, angle, movement, lens, description). Optionally scoped. |
-| `list_generators` | The prompt-pack targets: video (Veo 3, Runway, Kling, ComfyUI, Wan 2.2, LTX 2.3, Seedance), stills (GPT Image 2, Nano Banana Pro, Krea 2, Seedream, Midjourney), plus coverage consult and script companion. |
-| `export_prompt_pack` | Reproduce ScriptBreak's own prompt pack as markdown for a chosen `generator` and scope — the video/stills pack (PROJECT LOOK + bibles + per-generator platform style guide + scene-by-scene shots), the coverage consult, or the script companion. |
-| `get_schedule` | Reproduce ScriptBreak's suggested **shooting schedule** (draft stripboard): scenes grouped into synthetic shoot days by location → day/night → int/ext under a page budget (`pagesPerDay`, default 5). Returns the ordered day list (location, I/E, D/N, scenes, page eighths, cast IDs) plus a byte-identical `csv`. |
-| `get_day_out_of_days` | Reproduce ScriptBreak's cast **Day Out of Days** grid from that schedule — one row per cast member, one column per shoot day, standard codes (SW/W/WF/SWF/H) and Work/Hold/Total counts, plus a byte-identical `csv`. |
+- `get_breakdown`
+- `list_scenes`
+- `get_scene`
+- `list_elements`
+- `get_character_bible`
+- `get_location_bible`
+- `get_shot_list`
+- `list_generators`
+- `export_prompt_pack`
+- `get_schedule`
+- `get_day_out_of_days`
 
-> ⚠️ `get_schedule` / `get_day_out_of_days` are a **draft**. Cast presence is inferred from **dialogue cues only**, so silent/background cast are not detected and the DOOD under-reports who's needed; page counts may be estimated; and no cast/location availability, company moves, or turnaround are modelled. Every response includes a `caveat` field saying so. Treat it as a starting point for a 1st AD, not a locked schedule.
+Call `get_breakdown` first to see the project conventions and available generators.
 
-### Scope selectors
+## Two different MCP directions
 
-`list_scenes`, `get_shot_list`, `export_prompt_pack`, `get_schedule`, and `get_day_out_of_days` accept the same scope selectors as ScriptBreak's export scope bar:
+This folder is the **outbound Agentic Movie Studio server**: other MCP clients can read a saved movie project. It is intentionally read-only.
 
-- `scope: "all"` (default) — every scene.
-- `scope: "scenes"` + `sceneRange: "1-20, 34, 50A"` — a scene-number range/list.
-- `scope: "pages"` + `pageRange: "1-12"` — a page range.
-- `scope: "shots"` — only scenes that have a shot list.
-- `scope: "filter"` + any of `int`, `ext`, `day`, `night`, `character`, `location` — the breakdown's **structured** filters. (The app's free-text search box is a live-UI concept and is not reproduced here; `character`/`location` match exactly. With no criteria set, `filter` returns all scenes.)
+The desktop app's planned **inbound connector host** is a different component. It will let the filmmaker add trusted stdio or Streamable HTTP MCP servers, inspect their declared tools, and explicitly bind a tool to a Studio capability such as still generation or video generation. A connector can advertise image, video, both, or neither; Studio keeps its image and video selections independent.
 
-(Passing `sceneRange` / `pageRange` / a filter without `scope` implies the matching scope.)
+Inbound tools will not receive direct write access to the canonical project. Their results must return through the same schema validation, durable job receipt, billing confirmation, human review, canon, and TasteOS gates as a REST or local-engine provider. Credentials will remain in native secret storage or the stdio environment—not in `.ams` files or browser localStorage. The accepted architecture and honest implementation status are in [`../docs/decisions/0001-extensible-media-providers-and-mcp.md`](../docs/decisions/0001-extensible-media-providers-and-mcp.md).
 
-The prompt-pack markdown — header, PROJECT LOOK block, character/location/prop bibles, the per-generator platform style guide, and the scene-by-scene shot listing — is generated from the same templates and per-generator dialects ScriptBreak uses internally, so packs produced here match the app's exports byte-for-byte for `all` / scene / page scopes (the `filter` scope reproduces the structured toggles only, and the header's generation-date line is naturally locale- and day-dependent).
+## License
 
-A typical agent session: `get_breakdown` → `list_scenes` (with a filter) → `get_scene` for the beats that matter → `export_prompt_pack` with a video or stills generator over a scene range → hand the markdown to your generator.
-
-## Security
-
-This server only reads the local filesystem: it reads the `.scriptbreak` project JSON you point it at and never writes to it. It opens no network connections and exposes nothing off-machine. Point it only at project paths you trust.
-
-## License & credit
-
-Apache-2.0 — see the repository [LICENSE](../LICENSE). Created by **Sam Wasserman ([wassermanproductions.com](https://wassermanproductions.com))**. Please keep the attribution in uses, forks, and redistributions.
+Apache-2.0. See the repository `LICENSE` and `NOTICE` files. The main README contains the acknowledgment and original-foundation link.

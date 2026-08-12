@@ -1,0 +1,4 @@
+interface:
+  display_name: "agentic-studio-costume-designer"
+  short_description: "Operating manual for this Studio crew agent"
+  default_prompt: "Use $agentic-studio-costume-designer to perform this department's Studio work."

@@ -7851,6 +7851,44 @@ var useProject = create((set, get) => ({
 		});
 	}
 }));
+/* Studio host adapter: keep Slate's real Zustand store and UI, but open the
+   active Studio project delivered by slate-shim instead of a private project. */
+if (window.slate?.onStudioProject) {
+	let pendingStudioProject = null;
+	let retryStudioProject = null;
+	const adoptStudioProject = (project) => {
+		if (!project) return;
+		const current = useProject.getState();
+		if (current.dirty) {
+			pendingStudioProject = project;
+			if (!retryStudioProject) retryStudioProject = setTimeout(() => {
+				retryStudioProject = null;
+				const pending = pendingStudioProject;
+				pendingStudioProject = null;
+				adoptStudioProject(pending);
+			}, 650);
+			return;
+		}
+		const oldSceneId = current.sceneId;
+		const oldShotId = current.shotId;
+		const firstScene = project.scenes[0] ?? null;
+		const scene = project.scenes.find((item) => item.id === oldSceneId) ?? firstScene;
+		const shot = scene?.shots.find((item) => item.id === oldShotId) ?? scene?.shots[0] ?? null;
+		const shotCount = project.scenes.reduce((n, item) => n + item.shots.length, 0);
+		useProject.setState({
+			project,
+			sceneId: scene?.id ?? null,
+			shotId: shot?.id ?? null,
+			metas: [{
+				id: project.id, name: project.name, logline: project.logline || "",
+				path: `studio://active-project/${project.id}`, updatedAt: project.updatedAt,
+				sceneCount: project.scenes.length, shotCount
+			}],
+			dirty: false
+		});
+	};
+	window.slate.onStudioProject(adoptStudioProject);
+}
 //#endregion
 //#region node_modules/react/cjs/react-jsx-runtime.production.min.js
 /**
@@ -34179,35 +34217,9 @@ function HelpModal({ onClose }) {
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: section.title }), section.body]
 					}, section.id)]
 				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 					className: "help-foot",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-						"Created by ",
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "Sam Wasserman" }),
-						" ·",
-						" ",
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
-							href: "https://wassermanproductions.com",
-							target: "_blank",
-							rel: "noreferrer",
-							children: "wassermanproductions.com"
-						}),
-						" ",
-						"·",
-						" ",
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
-							href: "https://wasserman.ai",
-							target: "_blank",
-							rel: "noreferrer",
-							children: "wasserman.ai"
-						})
-					] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
-						className: "btn btn-sm btn-key",
-						href: "https://ko-fi.com/samwasserman",
-						target: "_blank",
-						rel: "noreferrer",
-						children: "♥ Support on Ko-fi"
-					})]
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Part of Agentic Movie Studio · Apache-2.0" })
 				})
 			]
 		})
@@ -34223,7 +34235,7 @@ var APP_VERSION = {
 	version: "0.3.2",
 	description: "Slate — the prompt studio for AI filmmaking. Plan shots, direct coverage, keep continuity, and compile production-ready prompts for any image or video generator.",
 	main: "out/main/index.js",
-	author: "Sam Wasserman",
+	author: "Agentic Movie Studio contributors",
 	license: "Apache-2.0",
 	"private": true,
 	scripts: {
@@ -34284,45 +34296,22 @@ function AboutModal({ onClose }) {
 						children: [
 							"Version ",
 							APP_VERSION,
-							" · Apache-2.0 · Created by Sam Wasserman",
+							" · Apache-2.0 · Agentic Movie Studio",
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("br", {}),
-							"Brain: your Claude Code or Codex sign-in, or a local model — no API keys.",
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("br", {}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
-								href: "https://wassermanproductions.com",
-								target: "_blank",
-								rel: "noreferrer",
-								children: "wassermanproductions.com"
-							}),
-							" ",
-							"·",
-							" ",
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
-								href: "https://wasserman.ai",
-								target: "_blank",
-								rel: "noreferrer",
-								children: "wasserman.ai"
-							})
+							"Brain: the model you choose in Agentic Movie Studio Settings."
 						]
 					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						style: {
 							display: "flex",
 							gap: 8,
 							justifyContent: "center"
 						},
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
-							className: "btn btn-key",
-							href: "https://ko-fi.com/samwasserman",
-							target: "_blank",
-							rel: "noreferrer",
-							style: { textDecoration: "none" },
-							children: "♥ Support on Ko-fi"
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							className: "btn",
 							onClick: onClose,
 							children: "Close"
-						})]
+						})
 					})
 				]
 			})

@@ -1,0 +1,4 @@
+interface:
+  display_name: "agentic-studio-script-supervisor"
+  short_description: "Operating manual for this Studio crew agent"
+  default_prompt: "Use $agentic-studio-script-supervisor to perform this department's Studio work."

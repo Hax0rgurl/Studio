@@ -1,282 +1,103 @@
-<p align="center"><img src="assets/logo.png" alt="ScriptBreak" width="560"></p>
+# Agentic Movie Studio
 
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License: Apache 2.0"></a>
-  <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/wassermanproductions/scriptbreak?include_prereleases&label=download" alt="Latest release"></a>
-  <img src="https://img.shields.io/badge/platforms-macOS%20·%20Windows%20·%20Linux-2f7bf6" alt="Platforms">
-  <a href="https://ko-fi.com/samwasserman"><img src="https://img.shields.io/badge/Ko--fi-support%20Sam%20Wasserman-ff5e5b?logo=kofi&logoColor=white" alt="Support Sam Wasserman on Ko-fi"></a>
-</p>
+Agentic Movie Studio is a local-first macOS filmmaking system that can take an idea or an existing screenplay through breakdown, visual development, shot planning, prompt writing, storyboard generation, video rendering, review, and final assembly.
 
-# ScriptBreak
+It is being rebuilt and expanded by **Abandoned Muse** as one connected application rather than a loose collection of tools.
 
-A screenplay breakdown app that doesn't phone home. Load a script, get a full
-breakdown — scenes, characters, locations, props, shot lists — and export
-prompt packs that turn any LLM into your assistant director. No API keys, no
-accounts, no cloud — it runs entirely on your machine.
+## What it does
 
-**Created by [Sam Wasserman](https://wassermanproductions.com)** —
-writer/director, [Wasserman Productions](https://wassermanproductions.com) ·
-[wasserman.ai](https://wasserman.ai).
+- Builds or imports a screenplay and keeps every revision in a local project library.
+- Breaks scenes into cast, locations, props, continuity bibles, and planned shots.
+- Runs a role-based movie crew with a user-selectable local Ollama model.
+- Loads a researched, versioned skill book for every crew agent and lets the filmmaker inspect the exact manual in the Crew room.
+- Maintains a single canonical project across Cards, Script, Boards, Slate, Prompts, and Takes.
+- Generates storyboard stills through an independently selected image provider and preserves provider/model provenance on the exact shot.
+- Sends the approved storyboard still plus its authored motion prompt to an independently selected video provider; Phosphene is the built-in local option, not a hard-coded ceiling.
+- Polls real render jobs and returns the completed clip to the same storyboard card.
+- Displays the film shot-by-shot in the Storyboard Movie grid.
+- Persists render and assembly receipts so interrupted productions can resume safely.
+- Assembles completed shots into an ordered movie through the local PitchDeck bridge.
 
-> ☕ **A little support goes a long way!** ScriptBreak is created and
-> maintained by **Sam Wasserman**. If you'd like to help Sam keep creating
-> tools for filmmakers, you can support him at
-> **[ko-fi.com/samwasserman](https://ko-fi.com/samwasserman)**.
-> Donations are optional — but extremely helpful and appreciated.
+## Settings
 
-Part of the [**Wasserman Filmmaker Suite**](https://github.com/wassermanproductions/wassermans-filmmaker-suite), alongside [Blockout](https://github.com/wassermanproductions/blockout),
-[Motion Previs Studio](https://github.com/wassermanproductions/motion-previs-studio),
-[Master Canvas](https://github.com/wassermanproductions/master-canvas),
-[Storyboard Reference Studio](https://github.com/wassermanproductions/storyboard-reference-studio), and
-[DaVinci MCP](https://github.com/wassermanproductions/unofficial-davinci-mcp).
+The gear in the top bar opens the one app-wide Settings center. It controls the text-model server and freely selectable model ID, temperature/context, separate storyboard-photo and video providers/models, local service addresses, workflow defaults, and every configuration field declared by an installed trusted media adapter. The same provider state drives the Make a Film dropdowns; there is no second hidden copy.
 
-## ⬇ Download
+Model IDs are discovered from the configured Ollama/OpenAI-compatible server and may also be typed directly. Agentic Movie Studio does not compile a preferred model name into the application. Provider secrets are sent only to the loopback PitchDeck gateway, stored in its private settings file, and never returned to the browser or written into an `.ams` project.
 
-**macOS — paste one line, done.** Open Terminal (⌘-Space, type "Terminal")
-and paste:
+## Review and TasteOS
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/wassermanproductions/scriptbreak/master/install.sh | bash
-```
+Every department saves its actual canonical artifact into the Client Room. The filmmaker can inspect that work in its native page while production continues, give direction, Keep/Circle/Flag/Revise/Kill an artifact, and queue focused rework. Storyboard prompts receive an independent script-supervisor craft/continuity verdict and a TasteOS verdict before an image provider can be called. Automated video submission requires the real reviewed storyboard photo; it does not silently fall back to text-to-video.
 
-It detects your Mac (Apple Silicon or Intel), downloads the latest build,
-installs it to Applications, and opens it — no warnings, nothing else to do.
-([The script](install.sh) is ~30 lines, read it if you like.)
+TasteOS is a native, revisioned learning control plane rather than a hidden score. It stores exact human evidence, an editable weighted rubric, scoped learned rules, confidence, locks, and revision history. One reaction stays project-scoped; repeated evidence may promote a rule. Pending changes expose their exact wording, dimension, departments, scope, and lock state for explicit approval or dismissal.
 
-**Windows & Linux — [download the latest release →](../../releases/latest)**
+Its **Evaluation Lab** records durable model-work receipts and can replay one completed department workload against any model ID the filmmaker selects on the connected local server. Objective checks and side-by-side outputs are shown before the filmmaker scores both results with the TasteOS rubric. A candidate can be recommended for future work only after that human review; comparisons never switch the current model, provider, API, or film. This adapts the useful evaluation loop from NVIDIA's Data Flywheel work without installing its server/GPU stack or treating terminal-agent data as creative taste. See the [TasteOS decision](docs/decisions/0002-taste-os-learning-control-plane.md) and [local evaluation flywheel decision](docs/decisions/0003-local-evaluation-flywheel.md).
 
-| Platform | File to grab | After downloading |
-|---|---|---|
-| Windows | `.msi` or `-setup.exe` | If SmartScreen appears, click **More info → Run anyway**. |
-| Linux | `.AppImage`, `.deb`, or `.rpm` | For the AppImage: `chmod +x ScriptBreak_*.AppImage`, then run it. |
+## Local production services
 
-<details>
-<summary><b>Prefer downloading the macOS DMG by hand?</b></summary>
+Agentic Movie Studio coordinates four loopback-only services:
 
-Grab `ScriptBreak_x.x.x_aarch64.dmg` (Apple Silicon M1–M4) or
-`ScriptBreak_x.x.x_x64.dmg` (Intel) from the
-[Releases](../../releases/latest) page and drag **ScriptBreak** into
-**Applications**. Because browser downloads of unsigned apps are quarantined,
-macOS will falsely claim the app is "damaged" — paste this into Terminal once
-and it opens normally from then on:
+- **Ollama** — user-selectable local language and vision models.
+- **Greenroom** — stable crew identities and production provenance.
+- **PitchDeck** — the provider registry, media bridge, render receipts, status recovery, and assembly.
+- **Phosphene** — the built-in local image-to-video and text-to-video provider.
 
-```bash
-xattr -cr /Applications/ScriptBreak.app
-```
+The application has no hosted account, analytics service, or required cloud model API. Optional trusted adapters can add local engines, paid APIs, or adapter-managed MCP-backed image/video tools; image and video providers are selected separately, model IDs remain user-controlled, and paid calls require explicit approval. Installed adapters expose their endpoint and credential fields in Settings. A universal native MCP discovery/OAuth host and graphical package installer are explicitly not yet turnkey. See the [media-provider and MCP decision](docs/decisions/0001-extensible-media-providers-and-mcp.md).
 
-(The install script above avoids this entirely — Terminal downloads aren't
-quarantined.)
-</details>
+## Crew skill books
 
-## Screenshots
+The 22 agent manuals live in [`src/crew-skills`](src/crew-skills). Each book defines the role's authority, required inputs, canonical fields, forbidden changes, procedure, output contract, validation, repair rules, client-room update, and handoff. A shared Studio Constitution makes human direction, durable checkpoints, stable IDs, and real artifact verification binding across departments.
 
-**Scene breakdown** — import a script, get scene cards with exact page
-counts, cast, day/night, and auto-tagged elements:
+`scripts/build-crew-skill-registry.mjs` compiles those readable Markdown files into the local runtime registry. Tests fail if a roster role has no book or if the runtime copy drifts from the authored file.
 
-![Scene breakdown](docs/screenshots/scenes.png)
+The screenwriter uses schema-constrained structured scene data for new idea-mode scripts. Fountain remains available only as a human-facing import/export compatibility format; an existing screenplay is never rewritten merely to fit a target duration.
 
-**Scene detail & tagging** — script text beside the breakdown; click
-auto-detected suggestions or select any words in the text to tag them:
+## Project files
 
-![Scene detail and tagging](docs/screenshots/scene-detail.png)
+New portable projects use the `.ams` extension. Older `.studio` and `.scriptbreak` project files remain readable for compatibility.
 
-**Shot lists** — starter coverage per scene, including every shot the writer
-explicitly called in the script (`[script]`), all fully editable:
+## Build on macOS
 
-![Shot list](docs/screenshots/shot-list.png)
+Requirements:
 
-**Timeline** — the whole film on one strip with character-presence lanes;
-color by location, day/night, int/ext, or character:
+- Apple Silicon macOS
+- Rust stable
+- The dependencies already locked in `src-tauri/Cargo.lock`
 
-![Timeline](docs/screenshots/timeline.png)
-
-**Bibles** — character, location, and hero-prop descriptions seeded from the
-script itself, injected into every AI prompt for consistency:
-
-![Bibles](docs/screenshots/bibles.png)
-
-**Project Look & style guides** — 13 fields of visual DNA; drop in a mood
-book or pitch deck PDF and its framing/camera/lighting notes flow in:
-
-![Project look](docs/screenshots/look.png)
-
-**Exports** — scoped prompt packs, coverage consults, breakdown sheets,
-CSVs, or everything at once as a zip:
-
-![Exports](docs/screenshots/export.png)
-
-**Self-executing prompt packs** — paste into any LLM, no API keys:
-
-![Prompt pack](docs/screenshots/prompt-pack.png)
-
-## Features
-
-- **Script breakdown** — parse `.fountain`, `.fdx` (Final Draft), `.pdf`, or
-  plain `.txt` screenplays into scenes, sluglines, and a full element
-  breakdown. FDX imports use Final Draft's own embedded scene lengths for
-  exact page counts; PDF parsing (fully offline — the PDF engine is embedded)
-  reconstructs the screenplay from page layout.
-- **Auto-breakdown on import** — elements (props, wardrobe, vehicles, VFX,
-  background…) tagged from word lists *and* from the CAPS the writer used in
-  action lines; character/location bibles seeded from actual intro
-  descriptions in the script; starter shot lists that include every shot the
-  writer explicitly called (CLOSE ON, INSERT, POV…); look suggestions from
-  script analysis. All of it editable, all of it clearable.
-- **Projects & drafts** — a local library of projects, multiple drafts per
-  project, and draft comparison (scenes added / cut / rewritten, page deltas,
-  cast changes).
-- **Style guide ingestion** — drop in a mood book or pitch deck PDF and its
-  framing / camera / lighting / music / theme notes flow into the Look and
-  ride inside every AI export as a binding style guide.
-- **Timeline** — the whole film on one strip, scene widths proportional to
-  page length, colored by location or day/night, with character-presence
-  lanes.
-- **Prompt-pack exports** — self-executing `.md` files that carry their own
-  instructions, with per-platform dialects for video (Veo, Runway, Kling,
-  ComfyUI/Wan, LTX, Seedance) and stills (GPT Image, Nano Banana, Krea,
-  Seedream, Midjourney). Paste one into ChatGPT, Claude, Gemini, a local
-  model — no integration needed. Scope any export to scene ranges, page
-  ranges, or your current filters, or download everything as one zip bundle.
-- **Shooting schedule & Day Out of Days** — a draft stripboard that groups
-  scenes into shoot days by location, day/night, and int/ext under a
-  pages-per-day budget, plus the standard cast **Day Out of Days** grid
-  (Start / Work / Hold / Finish per shoot day). Print/PDF or CSV. It's a
-  starting point for your 1st AD — cast presence is read from dialogue, so
-  silent/background cast aren't detected; verify before scheduling.
-- **Zero setup** — no server, no database, no account. Install the app, load a script, and go.
-
-## Why no API keys
-
-Most "AI-powered" tools want you to paste in a key and ship your script to
-someone else's server. ScriptBreak doesn't do that, because it doesn't call
-any AI at all — it exports **prompt packs** instead.
-
-A prompt pack is a plain Markdown file that bundles your scene/character/shot
-data together with the instructions for what to do with it. You paste the
-whole file into any LLM you already have access to, and the LLM does the
-analysis on its own infrastructure, under whatever account and privacy terms
-you already agreed to. ScriptBreak never talks to a model provider, never
-holds a key, and never uploads your script anywhere. The export *is* the
-integration.
-
-## Quick start
-
-Install the desktop app. On macOS, paste the one-line installer from the
-[Download](#-download) section into Terminal. On Windows and Linux, grab the
-build for your OS from the [Releases](../../releases) page and install it like
-any other app. Then launch ScriptBreak and load a script.
-
-## Building from source
-
-ScriptBreak's desktop wrapper is [Tauri v2](https://v2.tauri.app/). Since the
-frontend is a single static file, there's no JS toolchain to install — just
-Rust.
+Build and test:
 
 ```bash
-cargo install tauri-cli --version "^2"
 cd src-tauri
-cargo tauri build
+cargo test --offline
+cargo build --release --offline
 ```
 
-That produces a native installer (`.dmg`/`.app`, `.msi`/`.exe`, or
-`.deb`/`.AppImage`/`.rpm`) for whatever platform you're building on.
+The release executable is:
 
-To build for all platforms at once without owning a Mac, a Windows box, and a
-Linux machine, push a tag:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
+```text
+src-tauri/target/release/agentic-movie-studio
 ```
 
-The [release workflow](.github/workflows/release.yml) picks it up and builds
-macOS (Apple Silicon + Intel), Linux, and Windows installers, attaching them
-to a draft GitHub release.
+The packaged application belongs in:
 
-## File formats
-
-| Direction | Formats |
-|---|---|
-| Import | `.fountain`, `.fdx` (Final Draft XML), `.txt` |
-| Save / project file | `.scriptbreak` (plain JSON — readable, diffable, greppable) |
-| Export | Prompt-pack `.md` files for any LLM |
-
-## Opening project files
-
-Double-click a `.scriptbreak` file to open it directly in the ScriptBreak
-desktop app — no need to launch the app first and use an Open… dialog. This
-works in installed desktop builds (see [Quick start](#quick-start) /
-[Building from source](#building-from-source)); the OS registers the file
-association when the app is installed (Windows/Linux) or, on macOS, the
-first time the app is launched.
-
-## Agent control (MCP)
-
-ScriptBreak ships a headless **[MCP server](mcp/)** so an AI agent — Claude
-Code, Codex, Hermes, or any MCP client — can read a saved breakdown and export
-ScriptBreak's own prompt packs straight from a `.scriptbreak` file, without
-opening the app. It's zero-dependency and needs only Node ≥ 18.
-
-Point it at a project you saved with **Save project**, then add it to Claude
-Code:
-
-```bash
-claude mcp add scriptbreak \
-  --env SCRIPTBREAK_PROJECT=/absolute/path/to/your/project.scriptbreak \
-  -- node /absolute/path/to/scriptbreak/mcp/scriptbreak-mcp.mjs
+```text
+/Applications/Agentic Movie Studio.app
 ```
 
-The agent gets eleven read-only tools: `get_breakdown`, `list_scenes`,
-`get_scene`, `list_elements`, `get_character_bible`, `get_location_bible`,
-`get_shot_list`, `list_generators`, `export_prompt_pack`, `get_schedule`, and
-`get_day_out_of_days`. `export_prompt_pack` reproduces ScriptBreak's AI video,
-storyboard-frame, coverage-consult, and script-companion packs (with the same
-per-generator dialects) for any scene range, page range, or structured filter;
-`get_schedule` and `get_day_out_of_days` return the draft shooting schedule and
-cast Day Out of Days. See **[mcp/README.md](mcp/README.md)** for the full tool
-reference and Codex/Hermes/generic config.
+## Current verification
 
-## Privacy
+The release workflow checks:
 
-ScriptBreak has no server, no accounts, and no telemetry — it does its work
-locally and doesn't upload your script anywhere. Your script, your breakdown,
-and your exports live in files you control. As with any software, your
-overall privacy also depends on your own device and system setup.
+- browser-side project, production, bridge, and storyboard contracts;
+- native Rust service, Greenroom, file, and launcher behavior;
+- PitchDeck server syntax, durable render/assembly ledgers, CORS, media paths, and production build;
+- the installed macOS bundle and its real `tauri://localhost` interface.
 
-## Troubleshooting
+## Acknowledgment
 
-- **macOS says the app is "damaged" and should be moved to the Trash** —
-  it isn't damaged; unsigned builds from the Releases page aren't notarized,
-  so Gatekeeper blocks them. After copying ScriptBreak to Applications, run
-  this once in Terminal, then open the app normally:
-  ```bash
-  xattr -cr /Applications/ScriptBreak.app
-  ```
-- **Windows SmartScreen warning** — same story, no code-signing certificate
-  yet. Click "More info" → "Run anyway."
-- **Double-clicking a `.scriptbreak` file doesn't open it on macOS** —
-  file associations are registered with Launch Services the first time the
-  app is opened, so launch ScriptBreak once (from Finder/Applications)
-  before double-clicking a project file. macOS also delivers "open this
-  file" requests as an Apple Event rather than a command-line argument, so
-  this only works through the app's event-based file-open handling, not a
-  plain argv check.
+Agentic Movie Studio began with the open-source [ScriptBreak project](https://github.com/wassermanproductions/scriptbreak) as its screenplay-breakdown foundation. Thank you to that project and its contributors for making the base available under the Apache License 2.0.
 
-## Contributing
-
-Issues and pull requests welcome. The frontend is intentionally a single
-`src/index.html` with no build step — keep it that way. If you're touching
-the desktop wrapper, it lives entirely in `src-tauri/`.
+Agentic Movie Studio has since been substantially reworked and expanded into a broader agentic movie-production application. Original copyright and license notices remain in the legal notice files where required.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE), same as the rest of the
-[Wasserman Filmmaker Suite](https://github.com/wassermanproductions/wassermans-filmmaker-suite).
-© 2026 Sam Wasserman / Wasserman Productions.
-
-## Author & links
-
-Created by **Sam Wasserman** · [wassermanproductions.com](https://wassermanproductions.com)
-· [wasserman.ai](https://wasserman.ai)
-· [GitHub](https://github.com/wassermanproductions)
-· [Support Sam Wasserman on Ko-fi](https://ko-fi.com/samwasserman)
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

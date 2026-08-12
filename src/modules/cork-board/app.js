@@ -1,6 +1,6 @@
 /*
   Cork Board — the digital cork board for filmmakers.
-  Developed by Sam Wasserman. Apache License 2.0.
+  Embedded in Agentic Movie Studio under the Apache License 2.0.
   Local-first: everything lives in this browser / desktop app. No accounts, no cloud.
 */
 
@@ -30,6 +30,54 @@ const storage = (() => {
     };
   }
 })();
+
+/* ---------- Studio shared-project bridge ---------------------------
+   Standalone Cork Board keeps its original local-first store. When the real
+   app is hosted by Studio, project content comes from the parent project's
+   canonical state and every save is posted back. UI preferences and Cork
+   Board's session-only undo stack remain local to this module. */
+const STUDIO_BRIDGE = {
+  embedded: window.parent !== window,
+  applying: false,
+  ready: false,
+};
+
+function studioBridgePost(type, project) {
+  if (!STUDIO_BRIDGE.embedded) return;
+  window.parent.postMessage({
+    channel: "studio-project-bridge",
+    version: 1,
+    module: "cork-board",
+    type,
+    ...(project ? { project } : {}),
+  }, "*");
+}
+
+function studioBridgeAdopt(project) {
+  if (!project || typeof project !== "object") return;
+  STUDIO_BRIDGE.applying = true;
+  state = normalizeProject(project);
+  projects = [{ id: state.id, title: state.title }];
+  selectedCardId = "";
+  quickAddColumnId = "";
+  undoStack = [];
+  updateUndoButton();
+  closeInspector();
+  clearFilter(false);
+  renderAll();
+  STUDIO_BRIDGE.ready = true;
+  STUDIO_BRIDGE.applying = false;
+}
+
+if (STUDIO_BRIDGE.embedded) {
+  window.addEventListener("message", (event) => {
+    if (event.source !== window.parent) return;
+    const message = event.data || {};
+    if (message.channel !== "studio-project-bridge" || message.version !== 1) return;
+    if (message.module !== "cork-board" || message.type !== "project") return;
+    studioBridgeAdopt(message.project);
+  });
+}
 
 const els = {
   appShell: document.querySelector("#app"),
@@ -1182,6 +1230,7 @@ function readProjectsRegistry() {
 }
 
 function writeProjectsRegistry() {
+  if (STUDIO_BRIDGE.embedded) return;
   storage.setItem(PROJECTS_KEY, JSON.stringify(projects));
 }
 
@@ -1234,6 +1283,15 @@ function normalizeProject(raw) {
 function saveProject(showToastMessage = false) {
   if (!state) return;
   state.updatedAt = now();
+  if (STUDIO_BRIDGE.embedded) {
+    const entry = projects.find((p) => p.id === state.id);
+    if (entry) entry.title = state.title;
+    else projects = [{ id: state.id, title: state.title }];
+    renderProjectSelect();
+    if (!STUDIO_BRIDGE.applying) studioBridgePost("update", serializeProject(state));
+    if (showToastMessage) toast("Saved to Studio project");
+    return;
+  }
   try {
     storage.setItem(projectStorageKey(state.id), JSON.stringify(serializeProject(state)));
   } catch {
@@ -1258,6 +1316,10 @@ function scheduleSave() {
 }
 
 function loadProject(projectId) {
+  if (STUDIO_BRIDGE.embedded) {
+    if (state && projectId === state.id) renderAll();
+    return;
+  }
   const raw = storage.getItem(projectStorageKey(projectId));
   if (raw) {
     try {
@@ -1280,7 +1342,8 @@ function loadProject(projectId) {
 
 function adoptProject(project, toastMessage) {
   state = normalizeProject(project);
-  projects.push({ id: state.id, title: state.title });
+  if (STUDIO_BRIDGE.embedded) projects = [{ id: state.id, title: state.title }];
+  else projects.push({ id: state.id, title: state.title });
   writeProjectsRegistry();
   saveProject(false);
   selectedCardId = "";
@@ -1341,6 +1404,7 @@ function versionsKey() {
 }
 
 function readVersions() {
+  if (STUDIO_BRIDGE.embedded) return Array.isArray(state.studioVersions) ? state.studioVersions : [];
   try {
     return JSON.parse(storage.getItem(versionsKey()) || "[]");
   } catch {
@@ -1349,6 +1413,11 @@ function readVersions() {
 }
 
 function writeVersions(versions) {
+  if (STUDIO_BRIDGE.embedded) {
+    state.studioVersions = versions;
+    saveProject(false);
+    return;
+  }
   storage.setItem(versionsKey(), JSON.stringify(versions));
 }
 
@@ -3262,11 +3331,11 @@ function buildShareHtml() {
 </style>
 </head>
 <body>
-<div class="notice"><strong>This is a Cork Board share file.</strong> Print this page to pin the whole wall up for real, or open the Cork Board app and use <em>Export → Import</em> on this very file to load the full project and keep working. Get the free app at <a href="https://github.com/wassermanproductions/cork-board">github.com/wassermanproductions/cork-board</a>.</div>
+<div class="notice"><strong>This is an Agentic Movie Studio board share file.</strong> Print this page to pin the whole wall up for real, or import this file into Agentic Movie Studio to load the project and keep working.</div>
 <h1>${esc(state.title)}</h1>
-<p class="sub">Planned with Cork Board · exported ${new Date().toLocaleDateString()}</p>
+<p class="sub">Planned with Agentic Movie Studio · exported ${new Date().toLocaleDateString()}</p>
 ${boardsHtml}
-<p class="foot">Made with <a href="https://github.com/wassermanproductions/cork-board">Cork Board</a> — the digital cork board for filmmakers, by <a href="https://wassermanproductions.com">Sam Wasserman</a>.</p>
+<p class="foot">Made with Agentic Movie Studio.</p>
 <script type="application/json" id="corkboard-project">${json}</script>
 </body>
 </html>`;
@@ -3424,6 +3493,14 @@ function deleteActiveProject() {
 }
 
 function bindTopBar() {
+  if (STUDIO_BRIDGE.embedded) {
+    // Studio owns project creation, selection, and deletion. Cork remains the
+    // full board editor for that one canonical draft, never a second library
+    // with controls that can manufacture or remove a private project.
+    els.projectMenuBtn.hidden = true;
+    els.newProjectBtn.hidden = true;
+    els.projectSelect.disabled = true;
+  }
   els.projectTitle.addEventListener("input", () => {
     state.title = els.projectTitle.value;
     scheduleSave();
@@ -4025,24 +4102,31 @@ function bindKeyboard() {
 
 function init() {
   loadUiPrefs();
-  projects = readProjectsRegistry();
-
-  if (!projects.length) {
-    // First run: load the AVA demo so the board is alive from second one.
-    const demo = buildDemoAva();
-    state = normalizeProject(demo);
+  if (STUDIO_BRIDGE.embedded) {
+    // Never leak the bundled AVA demo into Studio. This temporary blank wall
+    // exists only for the few milliseconds before the parent answers.
+    state = normalizeProject(createBlankProject("Loading Studio project…"));
     projects = [{ id: state.id, title: state.title }];
-    writeProjectsRegistry();
-    storage.setItem(projectStorageKey(state.id), JSON.stringify(serializeProject(state)));
-    storage.setItem(ACTIVE_PROJECT_KEY, state.id);
   } else {
-    const activeId = storage.getItem(ACTIVE_PROJECT_KEY);
-    const target = projects.find((p) => p.id === activeId) || projects[0];
-    const raw = storage.getItem(projectStorageKey(target.id));
-    try {
-      state = normalizeProject(JSON.parse(raw));
-    } catch {
-      state = createBlankProject();
+    projects = readProjectsRegistry();
+
+    if (!projects.length) {
+      // First run: load the AVA demo so the standalone app is alive from second one.
+      const demo = buildDemoAva();
+      state = normalizeProject(demo);
+      projects = [{ id: state.id, title: state.title }];
+      writeProjectsRegistry();
+      storage.setItem(projectStorageKey(state.id), JSON.stringify(serializeProject(state)));
+      storage.setItem(ACTIVE_PROJECT_KEY, state.id);
+    } else {
+      const activeId = storage.getItem(ACTIVE_PROJECT_KEY);
+      const target = projects.find((p) => p.id === activeId) || projects[0];
+      const raw = storage.getItem(projectStorageKey(target.id));
+      try {
+        state = normalizeProject(JSON.parse(raw));
+      } catch {
+        state = createBlankProject();
+      }
     }
   }
 
@@ -4060,6 +4144,7 @@ function init() {
   bindInspectorResize();
 
   renderAll();
+  if (STUDIO_BRIDGE.embedded) studioBridgePost("request");
 }
 
 init();
