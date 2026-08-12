@@ -1,0 +1,4 @@
+interface:
+  display_name: "agentic-studio-video-prompt-writer"
+  short_description: "Operating manual for this Studio crew agent"
+  default_prompt: "Use $agentic-studio-video-prompt-writer to perform this department's Studio work."

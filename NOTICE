@@ -1,21 +1,18 @@
-Studio
-Copyright 2026 the Studio contributors
+Agentic Movie Studio
+Copyright 2026 Abandoned Muse and Agentic Movie Studio contributors
 
-This product includes software developed as part of Wasserman's Filmmaker Suite
-(https://github.com/wassermanproductions), Copyright Sam Wasserman, licensed under
-the Apache License, Version 2.0.
+Agentic Movie Studio includes and adapts Apache-2.0-licensed work from the
+ScriptBreak project and related filmmaking modules. The original ScriptBreak
+repository is available at:
 
-Studio began as a fork of ScriptBreak and consolidates behaviour and data models from
-several suite applications into a single application:
+  https://github.com/wassermanproductions/scriptbreak
 
-  ScriptBreak                  screenplay parsing, breakdown, bibles, look, shot list,
-                               scheduling, prompt packs, export
-  Cork Board                   index cards, status columns
-  Slate                        per-shot prompts, prompt history, take logging
-  Circle Take                  take ratings and provenance
-  Storyboard Reference Studio  frame/shot metadata concepts
+The inherited work includes screenplay parsing, breakdown, bibles, look and
+shot-list concepts, scheduling, prompt packs, export behavior, index-card
+planning, per-shot prompt/take concepts, and storyboard metadata concepts.
 
-The original applications remain available from their own repositories under the
-Apache License, Version 2.0. See LICENSE for the full license text.
+Original copyright notices are preserved in LICENSE and the module-level
+NOTICE files as required by the Apache License, Version 2.0.
 
-Changes made in this fork are described in ARCHITECTURE.md.
+The architecture and substantial changes in this derivative application are
+described in ARCHITECTURE.md.

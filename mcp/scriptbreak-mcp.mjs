@@ -1,22 +1,22 @@
 #!/usr/bin/env node
 /**
- * ScriptBreak MCP server — zero-dependency Node >=18 stdio bridge.
+ * Agentic Movie Studio MCP server — zero-dependency Node >=18 stdio bridge.
  *
  * Speaks the MCP stdio transport: newline-delimited JSON-RPC 2.0 on
  * stdin/stdout (NOT Content-Length framed): initialize /
  * notifications/initialized / tools/list / tools/call / ping.
  *
- * HEADLESS wrapper around a ScriptBreak project. Instead of driving the
- * desktop GUI, every tool reads a saved ScriptBreak project file directly
- * on disk (the `.scriptbreak` file the app writes with "Save project") and
+ * HEADLESS wrapper around an Agentic Movie Studio project. Instead of driving
+ * the desktop GUI, every tool reads a saved `.ams` project file directly
+ * on disk and
  * reproduces the app's own breakdown views and prompt-pack exports. Any MCP
  * agent can read a breakdown and generate generator-ready prompt packs
  * without opening the app.
  *
- * ScriptBreak's breakdown (scene parsing, auto-tagging, bibles, coverage) is
+ * The app's breakdown (scene parsing, auto-tagging, bibles, coverage) is
  * produced by the desktop app's parser, so this server operates on an
  * ALREADY-SAVED project — it does not re-parse raw screenplays. The prompt
- * packs it emits mirror ScriptBreak's own templates and per-generator
+ * packs it emits mirror the desktop app's templates and per-generator
  * dialects byte-for-byte.
  *
  * Uses only Node built-ins (fs, path, os) — run directly with `node`.
@@ -30,7 +30,7 @@ const PROTOCOL_VERSION = '2024-11-05'
 
 /* ------------------------- project location ----------------------------- */
 
-// Mirror Tauri's appDataDir() for identifier com.wasserman.scriptbreak.
+// Mirror Tauri's appDataDir() for the Agentic Movie Studio bundle identifier.
 function appDataDir() {
   const home = homedir()
   if (platform() === 'darwin') return join(home, 'Library', 'Application Support')
@@ -38,22 +38,22 @@ function appDataDir() {
   return process.env.XDG_CONFIG_HOME || join(home, '.config')
 }
 
-const DEFAULT_PROJECT = join(appDataDir(), 'com.wasserman.scriptbreak', 'project.scriptbreak')
+const DEFAULT_PROJECT = join(appDataDir(), 'com.abandonedmuse.agenticmoviestudio', 'project.ams')
 
-// Resolve the project file: explicit arg > SCRIPTBREAK_PROJECT env > default.
+// Resolve the project file: explicit arg > current env > legacy env > default.
 function resolveProjectPath(args) {
-  const raw = (args && args.projectPath) || process.env.SCRIPTBREAK_PROJECT || DEFAULT_PROJECT
+  const raw = (args && args.projectPath) || process.env.AGENTIC_MOVIE_STUDIO_PROJECT || process.env.SCRIPTBREAK_PROJECT || DEFAULT_PROJECT
   const expanded = raw.startsWith('~') ? join(homedir(), raw.slice(1)) : raw
   return isAbsolute(expanded) ? expanded : resolve(expanded)
 }
 
 /* ---------------------------- project model ----------------------------- */
 /*
- * ScriptBreak persists its live library in the app's localStorage; the
- * portable, on-disk artifact is the `.scriptbreak` file written by
+ * Agentic Movie Studio persists its live library in the app's localStorage;
+ * the portable, on-disk artifact is the `.ams` file written by
  * "Save project", which is exactly `serialize()`:
  *
- *   { app:'scriptbreak', version:2, saved:ISO, project:name, draft:name, state:S }
+ *   { app:'agentic-movie-studio', version:4, saved:ISO, project:name, draft:name, state:S }
  *
  * where S (the draft state / blankState() shape) is:
  *
@@ -112,7 +112,7 @@ function cats(S) {
 function loadProject(path) {
   if (!existsSync(path)) {
     const err = new Error(
-      `No ScriptBreak project at ${path}. Save one from the app ("Save project" → a .scriptbreak file), then pass projectPath or set SCRIPTBREAK_PROJECT.`
+      `No Agentic Movie Studio project at ${path}. Save an .ams file from the app, then pass projectPath or set AGENTIC_MOVIE_STUDIO_PROJECT.`
     )
     err.userFacing = true
     throw err
@@ -131,7 +131,7 @@ function loadProject(path) {
     : (Array.isArray(parsed.scenes) ? parsed : null)
   if (!rawState) {
     const err = new Error(
-      `${path} is not a ScriptBreak project (expected an object with .state.scenes or .scenes).`
+      `${path} is not an Agentic Movie Studio project (expected an object with .state.scenes or .scenes).`
     )
     err.userFacing = true
     throw err
@@ -164,7 +164,7 @@ function loadProject(path) {
 }
 
 /* --------------------------- shared helpers ----------------------------- */
-// These mirror the identically named functions in ScriptBreak's index.html so
+// These mirror the identically named functions in Agentic Movie Studio so
 // that reproduced exports match the app's output exactly.
 
 function eighthsFmt(e) {
@@ -260,7 +260,7 @@ ${S.styleGuide.text}
 }
 
 /* ---------------------------- export scope ------------------------------ */
-// Mirror ScriptBreak's EXP scope + exportScenes()/scopeLabel().
+// Mirror Agentic Movie Studio's export scope + exportScenes()/scopeLabel().
 
 function scenePageStart(S, i) {
   if (S.scenes[i] && S.scenes[i].page) return S.scenes[i].page
@@ -329,7 +329,7 @@ function scopeLabel(S, exp) {
 }
 
 /* -------------------------- generator dialects -------------------------- */
-// Verbatim copies of ScriptBreak's PLATFORMS (video) and IMG_PLATFORMS (stills).
+// Copies of Agentic Movie Studio's PLATFORMS (video) and IMG_PLATFORMS (stills).
 
 const PLATFORMS = {
   generic: { name: 'Any video generator', style: [
@@ -422,7 +422,7 @@ const IMG_PLATFORMS = {
 
 function packHeader(S, exp, kind) {
   return `# ${S.title} — ${kind}
-*Generated by ScriptBreak (Wasserman Filmmaker Suite) · ${new Date().toLocaleDateString()} · scope: ${scopeLabel(S, exp)}*
+*Generated by Agentic Movie Studio · ${new Date().toLocaleDateString()} · scope: ${scopeLabel(S, exp)}*
 
 > **HOW TO USE THIS FILE:** Paste this entire document into any AI assistant (Claude, ChatGPT, Gemini — whatever you already use). It contains its own instructions. The assistant will do the rest. Nothing about this file requires an API key or a particular tool.
 
@@ -593,7 +593,7 @@ ${['characters', 'locations', 'props'].map((t) => {
 }
 
 /* -------------------- shooting schedule & Day Out of Days ----------------
- * These helpers are duplicated VERBATIM from ScriptBreak's index.html so the
+ * These helpers mirror Agentic Movie Studio so the
  * app and this server produce the same suggested stripboard + DOOD. Keep the
  * two copies identical. Cast presence is inferred from dialogue only (silent /
  * background cast are not detected), so this is a draft — not a locked
@@ -690,7 +690,7 @@ function buildDoodCSV(scenes, opts) {
   dood.cast.forEach((c) => rows.push([c.id, c.name, ...c.codes, c.work, c.hold, c.total]))
   return rows.map((r) => r.map(csvCell).join(',')).join('\n')
 }
-const SCHED_CAVEAT = 'Draft stripboard generated from ScriptBreak’s auto-parsed breakdown. Cast presence is inferred from dialogue only — silent / background cast are not detected, and page counts may be estimated. This is a starting point, not a locked schedule: it does not account for cast or location availability, company moves, day↔night turnaround, or child / stunt constraints. Verify with your 1st AD before scheduling.'
+const SCHED_CAVEAT = 'Draft stripboard generated from Agentic Movie Studio’s auto-parsed breakdown. Cast presence is inferred from dialogue only — silent / background cast are not detected, and page counts may be estimated. This is a starting point, not a locked schedule: it does not account for cast or location availability, company moves, day↔night turnaround, or child / stunt constraints. Verify with your 1st AD before scheduling.'
 const SCHED_CSV_NOTE = 'DRAFT — auto-parsed from dialogue only. Cast presence may be incomplete. Not a locked schedule — verify with your 1st AD.'
 
 /* ------------------------------ generators ------------------------------ */
@@ -730,11 +730,11 @@ function scopeFromArgs(args) {
 
 const PROJECT_PATH_FIELD = {
   type: 'string',
-  description: 'Absolute path to a saved ScriptBreak project (.scriptbreak) file. Optional — defaults to the SCRIPTBREAK_PROJECT env var, then the app-data location.'
+  description: 'Absolute path to a saved Agentic Movie Studio project (.ams; legacy .studio/.scriptbreak also accepted). Optional — defaults to the AGENTIC_MOVIE_STUDIO_PROJECT env var, then the legacy env var, then the app-data location.'
 }
 
 const SCOPE_FIELDS = {
-  scope: { type: 'string', enum: ['all', 'scenes', 'pages', 'shots', 'filter'], description: 'Scope selector, mirroring ScriptBreak\'s export scope bar. "all" (default); "scenes" + sceneRange; "pages" + pageRange; "shots" (only scenes with a shot list); "filter" (INT/EXT/day/night/character/location).' },
+  scope: { type: 'string', enum: ['all', 'scenes', 'pages', 'shots', 'filter'], description: 'Scope selector, mirroring Agentic Movie Studio\'s export scope bar. "all" (default); "scenes" + sceneRange; "pages" + pageRange; "shots" (only scenes with a shot list); "filter" (INT/EXT/day/night/character/location).' },
   sceneRange: { type: 'string', description: 'Scene-number range/list, e.g. "1-20, 34, 50A". Used with scope "scenes" (or implies it).' },
   pageRange: { type: 'string', description: 'Page range/list, e.g. "1-12". Used with scope "pages" (or implies it).' },
   int: { type: 'boolean', description: 'Filter: interior scenes (scope "filter").' },
@@ -749,7 +749,7 @@ const TOOLS = [
   {
     name: 'get_breakdown',
     description:
-      'Call FIRST. Reads a saved ScriptBreak (.scriptbreak) project on disk and returns the breakdown summary: title, script name, page count (in industry 1/8ths), scene count, INT/EXT and day/night tallies, unique character & location counts, per-category element totals, shot count, the character/location/prop bible sizes, the PROJECT LOOK fields that are filled, and the list of supported prompt-pack generators. Conventions: ScriptBreak\'s breakdown (scene parsing, auto-tagging, bibles, coverage) is produced by the desktop app; this server operates on the ALREADY-SAVED project and does not re-parse raw screenplays. Elements are grouped by category (cast is auto from dialogue; then extras, props, setdress, wardrobe, makeup, vehicles, animals, stunts, vfx, sfx, sound, equipment, plus any custom categories). Each scene carries a number (e.g. "1", "50A"), slugline, INT/EXT, location, time of day, page length in 1/8ths, the characters present, tagged elements by category, and a shot list. export_prompt_pack reproduces ScriptBreak\'s own prompt packs from this data.',
+      'Call FIRST. Reads a saved Agentic Movie Studio project on disk and returns the breakdown summary: title, script name, page count (in industry 1/8ths), scene count, INT/EXT and day/night tallies, unique character & location counts, per-category element totals, shot count, the character/location/prop bible sizes, the PROJECT LOOK fields that are filled, and the list of supported prompt-pack generators. The breakdown (scene parsing, auto-tagging, bibles, coverage) is produced by the desktop app; this server operates on an ALREADY-SAVED project and does not re-parse raw screenplays. Elements are grouped by category (cast is auto from dialogue; then extras, props, setdress, wardrobe, makeup, vehicles, animals, stunts, vfx, sfx, sound, equipment, plus any custom categories). Each scene carries a number (e.g. "1", "50A"), slugline, INT/EXT, location, time of day, page length in 1/8ths, the characters present, tagged elements by category, and a shot list. export_prompt_pack reproduces the app\'s prompt packs from this data.',
     inputSchema: { type: 'object', properties: { projectPath: PROJECT_PATH_FIELD }, additionalProperties: false }
   },
   {
@@ -788,7 +788,7 @@ const TOOLS = [
   },
   {
     name: 'get_character_bible',
-    description: 'Return the character bible: for each character, the canonical description ScriptBreak seeded/edited and whether it was auto-generated. Optionally pass name for a single character.',
+    description: 'Return the character bible: for each character, the canonical description stored by Agentic Movie Studio and whether it was auto-generated. Optionally pass name for a single character.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -812,7 +812,7 @@ const TOOLS = [
   },
   {
     name: 'get_shot_list',
-    description: 'Return the shot list, grouped by scene, with each shot\'s number, size, angle, movement, lens, and description (the same fields ScriptBreak\'s shot-list CSV exports). Optionally scope to a scene range, page range, or filters.',
+    description: 'Return the shot list, grouped by scene, with each shot\'s number, size, angle, movement, lens, and description (the same fields Agentic Movie Studio exports). Optionally scope to a scene range, page range, or filters.',
     inputSchema: {
       type: 'object',
       properties: { projectPath: PROJECT_PATH_FIELD, ...SCOPE_FIELDS },
@@ -826,7 +826,7 @@ const TOOLS = [
   },
   {
     name: 'export_prompt_pack',
-    description: 'Reproduce one of ScriptBreak\'s own prompt-pack exports as markdown, for a chosen generator and scope, returning the pack text. A video generator (veo3/runway/kling/comfyui/wan22/ltx23/seedance/generic) yields the AI Video Prompt Pack; a still generator (gptimage2/nanobanana/krea2/seedream/midjourney/genericimg) yields the Storyboard / Concept Frame Prompt Pack; "coverage" yields the Coverage Consult and "companion" the Script Companion. The output embeds the PROJECT LOOK, character/location/prop bibles, the per-generator PLATFORM STYLE GUIDE, and the scene-by-scene shots — identical to what the desktop app writes. Scope selectors mirror the app\'s export scope bar.',
+    description: 'Reproduce one of Agentic Movie Studio\'s prompt-pack exports as markdown, for a chosen generator and scope, returning the pack text. A video generator (veo3/runway/kling/comfyui/wan22/ltx23/seedance/generic) yields the AI Video Prompt Pack; a still generator (gptimage2/nanobanana/krea2/seedream/midjourney/genericimg) yields the Storyboard / Concept Frame Prompt Pack; "coverage" yields the Coverage Consult and "companion" the Script Companion. The output embeds the PROJECT LOOK, character/location/prop bibles, the per-generator PLATFORM STYLE GUIDE, and the scene-by-scene shots — identical to what the desktop app writes. Scope selectors mirror the app\'s export scope bar.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -841,7 +841,7 @@ const TOOLS = [
   {
     name: 'get_schedule',
     description:
-      'Reproduce ScriptBreak\'s suggested SHOOTING SCHEDULE (draft stripboard): scenes grouped into synthetic shoot days by master location, then lighting regime (DAY / dusk-dawn "MAGIC" / NIGHT), then INT vs EXT, then scene number, and split under a page budget (default 5 pages/day, ±1 page tolerance; one location per day). Returns the ordered day list — each with location, INT/EXT, day/night, scene numbers, page eighths, and the cast IDs working that day — plus the cast key and a byte-identical `csv` of the same table (matching the desktop app). IMPORTANT: cast presence is inferred from DIALOGUE CUES ONLY, so silent/background cast are not detected, and page counts may be estimated — this is a starting point for a 1st AD, not a locked schedule (see the `caveat` field). Scope selectors mirror the app\'s export scope bar; a partial scope yields a partial schedule.',
+      'Reproduce Agentic Movie Studio\'s suggested SHOOTING SCHEDULE (draft stripboard): scenes grouped into synthetic shoot days by master location, then lighting regime (DAY / dusk-dawn "MAGIC" / NIGHT), then INT vs EXT, then scene number, and split under a page budget (default 5 pages/day, ±1 page tolerance; one location per day). Returns the ordered day list — each with location, INT/EXT, day/night, scene numbers, page eighths, and the cast IDs working that day — plus the cast key and a byte-identical `csv` of the same table (matching the desktop app). IMPORTANT: cast presence is inferred from DIALOGUE CUES ONLY, so silent/background cast are not detected, and page counts may be estimated — this is a starting point for a 1st AD, not a locked schedule (see the `caveat` field). Scope selectors mirror the app\'s export scope bar; a partial scope yields a partial schedule.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -855,7 +855,7 @@ const TOOLS = [
   {
     name: 'get_day_out_of_days',
     description:
-      'Reproduce ScriptBreak\'s cast DAY OUT OF DAYS (DOOD) grid from the same suggested schedule as get_schedule: one row per cast member (numbered by first appearance), one column per shoot day, with standard status codes — SW (Start Work), W (Work), WF (Work Finish), SWF (single-day Start-Work-Finish), H (Hold: carried and paid between a performer\'s first and last day) — plus per-cast Work / Hold / Total(span) day counts. Returns the structured grid and a byte-identical `csv` (matching the desktop app). SAME CAVEAT as get_schedule: cast presence is inferred from DIALOGUE ONLY, so a performer on set with no line in a scene is not counted — the DOOD under-reports who is needed; treat it as a preliminary draft. Accepts the same pagesPerDay and scope selectors as get_schedule.',
+      'Reproduce Agentic Movie Studio\'s cast DAY OUT OF DAYS (DOOD) grid from the same suggested schedule as get_schedule: one row per cast member (numbered by first appearance), one column per shoot day, with standard status codes — SW (Start Work), W (Work), WF (Work Finish), SWF (single-day Start-Work-Finish), H (Hold: carried and paid between a performer\'s first and last day) — plus per-cast Work / Hold / Total(span) day counts. Returns the structured grid and a byte-identical `csv` (matching the desktop app). SAME CAVEAT as get_schedule: cast presence is inferred from DIALOGUE ONLY, so a performer on set with no line in a scene is not counted — the DOOD under-reports who is needed; treat it as a preliminary draft. Accepts the same pagesPerDay and scope selectors as get_schedule.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1121,7 +1121,7 @@ function handle(msg) {
       reply(id, {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: 'scriptbreak', version: '1.0.0' }
+        serverInfo: { name: 'agentic-movie-studio', version: '2.0.0' }
       })
       return
     case 'notifications/initialized':

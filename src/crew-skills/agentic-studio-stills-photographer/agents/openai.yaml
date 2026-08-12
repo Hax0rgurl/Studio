@@ -1,0 +1,4 @@
+interface:
+  display_name: "agentic-studio-stills-photographer"
+  short_description: "Operating manual for this Studio crew agent"
+  default_prompt: "Use $agentic-studio-stills-photographer to perform this department's Studio work."

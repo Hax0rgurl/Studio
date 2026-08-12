@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Generates the ScriptBreak app icon set.
+Generates the Agentic Movie Studio app icon set.
 
-Design: dark charcoal (#14171d) rounded-square background, an amber
-(#e8a33d) diagonal clapperboard-style band across the top-left corner,
-and a bold white "SB" monogram.
+Design: dark charcoal rounded-square background, an electric-blue diagonal
+clapperboard band, and a bold white "AMS" monogram.
 
 Run: python3 gen_icons.py
 Produces (all in this directory):
@@ -18,11 +17,11 @@ from PIL import Image, ImageDraw, ImageFont
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 BG = (20, 23, 29, 255)        # #14171d charcoal
-AMBER = (232, 163, 61, 255)   # #e8a33d
-AMBER_DARK = (196, 132, 40, 255)
+AMBER = (47, 123, 246, 255)   # Agentic Movie Studio electric blue
+AMBER_DARK = (32, 84, 190, 255)
 WHITE = (240, 242, 247, 255)
 
-FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+FONT_PATH = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
 
 
 def rounded_square(size):
@@ -68,9 +67,9 @@ def rounded_square(size):
 
 def draw_monogram(img, size):
     draw = ImageDraw.Draw(img)
-    font_size = int(size * 0.46)
+    font_size = int(size * 0.34)
     font = ImageFont.truetype(FONT_PATH, font_size)
-    text = "SB"
+    text = "AMS"
     bbox = draw.textbbox((0, 0), text, font=font)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
     x = (size - tw) / 2 - bbox[0]

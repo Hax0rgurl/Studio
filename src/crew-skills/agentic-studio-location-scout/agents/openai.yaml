@@ -1,0 +1,4 @@
+interface:
+  display_name: "agentic-studio-location-scout"
+  short_description: "Operating manual for this Studio crew agent"
+  default_prompt: "Use $agentic-studio-location-scout to perform this department's Studio work."
