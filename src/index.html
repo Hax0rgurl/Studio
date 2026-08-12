@@ -644,7 +644,9 @@
         </select>
         <select id="boardStyleSel" style="min-width:150px" title="The style every card inherits unless it sets its own"></select>
         <button class="btn small" id="btnBoardRefresh">Refresh videos</button>
-        <button class="btn small primary" id="btnBoardRenderAll">Render all ready shots</button>
+        <button class="btn small" id="btnBoardAgentPhotos">Agents make missing photos</button>
+        <button class="btn small primary" id="btnBoardAgentMovie">Agents render &amp; assemble</button>
+        <button class="btn small" id="btnBoardRenderAll">Render ready videos manually</button>
       </div>
       <div id="boardsWrap"></div>
     </div>
@@ -2114,6 +2116,7 @@ function setLook(k, v, src){
 }
 function renderLook(){
   const sg = S.styleGuide;
+  const missingLook=LOOK_FIELDS.filter(field=>!String(S.look[field.k]||'').trim() || ['auto','guide'].includes(lookSrcOf(field.k)));
   const sgHtml = `<div class="look-field wide" style="background:var(--bg2);border:1px solid ${sg?'var(--amber)':'var(--line)'};border-radius:10px;padding:14px 16px">
     <label>Style reference ${sg? '· '+esc(sg.name):''}</label>
     ${sg? `<div class="auto-note" style="margin-bottom:8px">Loaded — this text is injected into every AI export as a binding STYLE GUIDE. Edit it down to what matters.</div>
@@ -2130,10 +2133,11 @@ function renderLook(){
     return '';
   };
   el('lookWrap').innerHTML = sgHtml + `<div class="look-field wide" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <button class="btn small primary" id="btnCrewLook"${missingLook.length?'':' disabled'}>Crew fill ${missingLook.length} missing field${missingLook.length===1?'':'s'}</button>
     <button class="btn small" id="btnAutoLook">⚡ Suggest from script</button>
     ${sg? `<button class="btn small" id="btnGuideLook">📓 Suggest from style guide</button>
            <button class="btn small primary" id="btnBothLook">✨ Suggest from script + deck</button>`:''}
-    <span class="auto-note">⚡ = from script analysis · 📓 = from your style guide. Type in a field and it becomes yours — suggestions never overwrite your own text (clear a field to open it up again).</span>
+    <span class="auto-note">Crew fill uses the assigned director, DP, camera, grip, lighting, design, costume, colour, and sound skill books. ⚡ is a quick placeholder only. Your own text is never overwritten.</span>
   </div>` + LOOK_FIELDS.map(f=>`
     <div class="look-field wide">
       <label>${f.label}${srcChip(f.k)}</label>
@@ -2146,6 +2150,8 @@ function renderLook(){
     ta.addEventListener('input', ()=>{ setLook(ta.dataset.k, ta.value, 'user'); grow(ta); persist(); });
   });
   el('btnAutoLook').addEventListener('click', ()=>{ const n = autoLook(); persist(); renderLook(); toast(n? `Suggested ${n} look fields from script analysis — edit freely`:'No empty fields to fill — clear a field to re-suggest into it', !!n); });
+  const crewLook=el('btnCrewLook');
+  if (crewLook) crewLook.addEventListener('click',crewFillMissingLook);
   const bg = el('btnGuideLook');
   if (bg) bg.addEventListener('click', ()=>{
     const n = applyGuideLook(); persist(); renderLook();
@@ -3285,10 +3291,18 @@ async function crewFetchJson(path, opts){
   }, opts||{}));
   const text = await r.text();
   let body = {};
-  try { body = text ? JSON.parse(text) : {}; } catch(e){ body = { error:text }; }
+  let parsed=true;
+  try { body = text ? JSON.parse(text) : {}; } catch(e){ parsed=false; body = { error:text }; }
   if (!r.ok){
     const error=new Error(body.error || (path + ' -> ' + r.status));
     error.code=body.code||''; error.marker=body.marker||''; error.body=body;
+    throw error;
+  }
+  if (!parsed){
+    const error=new Error(/<html|<!doctype/i.test(text)
+      ? 'The media gateway is running an older incompatible build. Restart local services, then check connections again.'
+      : 'The media gateway returned a non-JSON response for '+path+'.');
+    error.code='MEDIA_GATEWAY_INCOMPATIBLE'; error.body={raw:String(text||'').slice(0,500)};
     throw error;
   }
   return body;
@@ -3795,8 +3809,13 @@ function crewParseLook(value,fields){
 
 /** A Look department makes one coherent, validated department handoff. */
 async function crewLookJob(role, fields, ask){
-  const owned=fields.filter(k=>LOOK_FIELDS.some(field=>field.k===k));
-  if (!owned.length) throw new Error('@'+role.at+' has no valid Look fields assigned.');
+  const p=productionState(), explicitRework=!!(p&&(p.reworkRoles||[]).includes(role.id));
+  // A department may replace deterministic/script-guide placeholders, but it
+  // never silently overwrites a filmmaker-authored decision. An explicit
+  // rework run is the only exception.
+  const owned=fields.filter(k=>LOOK_FIELDS.some(field=>field.k===k)
+    && (explicitRework || lookSrcOf(k)!=='user'));
+  if (!owned.length) return {status:'done',text:'All '+role.title+' Look fields are already owned by the filmmaker; nothing was overwritten.'};
   const descriptions=owned.map(k=>{
     const f=LOOK_FIELDS.find(row=>row.k===k);
     return '- field "'+k+'" ('+f.label+'): '+(f.hint||f.ph||'Write an executable department bible.');
@@ -4814,6 +4833,68 @@ async function crewRun(roleId, ask){
   }
 }
 
+async function crewFillMissingLook(){
+  if (CREW.busy || CREW.calling || canonicalWorkerLocked()){
+    toast('Another department is working.'); return;
+  }
+  const roles=CREW_ALL.filter(role=>String(role.act||'').startsWith('look:')).filter(role=>{
+    const keys=String(role.act).slice(5).split(',');
+    return keys.some(key=>!String(S.look[key]||'').trim() || ['auto','guide'].includes(lookSrcOf(key)));
+  });
+  if (!roles.length){ toast('Every Look field is already filled by you.',true); return; }
+  const button=el('btnCrewLook'); if (button){ button.disabled=true; button.textContent='Look crew working…'; }
+  try{
+    for (const role of roles){
+      const result=await crewRun(role.id,'Complete every Project Look field owned by your department. Use the screenplay, bibles, filmmaker direction, and TasteOS skill book. Return executable decisions, evidence, and continuity constraints—not a description of your job. Preserve every filmmaker-authored field.');
+      if (!result || result.ok===false) throw new Error((result&&result.out)||('@'+role.at+' failed.'));
+    }
+    renderLook(); toast('The Look crew completed every missing department handoff.',true);
+  }catch(error){ renderLook(); toast('Look crew stopped: '+String((error&&error.message)||error)); }
+}
+
+async function crewStoryboardPhotoPass(){
+  const shots=allShots();
+  if (!shots.length) throw new Error('No shots exist yet. Run the 1st AD coverage department first.');
+  const jobs=[];
+  if (shots.some(row=>!(row.sh.prompt&&String(row.sh.prompt.text||'').trim()))) jobs.push('prompt_writer');
+  if (shots.some(row=>!(row.sh.board&&String(row.sh.board.desc||'').trim()))) jobs.push('stills_prompt');
+  if (shots.some(row=>row.sh.board&&row.sh.board.desc&&!(row.sh.board.craft&&row.sh.board.craft.verdict==='pass'))) jobs.push('script_supervisor');
+  if (shots.some(row=>row.sh.board&&row.sh.board.desc&&!row.sh.board.taste)) jobs.push('taste');
+  if (shots.some(row=>!boardOf(row.sh).frame)) jobs.push('stills');
+  for (const roleId of jobs){
+    const result=await crewRun(roleId,'Finish every missing storyboard-photo artifact for the entire film. Follow the role skill book, script canon, approved Look, bibles, human direction, and TasteOS. Do not stop after a sample.');
+    if (!result || result.ok===false) throw new Error((result&&result.out)||('@'+roleId+' failed.'));
+  }
+  return jobs.length;
+}
+async function boardRunAgentPipeline(finishMovie){
+  if (BOARD.agentPromise) return BOARD.agentPromise;
+  const owner=boardDraftOwner();
+  BOARD.agentPromise=(async()=>{
+    try{
+      const prior=productionState();
+      if (prior&&['complete','cancelled'].includes(prior.status)){
+        S.productionHistory=Array.isArray(S.productionHistory)?S.productionHistory:[];
+        S.productionHistory.unshift(JSON.parse(JSON.stringify(Object.assign({},prior,{archivedAt:new Date().toISOString(),archiveReason:'new_storyboard_agent_pass'}))));
+        S.productionHistory=S.productionHistory.slice(0,12); S.production=null;
+        if (!persistNow()) throw new Error('The previous production could not be archived before this new storyboard pass.');
+      }
+      const n=await crewStoryboardPhotoPass();
+      if (!boardDraftOwnerMatches(owner)) return;
+      if (finishMovie){
+        const result=await crewRun('second_unit','Render every approved storyboard frame into its matching video shot, preserve the production manifest, and hand completed clips to the editor for ordered assembly.');
+        if (!result || result.ok===false) throw new Error((result&&result.out)||'Second unit failed.');
+        toast('Agents submitted the approved storyboard movie. Progress will update on these cards.',true);
+      }else toast(n?'Agents completed the missing storyboard-photo pass.':'Every storyboard photo is already complete.',true);
+    }catch(error){ toast('Storyboard agents stopped: '+String((error&&error.message)||error)); }
+  })().finally(()=>{
+    BOARD.agentPromise=null;
+    if (boardDraftOwnerMatches(owner)){ renderBoards(); crewApplyMutationLock(); }
+  });
+  renderBoards();
+  return BOARD.agentPromise;
+}
+
 /** The whole crew, in order, on one idea. */
 const CREW_PIPELINE = ['director','story_editor','writer','casting_director','location_scout',
   'prop_master','production_designer','costume_designer','first_ad','dp','camera_operator','key_grip','gaffer','colorist',
@@ -5304,9 +5385,12 @@ function renderAll(){
   if (v==='shots') renderShots();
   if (v==='boards'){
     const ss=el('boardStyleSel'), all=el('btnBoardRenderAll'), refresh=el('btnBoardRefresh');
+    const agentPhotos=el('btnBoardAgentPhotos'), agentMovie=el('btnBoardAgentMovie');
     if (ss){ ss.value=S.boardStyle||''; ss.disabled=boardEditingLocked(); }
     if (all) all.disabled=boardEditingLocked()||!!BOARD.batchPromise||!boardRenderCandidates().length;
     if (refresh) refresh.disabled=!!BOARD.pollPromise;
+    if (agentPhotos) agentPhotos.disabled=boardEditingLocked()||!!BOARD.agentPromise;
+    if (agentMovie) agentMovie.disabled=boardEditingLocked()||!!BOARD.agentPromise;
     renderBoards();
   }
   if (v==='elements') renderElements();
@@ -5899,6 +5983,51 @@ function openDoodSheet(){
 /* ---------- export UI ---------- */
 function fileStub(){ return (S.title||'script').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'_') || 'script'; }
 
+function buildScreenplayFountain(){
+  const project=activeProject()||{}, draft=activeDraft()||{};
+  const title=String(S.title||project.name||'Untitled Screenplay').trim();
+  const titlePage=['Title: '+title,'Draft date: '+new Date().toLocaleDateString()];
+  if (draft.name) titlePage.push('Notes: '+draft.name);
+  const body=exportScenes().map(scene=>{
+    const number=String(scene.num||'').trim();
+    const heading=String(scene.slug||'INT. UNTITLED - DAY').trim().toUpperCase();
+    return heading+(number?' #'+number+'#':'')+'\n\n'+String(scene.text||'').trim();
+  }).join('\n\n');
+  return titlePage.join('\n')+'\n\n\n'+body+'\n';
+}
+function screenplaySceneHtml(scene){
+  const lines=String(scene.text||'').replace(/\r/g,'').split('\n');
+  let dialogue=false;
+  const out=['<div class="scene-heading">'+esc(String(scene.slug||'INT. UNTITLED - DAY').toUpperCase())
+    +(scene.num?' <span class="scene-number">#'+esc(scene.num)+'#</span>':'')+'</div>'];
+  for (const original of lines){
+    const text=String(original||'').trim();
+    if (!text){ dialogue=false; out.push('<div class="blank"></div>'); continue; }
+    if (CHARACTER_RE.test(text) && text.length<45){ dialogue=true; out.push('<div class="character">'+esc(text)+'</div>'); continue; }
+    if (dialogue && /^\(.*\)$/.test(text)){ out.push('<div class="parenthetical">'+esc(text)+'</div>'); continue; }
+    if (dialogue){ out.push('<div class="dialogue">'+esc(text)+'</div>'); continue; }
+    if (TRANSITION_RE.test(text)){ out.push('<div class="transition">'+esc(text)+'</div>'); continue; }
+    out.push('<div class="action">'+esc(text)+'</div>');
+  }
+  return '<section class="screenplay-scene">'+out.join('')+'</section>';
+}
+function screenplayPrintDocument(){
+  const draft=activeDraft()||{};
+  return '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(S.title||'Screenplay')+'</title><style>'
+    +'@page{size:Letter;margin:.75in 1in .75in 1.5in}*{box-sizing:border-box}body{margin:0;background:#fff;color:#000;font:12pt/1.02 Courier,\"Courier New\",monospace}'
+    +'.title-page{height:9in;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;page-break-after:always}.title-page h1{font-size:14pt;text-decoration:underline;text-transform:uppercase;margin:0 0 18px}.title-page p{margin:4px}'
+    +'.screenplay-scene{break-inside:auto}.scene-heading{font-weight:bold;text-transform:uppercase;margin:18px 0 10px}.scene-number{float:right}.action{margin:0 0 10px;white-space:pre-wrap}.character{margin:12px 0 0 2.2in;text-transform:uppercase}.parenthetical{width:2.4in;margin:0 0 0 1.7in}.dialogue{width:3.5in;margin:0 0 8px 1.1in}.transition{text-align:right;text-transform:uppercase;margin:10px 0}.blank{height:6px}'
+    +'@media screen{body{max-width:8.5in;margin:24px auto;padding:.75in 1in .75in 1.5in;box-shadow:0 2px 20px #bbb}.title-page{height:8.5in}}'
+    +'</style></head><body><section class="title-page"><h1>'+esc(S.title||'Untitled Screenplay')+'</h1><p>Written screenplay</p>'
+    +(draft.name?'<p>'+esc(draft.name)+'</p>':'')+'<p>'+esc(new Date().toLocaleDateString())+'</p></section>'
+    +exportScenes().map(screenplaySceneHtml).join('')+'<script>window.addEventListener(\'load\',()=>window.print())<\/script></body></html>';
+}
+function openScreenplayPrint(){
+  const win=window.open('','_blank');
+  if (!win){ toast('Popup blocked — allow popups to print the screenplay.'); return; }
+  win.document.write(screenplayPrintDocument()); win.document.close();
+}
+
 function previewExport(title, filename, content){
   openModal(title,
     `<div style="font-size:12px;color:var(--tx2);margin-bottom:10px">${esc(filename)} · ${(content.length/1024).toFixed(1)} KB — copy it straight into your LLM, or download the file.</div>
@@ -5949,6 +6078,7 @@ Scope: ${scopeLabel()}
 Generated ${new Date().toLocaleString()}
 
 WHAT'S IN HERE
+- screenplay.fountain: the editable industry-compatible written screenplay.
 - video_prompts_*.md / frame_prompts_*.md / coverage_consult.md / script_companion.md:
   self-executing AI documents. Paste any of them, whole, into any LLM (Claude, ChatGPT,
   Gemini...) and it will follow the instructions inside. No API keys needed.
@@ -5958,6 +6088,7 @@ WHAT'S IN HERE
   cast are not detected) — a starting point to hand your 1st AD, not a locked schedule.
 - ${stub}.ams: the full project file. Open it with Agentic Movie Studio.
 ` },
+    { name: stub+'/'+stub+'.fountain', content: buildScreenplayFountain() },
     { name: stub+'/video_prompts_'+vp+'.md', content: buildVideoPack(vp, 'all') },
     { name: stub+'/frame_prompts_'+ip+'.md', content: buildImagePack(ip) },
     { name: stub+'/coverage_consult.md', content: buildCoverageConsult() },
@@ -5992,6 +6123,10 @@ function renderExport(){
     <span class="auto-note" id="expScopeNote">Exporting ${scopeLabel()}. Applies to every export on this page.</span>
   </div>`;
   el('expGrid').innerHTML = scopeBar + `
+    <div class="exp-card" style="border-color:var(--amber)"><h3><span class="ic">✍</span> Written Screenplay <span class="badge util">.fountain · Print / PDF</span></h3>
+      <p>The actual written script, not a prompt pack. Download editable Fountain text, or open the properly spaced Courier screenplay and save it as PDF from the print dialog.</p>
+      <div class="opts"><button class="btn primary" id="expScriptFountain">Download .fountain</button><button class="btn" id="expScriptPrint">Formatted print / PDF</button></div></div>
+
     <div class="exp-card"><h3><span class="ic">🎥</span> Video Prompt Pack <span class="badge">AI · .md</span></h3>
       <p>A self-executing brief: paste into any LLM and get one production-ready prompt per shot — look, bibles, and shot specs woven in. ${shotCount? shotCount+' shots planned.' : 'No shots planned yet — it will design one master per scene.'}</p>
       <div class="opts"><select id="vpPlat">${Object.entries(PLATFORMS).map(([k,p])=>`<option value="${k}">${p.name}</option>`).join('')}</select>
@@ -6049,6 +6184,8 @@ function renderExport(){
     const p = el('vpPlat').value, sc = el('vpScope').value;
     previewExport('Video Prompt Pack — '+PLATFORMS[p].name, fileStub()+'_video_prompts_'+p+'.md', buildVideoPack(p, sc));
   });
+  el('expScriptFountain').addEventListener('click',()=>{ download(fileStub()+'.fountain',buildScreenplayFountain(),'text/plain'); toast('Written screenplay downloaded.',true); });
+  el('expScriptPrint').addEventListener('click',openScreenplayPrint);
   el('expImage').addEventListener('click', ()=>{
     const p = el('ipPlat').value;
     previewExport('Storyboard Frame Pack — '+IMG_PLATFORMS[p].name, fileStub()+'_frame_prompts_'+p+'.md', buildImagePack(p));
@@ -7231,11 +7368,30 @@ function settingsProviderListHtml(){
     const kinds=(provider.mediaKinds||[]).map(x=>x==='image'?'photos':'video').join(' + ')||'media';
     const fields=[...((provider.credentials||{}).fields||[]),...((provider.configuration||{}).fields||[])]
       .map(field=>field.label||field.id).filter(Boolean);
+    const models=(provider.models||[]).map(model=>model.name||model.id||model).filter(Boolean);
+    const health=provider.health||{};
     return '<div class="settings-provider"><div class="name">'+esc(provider.name)
-      +'<div class="auto-note">'+esc(provider.kind||'adapter')+' · '+esc(kinds)+(fields.length?' · setup: '+esc(fields.join(', ')):'')+'</div></div>'
+      +'<div class="auto-note">'+esc(provider.kind||'adapter')+' · '+esc(kinds)
+      +(models.length?' · models: '+esc(models.join(', ')):' · model supplied by provider')
+      +(health.backend?' · active backend: '+esc(health.backend):'')+(health.reason?' · '+esc(health.reason):'')
+      +(fields.length?' · setup: '+esc(fields.join(', ')):'')+'</div></div>'
       +'<span class="ai-badge '+(provider.configured===false?'err':'ok')+'">'+(provider.configured===false?'setup needed':'configured')+'</span>'
       +(fields.length?'<button class="btn small" data-provider-config="'+esc(provider.id)+'">Configure</button>':'')+'</div>';
   }).join('')||'<div class="auto-note">No media providers were discovered.</div>';
+}
+function settingsProjectFilesHtml(){
+  const drafts=DB.projects.reduce((sum,project)=>sum+(project.drafts||[]).length,0);
+  if (!DB.projects.length) return '<div class="auto-note">No projects are saved on this device yet.</div>';
+  return '<div class="auto-note" style="margin-bottom:9px"><b>'+DB.projects.length+' project'+(DB.projects.length===1?'':'s')
+    +' · '+drafts+' draft'+(drafts===1?'':'s')+'</b> are saved inside this app. Portable <b>.ams</b> files appear only when you choose Save project.</div>'
+    +'<div style="max-height:270px;overflow:auto;border:1px solid var(--line);border-radius:8px">'
+    +DB.projects.map(project=>'<div style="padding:9px 10px;border-bottom:1px solid var(--line)"><b>'+esc(project.name||'Untitled project')+'</b>'
+      +(project.drafts||[]).map(draft=>'<div style="display:flex;gap:8px;align-items:center;padding-top:7px"><span style="min-width:0;flex:1">'+esc(draft.name||'Draft')
+        +' <span class="auto-note">· '+esc(draftStats(draft.state||{}))+' · '+esc(fmtDate(draft.imported||project.created||''))+'</span></span>'
+        +'<button class="btn small" data-settings-open-project="'+esc(project.id)+'|'+esc(draft.id)+'">'
+        +(project.id===ACTIVE.p&&draft.id===ACTIVE.d?'Current':'Open')+'</button></div>').join('')+'</div>').join('')+'</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px"><button class="btn small" id="settingsProjectLibrary">Open full project library</button>'
+    +'<button class="btn small" id="settingsSaveProject">Save current .ams</button><button class="btn small" id="settingsImportProject">Import .ams</button></div>';
 }
 function settingsPanelHtml(initialTab){
   const runtimeLocked=crewMutationLocked()||canonicalWorkerLocked();
@@ -7261,7 +7417,7 @@ function settingsPanelHtml(initialTab){
           +'<label class="settings-field"><span>Default target</span><select id="settingsIdeaMinutes"'+dis+'>'
             +[1,3,5,10].map(n=>'<option value="'+n+'"'+(Number(localStorage.getItem('studio.production.minutes')||1)===n?' selected':'')+'>'+n+' minute'+(n===1?'':'s')+'</option>').join('')
           +'</select></label></div>'
-        +'<div class="settings-card"><h5>Project files</h5><div class="auto-note">Canonical project format: <b>.ams</b>. Legacy .studio and .scriptbreak projects remain readable. Projects and media stay on this device unless an explicitly configured API provider is used.</div></div>'
+        +'<div class="settings-card"><h5>Project files</h5>'+settingsProjectFilesHtml()+'<div class="auto-note" style="margin-top:9px">Canonical portable format: <b>.ams</b>. Legacy .studio and .scriptbreak files remain readable. Projects and media stay on this device unless an explicitly configured remote provider is used.</div></div>'
       +'</section>'
       +'<section class="settings-panel'+on('ai')+'" data-settings-panel="ai"><h4>AI &amp; agents</h4>'
         +'<div class="settings-intro">Choose the text-model server and model used by the crew. Model names are discovered, never hard-coded.</div>'
@@ -7273,7 +7429,7 @@ function settingsPanelHtml(initialTab){
         +'</div><label style="display:flex;gap:9px;align-items:flex-start;margin-top:12px"><input type="checkbox" id="settingsNoThink"'+(AI.noThink?' checked':'')+dis+' style="margin-top:3px;width:auto"><span><b>Skip the separate thinking step</b><br><span class="auto-note">Faster for routine production work. Models that cannot disable thinking ignore this setting.</span></span></label></div>'
       +'</section>'
       +'<section class="settings-panel'+on('media')+'" data-settings-panel="media"><h4>Media APIs</h4>'
-        +'<div class="settings-intro">These are the exact same choices shown in Make a Film. Save here and both dropdowns update together. Photo and video providers remain independent.</div>'
+        +'<div class="settings-intro">These are the exact same choices shown in Make a Film. Save here and both dropdowns update together. Photo and video providers remain independent. The list is discovered from installed adapters—it is not restricted to local models.</div>'
         +(mediaLocked?'<div class="crit bad" style="margin-bottom:12px">This production has already frozen its provider choices. Finish, cancel, or archive the render manifest before changing them.</div>':'')
         +'<div class="settings-card"><h5>Storyboard photos</h5><div class="settings-grid" style="margin-top:10px">'
           +'<label class="settings-field"><span>Provider</span><select id="settingsImageProvider"'+mediaDis+'>'+settingsProviderOptions(imageProviders(),imageSelection.id)+'</select></label>'
@@ -7297,7 +7453,7 @@ function settingsPanelHtml(initialTab){
           +'<div id="settingsProviderConfig" style="margin-top:10px"></div>'
           +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px">'
           +(CREW.providerDirectory?'<button class="btn small" id="settingsCopyAdapterPath">Copy adapter folder path</button>':'')+'</div>'
-          +'<div class="auto-note" style="margin-top:8px">REST, SDK, local-engine, and MCP adapters all enter through this catalogue. Put a trusted .mjs adapter in this folder, restart the media gateway, then configure its declared endpoint and credential fields here. It appears in the photo dropdown, video dropdown, or both according to its real capabilities.</div></div>'
+          +'<div class="auto-note" style="margin-top:8px"><b>MCP is supported through a media adapter, not treated as a model.</b> REST, SDK, local-engine, and MCP adapters all enter through this catalogue. A trusted adapter declares the MCP server address, credentials, and image/video tools; after restart those fields appear here and the provider appears in the correct dropdown. Arbitrary MCP tools cannot safely be guessed—the adapter is the explicit translation into Studio’s durable image/video job contract.</div></div>'
       +'</section>'
     +'</div></div>';
 }
@@ -7321,6 +7477,13 @@ function settingsWire(initialTab){
   const check=el('settingsCheck'); if (check) check.addEventListener('click',()=>settingsCheckConnections(false));
   const start=el('settingsStartServices'); if (start) start.addEventListener('click',()=>settingsCheckConnections(true));
   settingsWireProviderButtons();
+  document.querySelectorAll('[data-settings-open-project]').forEach(button=>button.addEventListener('click',()=>{
+    const [projectId,draftId]=button.dataset.settingsOpenProject.split('|');
+    closeModal(); openDraft(projectId,draftId); nav('scenes');
+  }));
+  const library=el('settingsProjectLibrary'); if (library) library.addEventListener('click',()=>{ closeModal(); nav('projects'); });
+  const saveProject=el('settingsSaveProject'); if (saveProject) saveProject.addEventListener('click',()=>el('btnSaveProj').click());
+  const importProject=el('settingsImportProject'); if (importProject) importProject.addEventListener('click',()=>el('btnOpen').click());
   const copyPath=el('settingsCopyAdapterPath'); if (copyPath) copyPath.addEventListener('click',async()=>{
     try{ await copyText(CREW.providerDirectory); toast('Adapter folder path copied.',true); }
     catch(e){ toast('Adapter folder: '+CREW.providerDirectory); }
@@ -8108,7 +8271,7 @@ function allShotsB(){
   return out;
 }
 
-let BOARD = { expanded:'', filter:'', pollTimer:null, pollPromise:null, pollOwner:'', batchPromise:null, queueing:new Set() };
+let BOARD = { expanded:'', filter:'', pollTimer:null, pollPromise:null, pollOwner:'', batchPromise:null, agentPromise:null, queueing:new Set() };
 
 function boardDraftOwner(){ return String(ACTIVE.p||'')+'|'+String(ACTIVE.d||''); }
 function boardDraftOwnerMatches(owner){ return boardDraftOwner()===owner; }
@@ -8152,9 +8315,12 @@ async function renderBoards(){
   const w = el('boardsWrap');
   if (!w) return;
   const styleSelect=el('boardStyleSel'), renderAll=el('btnBoardRenderAll'), refresh=el('btnBoardRefresh');
+  const agentPhotos=el('btnBoardAgentPhotos'), agentMovie=el('btnBoardAgentMovie');
   if (styleSelect) styleSelect.disabled=boardEditingLocked();
   if (renderAll) renderAll.disabled=boardEditingLocked()||!!BOARD.batchPromise||!boardRenderCandidates().length;
   if (refresh) refresh.disabled=!!BOARD.pollPromise;
+  if (agentPhotos) agentPhotos.disabled=boardEditingLocked()||!!BOARD.agentPromise;
+  if (agentMovie) agentMovie.disabled=boardEditingLocked()||!!BOARD.agentPromise;
   releaseFrameUrls();
   const list = allShotsB();
   if (!list.length){
@@ -9301,6 +9467,26 @@ function tasteWorkloadHtml(run){
     +'<input data-candidate-model list="tasteModelIds" placeholder="model-name:tag" value="'+esc(AI.model&&AI.model!==model?AI.model:'')+'"></label>'
     +'<button class="btn primary small" data-experiment-run'+(!completed||TASTE_OS.experimentRunning?' disabled':'')+'>'+(busy?'Comparing…':'Run offline comparison')+'</button></div></div>';
 }
+function tasteRubricRowHtml(criterion,index){
+  const item=criterion||{}, id=item.id||('human_criterion_'+Date.now().toString(36)+'_'+index);
+  return '<div class="pl-shot" data-rubric-row="'+index+'" style="padding:10px;margin-bottom:8px;display:grid;grid-template-columns:minmax(150px,.65fr) minmax(300px,2fr) 90px 90px 34px;gap:8px;align-items:center">'
+    +'<input data-rubric-label value="'+esc(item.label||'')+'" aria-label="Criterion label" placeholder="Criterion name">'
+    +'<input data-rubric-question value="'+esc(item.question||'')+'" aria-label="Criterion question" placeholder="What should you judge?">'
+    +'<label class="ai-stat">Weight <input data-rubric-weight type="number" min="0" max="5" value="'+esc(item.weight==null?3:item.weight)+'" style="width:52px"></label>'
+    +'<label class="ai-stat"><input data-rubric-locked type="checkbox"'+(item.locked?' checked':'')+'> locked</label>'
+    +'<button class="icon-btn danger" type="button" data-rubric-remove title="Remove criterion">×</button>'
+    +'<input data-rubric-id type="hidden" value="'+esc(id)+'"></div>';
+}
+function tasteComparableWorkloads(workloads){
+  const seen=new Set(), rows=[];
+  for (const run of workloads){
+    if (!['completed','reviewed'].includes(run.phase)||!String(run.outputExcerpt||'').trim()) continue;
+    const key=String(run.workloadId||run.role||run.id);
+    if (seen.has(key)) continue;
+    seen.add(key); rows.push(run);
+  }
+  return rows;
+}
 function tasteExperimentHtml(experiment,rubric){
   const reviewed=experiment.status==='reviewed';
   const baselineModel=(experiment.baselineConfig&&experiment.baselineConfig.modelId)||'baseline';
@@ -9340,6 +9526,7 @@ function renderTasteOs(){
   }
   const snapshot=TASTE_OS.snapshot, profile=snapshot.profile||{}, rules=profile.rules||[], rubric=profile.rubric||[], events=snapshot.recentEvents||[];
   const workloads=(snapshot.recentWorkloads||[]).slice().reverse(), experiments=(snapshot.recentExperiments||[]).slice().reverse();
+  const comparable=tasteComparableWorkloads(workloads);
   const processed=new Set(profile.processedEventIds||[]);
   const analyzable=events.filter(event=>String(event.note||'').trim()&&!processed.has(event.id));
   const activeRules=rules.filter(rule=>rule.active!==false);
@@ -9356,14 +9543,9 @@ function renderTasteOs(){
     +'<textarea id="tasteFoundation" rows="6" style="width:100%" placeholder="Write what you consistently want, refuse, and protect. Be concrete.">'+esc(profile.foundation||'')+'</textarea>'
     +'<button class="btn primary" id="tasteFoundationSave" style="margin-top:9px">Save explicit foundation</button></div>'
     +'<div class="ai-panel" style="max-width:1160px;margin-bottom:14px"><div style="display:flex;align-items:center;gap:9px"><h4 style="margin:0">Your judgment rubric</h4>'
-    +'<div class="tb-spacer"></div><button class="btn primary" id="tasteRubricSave">Save rubric</button></div>'
+    +'<div class="tb-spacer"></div><button class="btn small" id="tasteRubricAdd">＋ Add your own criterion</button><button class="btn primary" id="tasteRubricSave">Save rubric</button></div>'
     +'<div class="auto-note" style="margin:8px 0 10px">Weights are 0–5. The rubric tells every department how its artifact will be judged; it does not silently rewrite operational settings.</div>'
-    +'<div id="tasteRubricRows">'+rubric.map((criterion,index)=>'<div class="pl-shot" data-rubric-row="'+index+'" style="padding:10px;margin-bottom:8px;display:grid;grid-template-columns:minmax(150px,.65fr) minmax(300px,2fr) 90px 90px;gap:8px;align-items:center">'
-      +'<input data-rubric-label value="'+esc(criterion.label||'')+'" aria-label="Criterion label">'
-      +'<input data-rubric-question value="'+esc(criterion.question||'')+'" aria-label="Criterion question">'
-      +'<label class="ai-stat">Weight <input data-rubric-weight type="number" min="0" max="5" value="'+esc(criterion.weight||0)+'" style="width:52px"></label>'
-      +'<label class="ai-stat"><input data-rubric-locked type="checkbox"'+(criterion.locked?' checked':'')+'> locked</label>'
-      +'<input data-rubric-id type="hidden" value="'+esc(criterion.id||('criterion_'+index))+'"></div>').join('')+'</div></div>'
+    +'<div id="tasteRubricRows">'+rubric.map(tasteRubricRowHtml).join('')+'</div></div>'
     +'<div class="ai-panel" style="max-width:1160px;margin-bottom:14px"><h4>Learned rules</h4>'
     +'<div class="auto-note" style="margin-bottom:10px">Confidence changes are capped. New evidence starts inside one project; repeated evidence across projects is required before the backend may promote it globally.</div>'
     +(rules.length?rules.map(rule=>'<div class="pl-shot" data-taste-rule="'+esc(rule.id)+'" style="padding:11px;margin-bottom:8px">'
@@ -9382,9 +9564,14 @@ function renderTasteOs(){
       +'<div class="auto-note" style="margin-bottom:9px">Nothing in this section can become an explicit or global rule until you approve its exact wording, scope, and departments.</div>'
       +(profile.pending||[]).map(tasteProposalHtml).join('')+'</div>':'')
     +'<div class="ai-panel" style="max-width:1160px;margin-bottom:14px"><h4>Evaluation Lab</h4>'
-    +'<div class="auto-note" style="margin-bottom:10px">Replay a saved department workload against any model installed on your connected local server. This is offline evidence only: it does not change the current model, provider, API, or a film already in progress. Only you can review and recommend a candidate for future work.</div>'
+    +'<div class="auto-note" style="margin-bottom:10px"><b>There are '+comparable.length+' saved department test cases—not '+comparable.length+' model testers.</b> Choose one workload and one candidate model below. This is offline evidence only: it does not change the current model, provider, API, or a film already in progress.</div>'
     +'<datalist id="tasteModelIds">'+(AI.models||[]).map(model=>'<option value="'+esc(model)+'"></option>').join('')+'</datalist>'
-    +(workloads.length?workloads.slice(0,20).map(tasteWorkloadHtml).join(''):'<div class="auto-note">No model-work receipts yet. Run a crew department in the packaged app; its exact configuration and private prompt/output record will appear here.</div>')+'</div>'
+    +(comparable.length?'<div style="display:grid;grid-template-columns:minmax(260px,1.2fr) minmax(260px,1fr) auto;gap:9px;align-items:end">'
+      +'<label class="bd-f"><span>Saved department workload</span><select id="tasteWorkloadSelect">'+comparable.map(run=>'<option value="'+esc(run.id)+'">'
+        +esc((run.role?'@'+run.role+' · ':'')+(run.workloadId||'model workload')+' · '+((run.config&&run.config.modelId)||'unknown model'))+'</option>').join('')+'</select></label>'
+      +'<label class="bd-f"><span>Candidate model ID</span><input id="tasteCandidateModel" list="tasteModelIds" placeholder="Choose or type any installed model" value="'+esc(AI.model||'')+'"></label>'
+      +'<button class="btn primary" id="tasteExperimentRun"'+(TASTE_OS.experimentRunning?' disabled':'')+'>'+(TASTE_OS.experimentRunning?'Comparing…':'Run comparison')+'</button></div>'
+      :'<div class="auto-note">No completed model-work receipts yet. Run a crew department in the packaged app; its exact configuration and private prompt/output record will appear here.</div>')+'</div>'
     +'<div class="ai-panel" style="max-width:1160px;margin-bottom:14px"><h4>Model comparison reviews</h4>'
     +(experiments.length?experiments.slice(0,20).map(row=>tasteExperimentHtml(row,rubric)).join(''):'<div class="auto-note">No comparisons yet. Evaluation Lab never trains or switches a model by itself.</div>')+'</div>'
     +'<div class="ai-panel" style="max-width:1160px"><h4>Evidence log</h4>'
@@ -9408,6 +9595,17 @@ function renderTasteOs(){
     try{ await tasteSetRubricNow(rows); renderTasteOs(); toast('TasteOS rubric saved.',true); }
     catch(error){ TASTE_OS.error=String((error&&error.message)||error); renderTasteOs(); }
   });
+  bind('tasteRubricAdd',()=>{
+    const rows=el('tasteRubricRows'); if (!rows) return;
+    if (rows.querySelectorAll('[data-rubric-row]').length>=12){ toast('TasteOS supports up to 12 human rubric criteria.'); return; }
+    rows.insertAdjacentHTML('beforeend',tasteRubricRowHtml({},rows.children.length));
+    const added=rows.lastElementChild; if (added){ added.querySelector('[data-rubric-label]').focus(); wireRubricRemove(added); }
+  });
+  const wireRubricRemove=row=>{ const button=row.querySelector('[data-rubric-remove]'); if (button) button.addEventListener('click',()=>{
+    if (wrap.querySelectorAll('[data-rubric-row]').length<=1){ toast('Keep at least one judgment criterion.'); return; }
+    row.remove();
+  }); };
+  wrap.querySelectorAll('[data-rubric-row]').forEach(wireRubricRemove);
   wrap.querySelectorAll('[data-rule-save]').forEach(button=>button.addEventListener('click',async()=>{
     const row=button.closest('[data-taste-rule]'), existing=rules.find(rule=>rule.id===row.dataset.tasteRule); if (!existing) return;
     const next=Object.assign({},existing,{polarity:row.querySelector('[data-rule-polarity]').value,
@@ -9436,6 +9634,10 @@ function renderTasteOs(){
       try{ await tasteRunExperiment(row.dataset.tasteWorkload,row.querySelector('[data-candidate-model]').value); renderTasteOs(); toast('Comparison saved. It now needs your rubric review.',true); }
       catch(error){ TASTE_OS.error=String((error&&error.message)||error); renderTasteOs(); }
     });
+  });
+  bind('tasteExperimentRun',async()=>{
+    try{ await tasteRunExperiment((el('tasteWorkloadSelect')||{}).value,(el('tasteCandidateModel')||{}).value); renderTasteOs(); toast('Comparison saved. It now needs your rubric review.',true); }
+    catch(error){ TASTE_OS.error=String((error&&error.message)||error); renderTasteOs(); }
   });
   wrap.querySelectorAll('[data-taste-experiment]').forEach(row=>{
     const detailButton=row.querySelector('[data-experiment-detail]');
@@ -10230,25 +10432,61 @@ const CARD_STATUS = [
 ];
 const cardStatus = k => CARD_STATUS.find(s=>s.k===k) || CARD_STATUS[0];
 function makeCard(over){
-  return Object.assign({ id:uid(), title:'', synopsis:'', status:'idea', sceneNum:'', cast:[] }, over||{});
+  return Object.assign({ id:uid(), title:'', synopsis:'', status:'idea', sceneNum:'', beatIndex:0, beatCount:0, cast:[] }, over||{});
 }
 function sceneForCard(c){
   return c.sceneNum ? S.scenes.find(sc=>String(sc.num) === String(c.sceneNum)) : null;
 }
-/** One card per scene, for scenes that don't have one yet. Existing cards keep their column. */
+function sceneCardTarget(sc){
+  // A card is a workable story beat/page unit, not merely a scene heading.
+  // This prevents a feature containing a few long continuous scenes from
+  // collapsing into three useless cards.
+  return Math.max(1,Math.ceil(Math.max(1,Number(sc.eighths)||1)/8));
+}
+function sceneCardChunks(sc,count){
+  const paragraphs=String(sc.text||'').replace(/\r/g,'').split(/\n\s*\n+/).map(text=>text.trim()).filter(Boolean);
+  if (!paragraphs.length) return Array.from({length:count},()=>String(sc.synopsis||''));
+  const total=paragraphs.reduce((sum,text)=>sum+Math.max(1,text.length),0), target=total/count;
+  const chunks=[]; let chunk=[],size=0;
+  for (const paragraph of paragraphs){
+    const remaining=paragraphs.length-(chunks.reduce((n,row)=>n+row.length,0)+chunk.length);
+    if (chunk.length&&size>=target&&chunks.length<count-1&&remaining>=count-chunks.length-1){ chunks.push(chunk); chunk=[]; size=0; }
+    chunk.push(paragraph); size+=Math.max(1,paragraph.length);
+  }
+  if (chunk.length) chunks.push(chunk);
+  while (chunks.length<count){
+    let at=chunks.reduce((best,row,index)=>row.length>(chunks[best]||[]).length?index:best,0);
+    if ((chunks[at]||[]).length<2){ chunks.push([]); continue; }
+    const row=chunks[at],cut=Math.ceil(row.length/2); chunks.splice(at,1,row.slice(0,cut),row.slice(cut));
+  }
+  return chunks.slice(0,count).map(rows=>rows.join('\n\n').trim());
+}
+function cardBeatSynopsis(text,fallback){
+  const clean=String(text||fallback||'').replace(/\s+/g,' ').trim();
+  return clean.length>360?clean.slice(0,357).replace(/\s+\S*$/,'')+'…':clean;
+}
+/** Make enough ordered beat cards to represent the pages inside every scene.
+ *  Existing cards and their board columns survive; only missing page/beat
+ *  coverage is added. */
 function cardsFromScenes(){
-  const have = new Set(S.cards.map(c=>String(c.sceneNum)).filter(Boolean));
   let made = 0;
   S.scenes.forEach(sc=>{
-    if (have.has(String(sc.num))) return;
-    S.cards.push(makeCard({
-      title: sc.slug,
-      synopsis: sc.synopsis || '',
-      status: 'drafted',       // it exists in the script, so it is at least drafted
-      sceneNum: sc.num,
-      cast: sc.characters.slice(),
-    }));
-    made++;
+    const target=sceneCardTarget(sc), chunks=sceneCardChunks(sc,target);
+    const existing=S.cards.filter(card=>String(card.sceneNum)===String(sc.num));
+    existing.forEach((card,index)=>{
+      if (!Number(card.beatIndex)) card.beatIndex=index+1;
+      card.beatCount=Math.max(target,existing.length);
+    });
+    for (let index=existing.length;index<target;index++){
+      const beat=index+1;
+      S.cards.push(makeCard({
+        title:target===1?sc.slug:(sc.slug+' · beat '+beat+'/'+target),
+        synopsis:cardBeatSynopsis(chunks[index],sc.synopsis),
+        status:'drafted', sceneNum:sc.num, beatIndex:beat, beatCount:target,
+        cast:sc.characters.slice(),
+      }));
+      made++;
+    }
   });
   return made;
 }
@@ -10359,6 +10597,8 @@ const StudioModuleBridge = (()=>{
         id:card.id, title:card.title||'', synopsis:card.synopsis||'',
         status:CARD_STATUS.some(x=>x.k===card.status)?card.status:'idea',
         studioSceneNum:card.sceneNum==null?'':String(card.sceneNum),
+        studioBeatIndex:Number(card.beatIndex)||0,
+        studioBeatCount:Number(card.beatCount)||0,
         characterIds:(card.cast||[]).map(characterId).filter(Boolean),
         locationId:scene ? locationId(scene.master||scene.location||'') : (prior.locationId||''),
         intExt:scene ? (scene.intExt||'') : (prior.intExt||''),
@@ -10407,11 +10647,15 @@ const StudioModuleBridge = (()=>{
           const canonical=makeCard(Object.assign({},old,{
             id:card.id, title:card.title||'', synopsis:card.synopsis||'',
             status:CARD_STATUS.some(x=>x.k===card.status)?card.status:'idea',
-            sceneNum,
+            sceneNum,beatIndex:Number(card.studioBeatIndex)||Number(old.beatIndex)||0,
+            beatCount:Number(card.studioBeatCount)||Number(old.beatCount)||0,
             cast:(card.characterIds||[]).map(id=>chars.get(id)).filter(Boolean)
           }));
           next.push(canonical);
-          if (sceneNum){
+          // Multiple beat cards may link to one long screenplay scene. Only
+          // the primary card may update the scene-level synopsis/cast; later
+          // beat edits remain card-level and cannot overwrite the whole scene.
+          if (sceneNum && (!canonical.beatIndex || canonical.beatIndex===1)){
             const scene=S.scenes.find(x=>String(x.num)===sceneNum);
             if (scene){
               scene.synopsis=canonical.synopsis;
@@ -11138,6 +11382,7 @@ function offerAdaptation(text, filename){
 /* Boards toolbar */
 (function(){
   const f = el('boardFilter'), ss = el('boardStyleSel'), refresh=el('btnBoardRefresh'), renderAll=el('btnBoardRenderAll');
+  const agentPhotos=el('btnBoardAgentPhotos'), agentMovie=el('btnBoardAgentMovie');
   if (f) f.addEventListener('change', ()=>{ BOARD.filter = f.value; renderBoards(); });
   if (ss){
     ss.innerHTML = '<option value="">Project style — none</option>'
@@ -11149,6 +11394,8 @@ function offerAdaptation(text, filename){
   }
   if (refresh) refresh.addEventListener('click', ()=>boardRefreshVideos().catch(e=>toast('Could not refresh videos: '+String((e&&e.message)||e))));
   if (renderAll) renderAll.addEventListener('click', boardRenderAllReady);
+  if (agentPhotos) agentPhotos.addEventListener('click',()=>boardRunAgentPipeline(false));
+  if (agentMovie) agentMovie.addEventListener('click',()=>boardRunAgentPipeline(true));
 })();
 
 /* ============================================================
