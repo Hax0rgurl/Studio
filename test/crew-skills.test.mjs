@@ -19,7 +19,7 @@ test('every Studio crew role has exactly one versioned skill book', async () => 
   const roster = source.slice(source.indexOf('const CREW_ROSTER'), source.indexOf('const CREW_ALL'));
   const roleIds = [...roster.matchAll(/\{ id:'([^']+)'/g)].map(match => match[1]).sort();
   const manifestIds = Object.keys(manifest.roles).sort();
-  assert.equal(roleIds.length, 22);
+  assert.equal(roleIds.length, 23);
   assert.deepEqual(manifestIds, roleIds);
   assert.equal(registry.schema, 'agentic-movie-studio/crew-skills@1');
   assert.equal(registry.version, manifest.version);
@@ -35,6 +35,15 @@ test('every Studio crew role has exactly one versioned skill book', async () => 
     }
     assert.doesNotMatch(content, /\[TODO|TODO:/i);
   }
+});
+
+test('producer skill is routing-only and cannot waive deterministic production gates', async () => {
+  assert.equal(manifest.roles.producer, 'agentic-studio-producer');
+  const content = await readFile(path.join(root, manifest.roles.producer, 'SKILL.md'), 'utf8');
+  assert.match(content, /ready-role list supplied by Studio/i);
+  assert.match(content, /May not write screenplay, bibles, Look, shots, prompts, images, takes, or the cut/i);
+  assert.match(content, /May not change the selected model, image provider, video provider, credentials, billing approval/i);
+  assert.match(content, /No required review, taste, persistence, billing, render, or final-file gate is waived/i);
 });
 
 test('the shared constitution forbids fake file and completion claims in place of artifacts', () => {
@@ -69,7 +78,11 @@ test('screenwriter is schema-first and Fountain is compatibility only', async ()
   assert.match(book, /validated structured scene data/);
   assert.match(book, /Fountain is available only/);
   assert.match(writer, /additionalProperties:false/);
-  assert.match(writer, /schema:CREW_SCREENPLAY_SCHEMA/);
+  assert.match(writer, /schema:CREW_SCREENPLAY_PLAN_SCHEMA/);
+  assert.match(writer, /schema:CREW_SCREENPLAY_SCENE_SCHEMA/);
+  assert.match(writer, /schema:CREW_SCREENPLAY_REVIEW_SCHEMA/);
+  assert.match(writer, /crewWritePlannedScene/);
+  assert.match(writer, /crewReviewScreenplay/);
   assert.match(writer, /Fountain remains an import\/export adapter/);
   assert.doesNotMatch(writer, /parseScript\s*\(/);
 });

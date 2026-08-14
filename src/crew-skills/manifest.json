@@ -4,6 +4,7 @@
   "constitution": "STUDIO-CONSTITUTION.md",
   "sources": "RESEARCH-SOURCES.md",
   "roles": {
+    "producer": "agentic-studio-producer",
     "director": "agentic-studio-director",
     "story_editor": "agentic-studio-story-editor",
     "writer": "agentic-studio-screenwriter",

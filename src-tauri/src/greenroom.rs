@@ -42,6 +42,39 @@ pub(crate) struct PostRoleStepRequest {
     artifacts: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ClaimRoleWorkRequest {
+    project_id: String,
+    thread_id: String,
+    role_id: String,
+    work_id: String,
+    summary: String,
+    details: String,
+    action_requested: String,
+    model: String,
+    #[serde(default)]
+    tool_worker: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct FinishRoleWorkRequest {
+    project_id: String,
+    thread_id: String,
+    role_id: String,
+    work_id: String,
+    delivery_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ClaimedRoleWorkResponse {
+    host_id: String,
+    reused: bool,
+    delivery: Value,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct OpenProductionThreadResponse {
@@ -176,6 +209,156 @@ pub(crate) fn greenroom_fetch_production_thread(
     fetch_verified_thread(&context, &project_id, &thread_id)
 }
 
+/// Register the canonical role as a real Greenroom host, recover any durable
+/// delivery already assigned to this exact Studio work id, or enqueue and
+/// exclusively claim a new one. The webview never receives role credentials.
+#[tauri::command]
+pub(crate) fn greenroom_claim_role_work(
+    request: ClaimRoleWorkRequest,
+) -> Result<ClaimedRoleWorkResponse, String> {
+    let project_id = validate_identifier(&request.project_id, "project id", 80)?;
+    let thread_id = validate_identifier(&request.thread_id, "thread id", 64)?;
+    let role_id = validate_identifier(&request.role_id, "role id", 64)?;
+    let work_id = validate_identifier(&request.work_id, "work id", 48)?;
+    let summary = validate_text(&request.summary, "work summary", 500)?;
+    let details = validate_text(&request.details, "work packet", 500_000)?;
+    let action_requested = validate_text(&request.action_requested, "requested action", 420)?;
+    let model = validate_text(&request.model, "model", 200)?;
+    let context = load_context()?;
+    fetch_verified_thread(&context, &project_id, &thread_id)?;
+    let muse = resolve_member(&context, "muse", true)?;
+    let role = resolve_member(&context, &role_id, false)?;
+    let host_id = role_host_id(&project_id, &role_id, &work_id)?;
+    let marker = role_work_marker(&work_id);
+
+    let (host_type, metadata) = if request.tool_worker {
+        (
+            "mcp-stdio",
+            json!({
+                "adapter": "agentic-movie-studio-native-tools",
+                "transport": "in_process",
+                "role": role_id,
+                "worker": "agentic-movie-studio"
+            }),
+        )
+    } else {
+        (
+            "ollama",
+            json!({
+                "endpoint": "http://127.0.0.1:11434",
+                "model": model,
+                "role": role_id,
+                "worker": "agentic-movie-studio"
+            }),
+        )
+    };
+    let heartbeat = json!({
+        "host_id": host_id,
+        "host_type": host_type,
+        "display_name": format!("Agentic Movie Studio @{}", role_id),
+        "capabilities": ["notify", "claim", "acknowledge"],
+        "metadata": metadata,
+        "priority": 10
+    });
+    greenroom_json(
+        &context,
+        role,
+        "POST",
+        &format!("/identities/{}/hosts/heartbeat", role.handle),
+        Some(&heartbeat),
+    )?;
+
+    if let Some(delivery) = find_role_delivery(
+        &context,
+        role,
+        &host_id,
+        &thread_id,
+        &marker,
+        &["claimed", "acknowledged"],
+    )? {
+        return Ok(ClaimedRoleWorkResponse {
+            host_id,
+            reused: true,
+            delivery,
+        });
+    }
+
+    let mut reused = true;
+    if find_role_delivery(
+        &context,
+        role,
+        &host_id,
+        &thread_id,
+        &marker,
+        &["pending"],
+    )?
+    .is_none()
+    {
+        reused = false;
+        let notify = json!({
+            "reason": "studio-agent-work",
+            "summary": summary,
+            "details": details,
+            "action_requested": format!("{marker} {action_requested}"),
+            "thread_id": thread_id,
+            "required_capabilities": ["claim", "acknowledge"],
+            "intent": "handoff",
+            "fanout": "best"
+        });
+        let result = greenroom_json(
+            &context,
+            muse,
+            "POST",
+            &format!("/identities/{}/notify", role.handle),
+            Some(&notify),
+        )?;
+        let assigned = result
+            .get("deliveries")
+            .and_then(Value::as_array)
+            .is_some_and(|deliveries| {
+                deliveries.iter().any(|delivery| {
+                    delivery.get("host_id").and_then(Value::as_str) == Some(host_id.as_str())
+                })
+            });
+        if !assigned {
+            return Err("Greenroom did not assign the role work to its registered Studio host.".to_string());
+        }
+    }
+
+    let claim_path = format!(
+        "/identities/{}/deliveries/claim?host_id={}",
+        role.handle,
+        percent_encode_query(&host_id)
+    );
+    let delivery = greenroom_json(&context, role, "POST", &claim_path, Some(&json!({})))?;
+    verify_role_delivery(&delivery, &host_id, &thread_id, &marker)?;
+    Ok(ClaimedRoleWorkResponse {
+        host_id,
+        reused,
+        delivery,
+    })
+}
+
+/// Acknowledge a role delivery only after the frontend has durably committed
+/// the role's canonical artifact. Repeated finalization is idempotent.
+#[tauri::command]
+pub(crate) fn greenroom_ack_role_work(request: FinishRoleWorkRequest) -> Result<Value, String> {
+    finish_role_work(request, "ack")
+}
+
+/// Release is reserved for work that never reached a canonical checkpoint.
+#[tauri::command]
+pub(crate) fn greenroom_release_role_work(request: FinishRoleWorkRequest) -> Result<Value, String> {
+    finish_role_work(request, "release")
+}
+
+/// Extend a long-running role's exclusive delivery lease. A screenplay or
+/// feature render may legitimately outlive Greenroom's short dead-host TTL.
+#[tauri::command]
+pub(crate) fn greenroom_renew_role_work(request: FinishRoleWorkRequest) -> Result<Value, String> {
+    finish_role_work(request, "renew")
+}
+
 fn load_context() -> Result<GreenroomContext, String> {
     let home = services::home_dir()?;
     let install = services::greenroom_install(&home).ok_or_else(|| {
@@ -303,6 +486,118 @@ fn greenroom_json(
     response.json()
 }
 
+fn role_host_id(project_id: &str, role_id: &str, work_id: &str) -> Result<String, String> {
+    let host_id = format!("studio.{project_id}.{role_id}.{work_id}");
+    if host_id.len() > 200 {
+        return Err("The Studio role host id is too long for Greenroom.".to_string());
+    }
+    Ok(host_id)
+}
+
+fn role_work_marker(work_id: &str) -> String {
+    format!("[studio-work:{work_id}]")
+}
+
+fn verify_role_delivery(
+    delivery: &Value,
+    host_id: &str,
+    thread_id: &str,
+    marker: &str,
+) -> Result<(), String> {
+    let matches = delivery.get("host_id").and_then(Value::as_str) == Some(host_id)
+        && delivery.get("thread_id").and_then(Value::as_str) == Some(thread_id)
+        && delivery
+            .get("action_requested")
+            .and_then(Value::as_str)
+            .is_some_and(|action| action.starts_with(marker));
+    if !matches {
+        return Err("Greenroom returned a delivery that does not match this Studio role work packet.".to_string());
+    }
+    Ok(())
+}
+
+fn find_role_delivery(
+    context: &GreenroomContext,
+    role: &CrewMember,
+    host_id: &str,
+    thread_id: &str,
+    marker: &str,
+    statuses: &[&str],
+) -> Result<Option<Value>, String> {
+    for status in statuses {
+        let path = format!(
+            "/identities/{}/deliveries?status={}&host_id={}",
+            role.handle,
+            percent_encode_query(status),
+            percent_encode_query(host_id)
+        );
+        let value = greenroom_json(context, role, "GET", &path, None)?;
+        let deliveries = value
+            .as_array()
+            .ok_or_else(|| "Greenroom returned an invalid delivery list.".to_string())?;
+        if let Some(delivery) = deliveries.iter().find(|delivery| {
+            verify_role_delivery(delivery, host_id, thread_id, marker).is_ok()
+        }) {
+            return Ok(Some(delivery.clone()));
+        }
+    }
+    Ok(None)
+}
+
+fn finish_role_work(request: FinishRoleWorkRequest, action: &str) -> Result<Value, String> {
+    let project_id = validate_identifier(&request.project_id, "project id", 80)?;
+    let thread_id = validate_identifier(&request.thread_id, "thread id", 64)?;
+    let role_id = validate_identifier(&request.role_id, "role id", 64)?;
+    let work_id = validate_identifier(&request.work_id, "work id", 48)?;
+    let delivery_id = validate_identifier(&request.delivery_id, "delivery id", 64)?;
+    let context = load_context()?;
+    fetch_verified_thread(&context, &project_id, &thread_id)?;
+    let role = resolve_member(&context, &role_id, false)?;
+    let host_id = role_host_id(&project_id, &role_id, &work_id)?;
+    let marker = role_work_marker(&work_id);
+
+    let statuses: &[&str] = match action {
+        "ack" => &["acknowledged", "claimed", "pending"],
+        "release" => &["claimed", "pending"],
+        "renew" => &["claimed"],
+        _ => return Err("Unknown Greenroom role-work transition.".to_string()),
+    };
+    let existing = find_role_delivery(
+        &context,
+        role,
+        &host_id,
+        &thread_id,
+        &marker,
+        statuses,
+    )?
+    .ok_or_else(|| "The Greenroom role delivery is no longer available.".to_string())?;
+    if existing.get("id").and_then(Value::as_str) != Some(delivery_id.as_str()) {
+        return Err("The Greenroom delivery id does not match this Studio work packet.".to_string());
+    }
+    if action == "ack"
+        && existing.get("status").and_then(Value::as_str) == Some("acknowledged")
+    {
+        return Ok(existing);
+    }
+    if action == "release" && existing.get("status").and_then(Value::as_str) == Some("pending") {
+        return Ok(existing);
+    }
+
+    greenroom_json(
+        &context,
+        role,
+        "POST",
+        &format!(
+            "/identities/{}/deliveries/{}/{}?host_id={}",
+            role.handle,
+            delivery_id,
+            action,
+            percent_encode_query(&host_id)
+        ),
+        Some(&json!({})),
+    )
+}
+
 fn thread_belongs_to_project(thread: &Value, repo: &str, project_tag: &str) -> bool {
     thread.get("repo").and_then(Value::as_str) == Some(repo)
         && thread
@@ -401,8 +696,9 @@ fn percent_encode_query(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        project_repo, project_tag, resolve_member, secure_credential_file,
-        thread_belongs_to_project, validate_identifier, CrewMember, CrewState, GreenroomContext,
+        project_repo, project_tag, resolve_member, role_host_id, role_work_marker,
+        secure_credential_file, thread_belongs_to_project, validate_identifier,
+        verify_role_delivery, CrewMember, CrewState, GreenroomContext,
     };
     use serde_json::json;
     use std::collections::{HashMap, HashSet};
@@ -483,6 +779,39 @@ mod tests {
             &project_repo("other"),
             &project_tag("other")
         ));
+    }
+
+    #[test]
+    fn role_work_host_and_delivery_are_bound_to_the_exact_project_job() {
+        let host = role_host_id("project-42", "director", "work-7").unwrap();
+        let marker = role_work_marker("work-7");
+        let delivery = json!({
+            "id": "delivery-1",
+            "host_id": host,
+            "thread_id": "thread-9",
+            "action_requested": format!("{marker} Direct the next film pass.")
+        });
+        assert!(verify_role_delivery(
+            &delivery,
+            "studio.project-42.director.work-7",
+            "thread-9",
+            &marker
+        )
+        .is_ok());
+        assert!(verify_role_delivery(
+            &delivery,
+            "studio.other.director.work-7",
+            "thread-9",
+            &marker
+        )
+        .is_err());
+        assert!(verify_role_delivery(
+            &delivery,
+            "studio.project-42.director.work-7",
+            "other-thread",
+            &marker
+        )
+        .is_err());
     }
 
     #[cfg(unix)]
