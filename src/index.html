@@ -405,15 +405,16 @@
     .look-grid{grid-template-columns:1fr}
   }
 </style>
+<link rel="stylesheet" href="./cinematic-polish.css">
 </head>
 <body>
 <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="sbGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2f7bf6"/><stop offset="1" stop-color="#2fc4f0"/>
+      <stop offset="0" stop-color="#a65370"/><stop offset="1" stop-color="#765f9b"/>
     </linearGradient>
     <linearGradient id="sbGrad2" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#3f8bff"/><stop offset="1" stop-color="#7c5cf0"/>
+      <stop offset="0" stop-color="#8f557c"/><stop offset="1" stop-color="#587aa1"/>
     </linearGradient>
   </defs>
   <symbol id="sbLogoMark" viewBox="0 0 100 100">
@@ -431,12 +432,12 @@
     <rect x="20" y="70" width="21" height="2.6" rx="1.3" fill="#8b93a3"/>
     <rect x="20" y="76" width="23" height="2.2" rx="1.1" fill="#c2c9d4"/>
     <!-- dissolve pixels -->
-    <rect x="52" y="26" width="4" height="4" rx="1" fill="#2f7bf6" opacity=".85"/>
-    <rect x="57" y="34" width="3" height="3" rx="1" fill="#2fc4f0" opacity=".7"/>
-    <rect x="53" y="44" width="3.5" height="3.5" rx="1" fill="#3f8bff" opacity=".8"/>
-    <rect x="58" y="55" width="3" height="3" rx="1" fill="#7c5cf0" opacity=".7"/>
-    <rect x="53" y="63" width="4" height="4" rx="1" fill="#2f7bf6" opacity=".85"/>
-    <rect x="58" y="73" width="3" height="3" rx="1" fill="#2fc4f0" opacity=".7"/>
+    <rect x="52" y="26" width="4" height="4" rx="1" fill="#a65370" opacity=".85"/>
+    <rect x="57" y="34" width="3" height="3" rx="1" fill="#8a5e95" opacity=".7"/>
+    <rect x="53" y="44" width="3.5" height="3.5" rx="1" fill="#ba718c" opacity=".8"/>
+    <rect x="58" y="55" width="3" height="3" rx="1" fill="#6577a1" opacity=".7"/>
+    <rect x="53" y="63" width="4" height="4" rx="1" fill="#a65370" opacity=".85"/>
+    <rect x="58" y="73" width="3" height="3" rx="1" fill="#765f9b" opacity=".7"/>
     <!-- breakdown chips -->
     <g>
       <rect x="64" y="22" width="24" height="11" rx="3.5" fill="url(#sbGrad)"/>
@@ -457,29 +458,29 @@
       <div><h1>AGENTIC <span class="b">MOVIE</span><br>STUDIO</h1><div class="sub">Make the whole movie</div></div>
     </div>
     <div class="nav-sec">Library</div>
-    <button class="nav-btn" data-view="projects"><span class="ic">⌂</span><span class="lbl">Projects</span></button>
+    <button class="nav-btn" data-view="projects" title="Projects"><span class="ic">⌂</span><span class="lbl">Projects</span></button>
     <div class="nav-sec">Production</div>
-<button class="nav-btn" data-view="crew"><span class="ic">◉</span><span class="lbl">Make a Film</span></button>
+<button class="nav-btn" data-view="crew" title="Make a Film"><span class="ic">◉</span><span class="lbl">Make a Film</span></button>
 <div class="nav-sec">Develop</div>
-    <button class="nav-btn" data-view="cards"><span class="ic">▥</span><span class="lbl">Cards</span></button>
-    <button class="nav-btn active" data-view="scenes"><span class="ic">▤</span><span class="lbl">Script</span></button>
-    <button class="nav-btn" data-view="doctor"><span class="ic">✎</span><span class="lbl">Script Doctor</span></button>
+    <button class="nav-btn" data-view="cards" title="Cards"><span class="ic">▥</span><span class="lbl">Cards</span></button>
+    <button class="nav-btn active" data-view="scenes" title="Script"><span class="ic">▤</span><span class="lbl">Script</span></button>
+    <button class="nav-btn" data-view="doctor" title="Script Doctor"><span class="ic">✎</span><span class="lbl">Script Doctor</span></button>
     <div class="nav-sec">Break down</div>
-    <button class="nav-btn" data-view="elements"><span class="ic">⬡</span><span class="lbl">Elements</span></button>
-    <button class="nav-btn" data-view="bibles"><span class="ic">◉</span><span class="lbl">Bibles</span></button>
-    <button class="nav-btn" data-view="look"><span class="ic">◐</span><span class="lbl">Look</span></button>
-    <button class="nav-btn" data-view="tasteos"><span class="ic">◇</span><span class="lbl">TasteOS</span></button>
-    <button class="nav-btn" data-view="timeline"><span class="ic">≡</span><span class="lbl">Timeline</span></button>
+    <button class="nav-btn" data-view="elements" title="Elements"><span class="ic">⬡</span><span class="lbl">Elements</span></button>
+    <button class="nav-btn" data-view="bibles" title="Bibles"><span class="ic">◉</span><span class="lbl">Bibles</span></button>
+    <button class="nav-btn" data-view="look" title="Look"><span class="ic">◐</span><span class="lbl">Look</span></button>
+    <button class="nav-btn" data-view="tasteos" title="TasteOS"><span class="ic">◇</span><span class="lbl">TasteOS</span></button>
+    <button class="nav-btn" data-view="timeline" title="Timeline"><span class="ic">≡</span><span class="lbl">Timeline</span></button>
     <div class="nav-sec">Shoot</div>
-    <button class="nav-btn" data-view="boards"><span class="ic">▦</span><span class="lbl">Boards</span></button>
-    <button class="nav-btn" data-view="shots"><span class="ic">▣</span><span class="lbl">Shot List</span></button>
-    <button class="nav-btn" data-view="prompts"><span class="ic">✦</span><span class="lbl">Prompts</span></button>
-    <button class="nav-btn" data-view="slate"><span class="ic">◧</span><span class="lbl">Slate</span></button>
-    <button class="nav-btn" data-view="takes"><span class="ic">◎</span><span class="lbl">Takes</span></button>
+    <button class="nav-btn" data-view="boards" title="Boards"><span class="ic">▦</span><span class="lbl">Boards</span></button>
+    <button class="nav-btn" data-view="shots" title="Shot List"><span class="ic">▣</span><span class="lbl">Shot List</span></button>
+    <button class="nav-btn" data-view="prompts" title="Prompts"><span class="ic">✦</span><span class="lbl">Prompts</span></button>
+    <button class="nav-btn" data-view="slate" title="Slate"><span class="ic">◧</span><span class="lbl">Slate</span></button>
+    <button class="nav-btn" data-view="takes" title="Takes"><span class="ic">◎</span><span class="lbl">Takes</span></button>
     <div class="nav-sec">Output</div>
-    <button class="nav-btn" data-view="export"><span class="ic">⇪</span><span class="lbl">Export</span></button>
+    <button class="nav-btn" data-view="export" title="Export"><span class="ic">⇪</span><span class="lbl">Export</span></button>
     <div class="nav-sec">Info</div>
-    <button class="nav-btn" data-view="help"><span class="ic">?</span><span class="lbl">Help &amp; About</span></button>
+    <button class="nav-btn" data-view="help" title="Help &amp; About"><span class="ic">?</span><span class="lbl">Help &amp; About</span></button>
     <div class="foot">Agentic Movie Studio<br>Built and expanded by Abandoned Muse<br>Open source · Apache 2.0</div>
   </div>
 
