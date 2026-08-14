@@ -50,19 +50,61 @@ test('idea screenplay stays in the active Studio project', () => {
   assert.doesNotMatch(writer, /screenplay in Fountain/);
 });
 
-test('target length applies only to a bare idea and never constrains an existing script', () => {
+test('target length applies to newly authored idea/adaptation films and never constrains an existing script', () => {
   const writer = bodyBetween('async function crewWriteScript', 'async function crewCoverage');
   const start = bodyBetween('async function crewStart', 'function crewResumeOwnerMatches');
   const room = bodyBetween('function renderCrew', '/* ================= render all + init ================= */');
   assert.match(writer, /if \(S\.scenes\.length&&!rewriting\) return/);
-  assert.match(writer, /p&&p\.mode==='idea'/);
+  assert.match(writer, /\['idea','adaptation'\]\.includes\(p\.mode\)/);
   assert.match(writer, /This is a bare-idea production/);
+  assert.match(writer, /This is a source-adaptation production/);
   assert.match(writer, /targetMinutes/);
-  assert.match(start, /const targetMinutes=mode==='idea'/);
-  assert.match(start, /if \(mode==='idea'\) S\.production\.targetMinutes=targetMinutes/);
+  assert.match(start, /\['idea','adaptation'\]\.includes\(mode\)/);
+  assert.match(start, /S\.production\.targetMinutes=targetMinutes/);
   assert.doesNotMatch(start, /targetMinutes, status/);
-  assert.match(room, /New idea target/);
-  assert.match(room, /Make the current script ignores it completely/);
+  assert.match(room, /New-film target/);
+  assert.match(room, /Current script/);
+});
+
+test('papers are developed as source adaptations instead of being reformatted as screenplay prose', () => {
+  const story = bodyBetween('const CREW_SOURCE_PASS_SCHEMA', 'const CREW_SCREENPLAY_SCHEMA');
+  const writer = bodyBetween('async function crewWriteScript', 'async function crewCoverage');
+  const call = bodyBetween('async function crewCall', 'async function crewStart');
+  const ingest = source.slice(source.indexOf('async function storyToScript'), source.indexOf('/* Boards toolbar */'));
+  assert.match(story, /source-development digest/i);
+  assert.match(story, /Consider multiple possible film forms/);
+  assert.match(story, /screenEvent/);
+  assert.match(story, /sourceBasis/);
+  assert.match(writer, /Do not follow the paper\\'s section order/);
+  assert.match(writer, /crewValidateAdaptationScreenplay/);
+  assert.match(writer, /No substantial consecutive wording may be copied/);
+  assert.match(call, /p\.mode==='adaptation'/);
+  assert.ok(call.indexOf("['story_editor','director']") < call.indexOf('for (const id of runPipeline)'));
+  assert.match(ingest, /crewStart\('adaptation'/);
+  assert.doesNotMatch(ingest, /Return this passage as screenplay pages/);
+});
+
+test('adaptation validation rejects a paper paragraph wearing screenplay headers', () => {
+  const context = {};
+  vm.createContext(context);
+  vm.runInContext(`${bodyBetween('function crewAdaptationOverlap', 'async function crewWriteScript')}
+    globalThis.validateAdaptation = crewValidateAdaptationScreenplay;`, context);
+  const sourceWords=Array.from({length:140},(_,index)=>'sourceword'+index);
+  const copied={scenes:[{blocks:[{type:'action',text:sourceWords.join(' ')}]}]};
+  assert.throws(()=>context.validateAdaptation(copied,sourceWords.join(' ')),/copies too much consecutive source prose/);
+  const transformed={scenes:[{blocks:[{type:'action',text:Array.from({length:140},(_,index)=>'screenaction'+index).join(' ')}]}]};
+  assert.equal(context.validateAdaptation(transformed,sourceWords.join(' ')),transformed);
+});
+
+test('screenplay repair can change scene-heading lines only', () => {
+  const repair = bodyBetween('async function repairScriptHeadings', '/** Offer adaptation');
+  assert.match(repair, /lineNumber/);
+  assert.match(repair, /lines\[index\]!==original/);
+  assert.match(repair, /SLUG_RE\.test\(replacement\)/);
+  assert.match(repair, /repaired\[index\]=value/);
+  assert.match(repair, /Do not rewrite, correct, summarize, join, split, or move any other line/);
+  assert.match(repair, /schema:SCRIPT_HEADING_REPAIR_SCHEMA/);
+  assert.doesNotMatch(repair, /storyToScript\s*\(/);
 });
 
 test('the production run is resumable and queues every stable shot id', () => {

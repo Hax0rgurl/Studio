@@ -2702,6 +2702,10 @@ function screenplayFromPDF(pages){
   }
   return parsed;
 }
+function documentTextFromPDF(pages){
+  return (pages||[]).map((page,index)=>'--- PAGE '+(index+1)+' ---\n'
+    +(page.lines||[]).map(line=>String(line.text||'').trim()).filter(Boolean).join('\n')).join('\n\n');
+}
 async function handlePDF(file,owner){
   owner=owner||fileLoadOwner();
   toast('Reading PDF…', true);
@@ -2717,8 +2721,9 @@ async function handlePDF(file,owner){
     const parsed = screenplayFromPDF(pages);
     if (parsed.scenes.length){ importParsed(parsed, file.name); return; }
   }
-  // not a screenplay → treat as style guide / mood book
-  importStyleGuide(pages, file.name, owner);
+  // A prose PDF may be research to adapt or a visual lookbook. Never guess
+  // that a paper is already screenplay prose and silently reformat it.
+  offerAdaptation(documentTextFromPDF(pages),file.name,()=>importStyleGuide(pages,file.name,owner));
 }
 
 /* ---------- style guide / mood book ingestion ---------- */
@@ -2841,7 +2846,7 @@ let CREW = { gr: localStorage.getItem('studio.crew.gr') || CREW_GR_DEFAULT,
              providers:[], providerLoadErrors:[], providerError:'',providerDirectory:'',
              videoProviderId:localStorage.getItem(VIDEO_PROVIDER_KEY)||'phosphene',
              videoModel:'',imageProviderId:localStorage.getItem(IMAGE_PROVIDER_KEY)||'pitchdeck-stills',
-             imageModel:'', billingApproved:false };
+             imageModel:'', billingApproved:false, sourceDraft:null };
 
 function videoProviderFallback(){
   return {id:'phosphene',name:'Phosphene',kind:'local',configured:true,requiresBillingApproval:false,
@@ -3218,8 +3223,16 @@ function crewContext(role, options){
     'Film: '+(S.title||'Untitled'),
     p&&p.mode ? 'Mode: '+p.mode : '',
     p&&p.brief ? 'Filmmaker brief: '+p.brief : '',
-    p&&p.targetMinutes ? 'Idea-film target: approximately '+p.targetMinutes+' minute(s)' : ''
+    p&&p.targetMinutes ? 'Film target: approximately '+p.targetMinutes+' minute(s)' : '',
+    p&&p.mode==='adaptation' ? 'Binding mode: develop a new visual adaptation. The source document is evidence, not screenplay prose.' : ''
   ].filter(Boolean).join('\n'),6000);
+  if (p&&p.mode==='adaptation'){
+    if (roleId==='story_editor' && p.sourceMaterial && !p.sourceDigest){
+      add('SOURCE DOCUMENT — READ AS RESEARCH, NEVER AS DRAFT SCREENPLAY',p.sourceMaterial,Math.max(40000,Math.min(420000,budget*12)));
+    }else if (p.sourceDigest){
+      add('SOURCE DEVELOPMENT DIGEST',p.sourceDigest,60000);
+    }
+  }
   add('STORY BIBLE',S.bible,12000);
 
   const lookLines=LOOK_FIELDS.map(field=>{
@@ -3862,7 +3875,103 @@ function crewStoryText(value){
     +lines('THEMES',value.themes)+'\n\n'+lines('WORLD RULES',value.worldRules)+'\n\n'
     +lines('MUST NOT BECOME',value.mustNotBecome);
 }
+const CREW_SOURCE_PASS_SCHEMA={type:'object',additionalProperties:false,
+  required:['claims','evidence','visualPossibilities','humanConsequences','tensions','doNotInvent'],properties:{
+    claims:{type:'array',minItems:1,maxItems:8,items:{type:'string'}},
+    evidence:{type:'array',minItems:1,maxItems:8,items:{type:'string'}},
+    visualPossibilities:{type:'array',minItems:1,maxItems:8,items:{type:'string'}},
+    humanConsequences:{type:'array',maxItems:6,items:{type:'string'}},
+    tensions:{type:'array',maxItems:6,items:{type:'string'}},
+    doNotInvent:{type:'array',maxItems:8,items:{type:'string'}}
+  }};
+const CREW_ADAPTATION_SCHEMA={type:'object',additionalProperties:false,
+  required:['sourceThesis','filmForm','filmFormReason','audienceJourney','visualSequences','narrationStrategy','factualGuardrails','mustNotBecome'],properties:{
+    sourceThesis:{type:'string',minLength:30},filmForm:{type:'string',minLength:8},filmFormReason:{type:'string',minLength:30},
+    audienceJourney:{type:'array',minItems:4,maxItems:12,items:{type:'string'}},
+    visualSequences:{type:'array',minItems:4,maxItems:16,items:{type:'object',additionalProperties:false,
+      required:['title','screenEvent','sourceBasis','dramaticTurn'],properties:{
+        title:{type:'string',minLength:3},screenEvent:{type:'string',minLength:30},
+        sourceBasis:{type:'string',minLength:20},dramaticTurn:{type:'string',minLength:20}
+      }}},
+    narrationStrategy:{type:'string',minLength:30},
+    factualGuardrails:{type:'array',minItems:2,maxItems:16,items:{type:'string'}},
+    mustNotBecome:{type:'array',minItems:2,maxItems:12,items:{type:'string'}}
+  }};
+function crewSourceChunks(text){
+  const source=String(text||'').replace(/\r/g,'').trim();
+  if (!source) return [];
+  const ctx=Math.max(4096,Number(AI.numCtx)||8192);
+  let target=Math.max(14000,Math.min(36000,Math.floor(ctx*2.2)));
+  target=Math.max(target,Math.ceil(source.length/12));
+  const paras=source.split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean), chunks=[];
+  let current='';
+  const pushLong=value=>{ for(let i=0;i<value.length;i+=target) chunks.push(value.slice(i,i+target)); };
+  paras.forEach(paragraph=>{
+    if (paragraph.length>target){ if(current){chunks.push(current);current='';} pushLong(paragraph); return; }
+    if (current && current.length+paragraph.length+2>target){ chunks.push(current); current=paragraph; }
+    else current=current?current+'\n\n'+paragraph:paragraph;
+  });
+  if(current) chunks.push(current);
+  return chunks.slice(0,12);
+}
+function crewSourcePassText(value,index){
+  const lines=[`SOURCE PASS ${index+1}`];
+  [['Claims','claims'],['Evidence / cases','evidence'],['Filmable material','visualPossibilities'],
+    ['Human consequences','humanConsequences'],['Tensions','tensions'],['Do not invent','doNotInvent']]
+    .forEach(([label,key])=>{ if((value[key]||[]).length) lines.push(label+':\n'+value[key].map(x=>'- '+String(x).trim()).join('\n')); });
+  return lines.join('\n');
+}
+async function crewAnalyzeSource(role,ask){
+  const p=productionState(), chunks=crewSourceChunks(p&&p.sourceMaterial);
+  if (!chunks.length) throw new Error('No source document is attached to this adaptation.');
+  const passes=[];
+  for(let i=0;i<chunks.length;i++){
+    const user='You are performing source development before any screenplay is written. Read source passage '+(i+1)+' of '+chunks.length+'. '
+      +'Extract only what this passage supports. Identify claims, evidence/cases, physical or archival material that could be filmed, human consequences, productive tensions, and facts a later writer must not invent. '
+      +'Do not propose scenes yet. Do not preserve the paper\'s prose or section structure.\n\nFILMMAKER DIRECTION:\n'+String(ask||p.brief||'')
+      +'\n\n=== SOURCE PASSAGE '+(i+1)+' ===\n'+chunks[i];
+    const raw=await aiStream(crewSystem(role),user,null,null,{temperature:0.2,json:true,schema:CREW_SOURCE_PASS_SCHEMA,
+      schemaName:'source_development_pass',roleId:role.id,workloadId:'department.story_editor.source.'+(i+1),artifactType:'source_analysis'});
+    passes.push(crewSourcePassText(aiParseJson(raw),i));
+  }
+  p.sourceDigest=passes.join('\n\n').slice(0,90000);
+  if (productionCheckpoint()===false) throw new Error('The source-development digest could not be saved.');
+  return p.sourceDigest;
+}
+function crewAdaptationText(value){
+  const lines=(label,rows)=>label+'\n'+(rows||[]).map(row=>'- '+String(row).trim()).join('\n');
+  const sequences=(value.visualSequences||[]).map((row,index)=>(index+1)+'. '+row.title
+    +'\n   Screen event: '+row.screenEvent+'\n   Source basis: '+row.sourceBasis+'\n   Dramatic turn: '+row.dramaticTurn).join('\n');
+  return 'SOURCE THESIS\n'+String(value.sourceThesis).trim()+'\n\nCHOSEN FILM FORM\n'+String(value.filmForm).trim()
+    +'\nWhy this form: '+String(value.filmFormReason).trim()+'\n\n'+lines('AUDIENCE JOURNEY',value.audienceJourney)
+    +'\n\nVISUAL SEQUENCES\n'+sequences+'\n\nNARRATION STRATEGY\n'+String(value.narrationStrategy).trim()
+    +'\n\n'+lines('FACTUAL GUARDRAILS',value.factualGuardrails)+'\n\n'+lines('MUST NOT BECOME',value.mustNotBecome);
+}
 async function crewStoryBible(role, ask){
+  const p=productionState();
+  if (p&&p.mode==='adaptation'){
+    const digest=p.sourceDigest||await crewAnalyzeSource(role,ask);
+    const user=crewContext(role)+(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
+      +'\n\nDevelop a genuinely cinematic adaptation treatment. Consider multiple possible film forms, choose one, and build an audience journey that is structurally independent of the paper. '
+      +'Every sequence needs a concrete screen event, exact source basis, and dramatic turn. The source is evidence, not draft narration. Do not turn its headings into scenes or its paragraphs into voice-over. Return only the JSON schema.';
+    let raw='',value;
+    try{
+      raw=await aiStream(crewJsonRepairSystem(role),user,null,null,{temperature:0.55,json:true,schema:CREW_ADAPTATION_SCHEMA,
+        schemaName:'source_adaptation_treatment',roleId:role.id,workloadId:'department.story_editor.adaptation',artifactType:'adaptation_treatment'});
+      value=aiParseJson(raw);
+    }catch(firstError){
+      const repair=user+'\n\nVALIDATION FAILURE: '+String((firstError&&firstError.message)||firstError)
+        +'\nReturn the complete corrected treatment. Previous response:\n'+String(raw||'').slice(0,18000);
+      value=aiParseJson(await aiStream(crewJsonRepairSystem(role),repair,null,null,{temperature:0.15,json:true,
+        schema:CREW_ADAPTATION_SCHEMA,schemaName:'source_adaptation_treatment',roleId:role.id,
+        workloadId:'department.story_editor.adaptation.repair',artifactType:'adaptation_treatment'}));
+    }
+    S.bible=crewAdaptationText(value);
+    if (!Array.isArray(value.visualSequences)||value.visualSequences.length<4) throw new Error('The adaptation treatment did not produce enough visual sequences.');
+    if (!persistNow()) throw new Error('The adaptation treatment could not be saved.');
+    return {status:'done',text:S.bible,artifact:crewArtifactRef('adaptation_treatment','Source adaptation treatment','scenes',
+      String(value.sourceThesis||'').trim(),{filmForm:value.filmForm,sequenceCount:value.visualSequences.length})};
+  }
   const user=crewContext(role)+(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
     +'\n\nCreate the story department handoff required by your skill book. The progression must describe a beginning condition, escalating turns, and an ending condition. '
     +'Do not invent screenplay beats when a script is already loaded; diagnose its actual structure. Return the labeled content through the JSON schema.';
@@ -3962,28 +4071,63 @@ function crewStructuredScreenplay(value){
   if (!scenes.some(scene=>String(scene.text||'').trim())) throw new Error('The screenplay contains no playable action or dialogue.');
   return {title:String(value.title||S.title||'Untitled').trim()||'Untitled',scenes};
 }
+function crewAdaptationOverlap(value,source){
+  const normal=value=>String(value||'').toLowerCase().replace(/[^a-z0-9' ]+/g,' ').replace(/\s+/g,' ').trim();
+  const sourceText=' '+normal(source)+' ';
+  const written=[];
+  (value&&value.scenes||[]).forEach(scene=>(scene.blocks||[]).forEach(block=>written.push(block.text||'')));
+  const words=normal(written.join(' ')).split(' ').filter(Boolean);
+  if (words.length<80 || sourceText.length<500) return 0;
+  let checked=0,matched=0;
+  for(let i=0;i+11<words.length;i+=6){
+    const phrase=words.slice(i,i+12).join(' ');
+    checked++; if(sourceText.includes(' '+phrase+' ')) matched++;
+  }
+  return checked?matched/checked:0;
+}
+function crewValidateAdaptationScreenplay(value,source){
+  const scenes=Array.isArray(value&&value.scenes)?value.scenes:[];
+  if (!scenes.length) throw new Error('The adaptation returned no scenes.');
+  scenes.forEach((scene,index)=>{
+    const action=(scene.blocks||[]).filter(block=>block&&block.type==='action').map(block=>String(block.text||'')).join(' ');
+    if (action.length<30) throw new Error('Adaptation scene '+(index+1)+' has no substantial visible action. Every scene needs a screen event, not just narration.');
+  });
+  const overlap=crewAdaptationOverlap(value,source);
+  if (overlap>0.12) throw new Error('The draft copies too much consecutive source prose ('+Math.round(overlap*100)+'% long-phrase overlap). Rebuild it from the visual treatment instead of reformatting the paper.');
+  return value;
+}
 async function crewWriteScript(role, ask){
-  const p=productionState(), rewriting=!!(p&&p.mode==='idea'&&(p.reworkRoles||[]).includes('writer'));
+  const p=productionState(), rewriting=!!(p&&['idea','adaptation'].includes(p.mode)&&(p.reworkRoles||[]).includes('writer'));
   if (S.scenes.length&&!rewriting) return {status:'skipped',text:'A script is already loaded (' + S.scenes.length
     + ' scenes). The writer preserved it exactly; screenplay revisions belong in Script Doctor.',
     artifact:crewArtifactRef('screenplay','Existing screenplay','scenes','The imported screenplay remains canon.',{sceneCount:S.scenes.length})};
   const targetMinutes=Math.max(1,Number((productionState()||{}).targetMinutes||1));
+  const adapting=!!(p&&p.mode==='adaptation');
   const user = crewContext(role) + (ask ? '\n\nFILMMAKER REQUEST FOR THIS RUN:\n' + ask : '')
-    + '\n\nThis is a bare-idea production. Write an approximately ' + targetMinutes + '-minute screenplay as structured scene data. '
+    + (adapting
+      ? '\n\nThis is a source-adaptation production. Write an approximately '+targetMinutes+'-minute NEW screenplay from the approved visual treatment and source-development digest. '
+        +'Do not follow the paper\'s section order. Do not turn headings into sluglines. Do not turn paragraphs into voice-over. The source is a quarry of authorized facts and evidence, not draft screenplay language. '
+        +'Every scene must contain a concrete event the audience can see or hear and must change the audience\'s understanding. Use narration only when the treatment proves images, action, interview, archive, demonstration, or sound cannot carry the necessary idea. '
+        +'No substantial consecutive wording may be copied from the source. Do not invent facts, quotations, interviewees, access, archive, or locations that the digest does not support. '
+      : '\n\nThis is a bare-idea production. Write an approximately ' + targetMinutes + '-minute screenplay as structured scene data. ')
     + 'Use the target as the story container, while still giving every essential beat enough space. '
     + 'Use only visible action and playable dialogue. Return only the supplied JSON schema; do not return Fountain, Markdown, or commentary.';
   let raw='', parsed;
   try{
     raw=await aiStream(crewSystem(role), user, null, null,
       {temperature:0.7,json:true,schema:CREW_SCREENPLAY_SCHEMA,schemaName:'agentic_studio_screenplay',roleId:role.id,workloadId:'department.'+role.id,artifactType:'screenplay'});
-    parsed=crewStructuredScreenplay(aiParseJson(raw));
+    const value=aiParseJson(raw);
+    if (adapting) crewValidateAdaptationScreenplay(value,p.sourceMaterial||'');
+    parsed=crewStructuredScreenplay(value);
   }catch(firstError){
     const repair=user+'\n\nYour first response failed validation: '+String((firstError&&firstError.message)||firstError)
       +'\nRepair only the invalid structure. Return one complete JSON object matching the schema. Failed response:\n'
       +String(raw||'').slice(0,20000);
     const repaired=await aiStream(crewSystem(role), repair, null, null,
       {temperature:0.2,json:true,schema:CREW_SCREENPLAY_SCHEMA,schemaName:'agentic_studio_screenplay',roleId:role.id,workloadId:'department.'+role.id+'.repair',artifactType:'screenplay'});
-    parsed=crewStructuredScreenplay(aiParseJson(repaired));
+    const value=aiParseJson(repaired);
+    if (adapting) crewValidateAdaptationScreenplay(value,p.sourceMaterial||'');
+    parsed=crewStructuredScreenplay(value);
   }
   // Install the validated scene graph into this same project only after the
   // entire response passes. Fountain remains an import/export adapter.
@@ -4918,7 +5062,13 @@ async function crewCall(ask){
       toast(p.error);
       return;
     }
-    for (const id of CREW_PIPELINE){
+    // A source adaptation is researched and structured by the story editor
+    // before the director locks its film form. Original ideas keep the normal
+    // director-first development order.
+    const runPipeline=p.mode==='adaptation'
+      ? ['story_editor','director'].concat(CREW_PIPELINE.filter(id=>!['story_editor','director'].includes(id)))
+      : CREW_PIPELINE;
+    for (const id of runPipeline){
       if (CREW.cancel){
         CREW.cancel=false; p.status='cancelled'; p.currentStep=''; productionCheckpoint();
         toast('Production stopped. You can resume it from this project.'); return;
@@ -4958,7 +5108,7 @@ async function crewCall(ask){
   }
 }
 
-async function crewStart(mode, ask){
+async function crewStart(mode, ask, sourceOptions){
   const current=productionState();
   if (canonicalWorkerLocked()) { toast('Finish or stop the current project worker before starting production.'); return; }
   if (CREW.busy || CREW.calling || CREW.refreshPromise || CREW.assemblyPromise || CREW.resumePromise
@@ -4972,9 +5122,10 @@ async function crewStart(mode, ask){
   if (mode==='script' && current && !['complete','cancelled'].includes(current.status)){
     toast('Resume this script’s existing production instead of replacing its job record.'); return;
   }
+  const source=sourceOptions||{};
   const brief=String(ask||'').trim();
-  const targetMinutes=mode==='idea'
-    ? Math.max(1,Number((el('crewLength')||{}).value||localStorage.getItem('studio.production.minutes')||1))
+  const targetMinutes=['idea','adaptation'].includes(mode)
+    ? Math.max(1,Number(source.targetMinutes||(el('crewLength')||{}).value||localStorage.getItem('studio.production.minutes')||1))
     : null;
   const videoSelection=videoProviderSelection(null), imageSelection=imageProviderSelection(null);
   const selectedVideo=videoProviderDescriptor(videoSelection.id), selectedImage=imageProviderDescriptor(imageSelection.id);
@@ -4987,10 +5138,13 @@ async function crewStart(mode, ask){
   if ((selectedVideo.requiresBillingApproval||selectedImage.requiresBillingApproval)&&!CREW.billingApproved){
     toast('Approve paid API submissions for this run before starting production.'); return;
   }
-  if (mode==='idea') localStorage.setItem('studio.production.minutes',String(targetMinutes));
-  if (mode==='idea'){
-    if (!brief){ toast('Give the crew the idea first.'); return; }
-    if (!crewCreateIdeaProject(brief)){
+  if (['idea','adaptation'].includes(mode)) localStorage.setItem('studio.production.minutes',String(targetMinutes));
+  if (['idea','adaptation'].includes(mode)){
+    const sourceText=String(source.text||(mode==='adaptation'?brief:'')).trim();
+    if (mode==='idea'&&!brief){ toast('Give the crew the idea first.'); return; }
+    if (mode==='adaptation'&&sourceText.length<400){ toast('Attach or paste the paper, research, or source document first.'); return; }
+    const projectSeed=mode==='adaptation'?(source.filename||brief||'Source adaptation'):brief;
+    if (!crewCreateIdeaProject(projectSeed)){
       toast('Agentic Movie Studio could not save the new film project. Free local storage before starting production.');
       return;
     }
@@ -5004,13 +5158,21 @@ async function crewStart(mode, ask){
   const priorProduction=S.production||null;
   const now=new Date().toISOString();
   S.production={
-    id:'prod_'+uid(), mode, brief:brief || ('Make '+(S.title||'this script')+' into a finished film.'),
+    id:'prod_'+uid(), mode,
+    brief:brief || (mode==='adaptation'
+      ? 'Develop this source into the most visually compelling truthful film its material supports.'
+      : ('Make '+(S.title||'this script')+' into a finished film.')),
     status:'starting', startedAt:now, updatedAt:now, currentStep:'', steps:{}, jobs:{},
     greenroomThreadId:'', error:'', pollError:'',
     videoProvider:{id:videoSelection.id,model:videoSelection.model||'',billingApproved:videoSelection.billingApproved===true,frozenAt:now},
     imageProvider:{id:imageSelection.id,model:imageSelection.model||'',billingApproved:imageSelection.billingApproved===true,frozenAt:now}
   };
-  if (mode==='idea') S.production.targetMinutes=targetMinutes;
+  if (['idea','adaptation'].includes(mode)) S.production.targetMinutes=targetMinutes;
+  if (mode==='adaptation'){
+    S.production.sourceMaterial=String(source.text||brief).trim();
+    S.production.sourceFilename=String(source.filename||'Pasted source');
+    S.production.sourceDigest='';
+  }
   if (productionCheckpoint()===false){
     S.production=priorProduction;
     crewApplyMutationLock();
@@ -5164,14 +5326,20 @@ function renderCrew(){
         +((providerRun?videoSelection.billingApproved||imageSelection.billingApproved:CREW.billingApproved)?' checked':'')+(providerLocked?' disabled':'')+'> Allow paid API submissions for this run. Provider: '+esc(paidProvider.name)+'</label>':'')
     + '<div class="auto-note" style="margin-top:8px">Photo and video engines are independent. The chosen providers and model IDs are frozen only after a production starts, for restart/error recovery.</div>'
     + (CREW.providerDirectory?'<div class="auto-note" style="margin-top:5px">Trusted API/MCP adapter folder: <code>'+esc(CREW.providerDirectory)+'</code></div>':'')
-    + '<div style="margin-top:15px"><label class="bd-f"><span>Your idea or direction</span>'
-    + '<textarea id="crewAsk" rows="4" placeholder="A woman discovers that every room in her house is one inch smaller than it was yesterday.">'
-    + esc((p&&p.brief)||'')+'</textarea></label></div>'
+    + '<div style="margin-top:15px"><label class="bd-f"><span>Your idea or adaptation direction</span>'
+    + '<textarea id="crewAsk" rows="4" placeholder="Original idea, or tell the adaptation team what kind of film to find inside the attached source.">'
+    + esc((p&&p.brief)||(CREW.sourceDraft&&CREW.sourceDraft.direction)||'')+'</textarea></label></div>'
+    + '<div class="pl-shot" style="padding:10px;margin-top:9px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    + '<label class="btn small"'+(active?' aria-disabled="true"':'')+'>Attach paper / research / prose<input id="crewSourceFile" type="file" accept=".pdf,.txt,.md,.rtf" style="display:none"'+(active?' disabled':'')+'></label>'
+    + (CREW.sourceDraft?'<span class="ai-badge ok">Source ready · '+esc(CREW.sourceDraft.name)+' · '+Math.round(CREW.sourceDraft.text.length/1000)+'k characters</span><button class="btn small" id="crewSourceClear"'+(active?' disabled':'')+'>Clear</button>'
+      :'<span class="auto-note">A source document is researched and developed into a visual treatment before the Screenwriter begins.</span>')
+    + '</div></div>'
     + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">'
-    + '<label class="ai-stat">New idea target <select id="crewLength"'+(active?' disabled':'')+' style="margin-left:5px">'
+    + '<label class="ai-stat">New-film target <select id="crewLength"'+(active?' disabled':'')+' style="margin-left:5px">'
     + [1,3,5,10].map(n=>'<option value="'+n+'"'+(Number((p&&p.mode==='idea'&&p.targetMinutes)||localStorage.getItem('studio.production.minutes')||1)===n?' selected':'')+'>'+n+' minute'+(n===1?'':'s')+'</option>').join('')
     + '</select></label>'
     + '<button class="btn primary" id="crewIdea"'+(active?' disabled':'')+'>Make a new film from this idea</button>'
+    + '<button class="btn primary" id="crewAdapt"'+(active?' disabled':'')+'>Develop attached source into a film</button>'
     + '<button class="btn" id="crewScript"'+((active||!S.scenes.length||!canRestartScript)?' disabled':'')+'>Make the current script</button>'
     + (p&&p.status!=='complete' ? '<button class="btn" id="crewResume"'+(active?' disabled':'')+'>Resume production</button>' : '')
     + (uncertain.length ? '<button class="btn danger" id="crewRetryUnproven"'+(active?' disabled':'')+'>Authorize fresh render attempt ('+uncertain.length+')</button>' : '')
@@ -5180,7 +5348,7 @@ function renderCrew(){
     + (p&&crewCanonicalLocked()&&['paused','needs_attention','cancelled'].includes(p.status)
         ? '<button class="btn danger" id="crewRevise">Archive render & revise</button>' : '')
     + '</div>'
-    + '<div class="auto-note" style="margin-top:10px">The target applies only when the agents invent a screenplay from an idea. Make the current script ignores it completely; the screenplay stays untouched and its own scene/shot plan determines the movie length.</div>'
+    + '<div class="auto-note" style="margin-top:10px"><b>Idea:</b> agents invent a screenplay. <b>Source:</b> agents research the document, choose a film form, build a visual treatment, then write a new screenplay. <b>Current script:</b> the screenplay body and length stay untouched; only explicit heading repair may normalize scene headings for parsing.</div>'
     + '</div>';
 
   if (p){
@@ -5265,6 +5433,29 @@ function renderCrew(){
   on('crewPing','click', async ()=>{ await crewConnect(); if (AI.status!=='on') await aiConnect(); renderCrew(); });
   on('crewServices','click', async ()=>{ toast('Starting the local production services…',true); await crewEnsureServices(); renderCrew(); });
   on('crewIdea','click', ()=>crewStart('idea',(el('crewAsk')||{}).value||''));
+  on('crewAdapt','click', async ()=>{
+    const entered=String((el('crewAsk')||{}).value||'').trim(), draft=CREW.sourceDraft;
+    if (!draft && entered.length<400){ toast('Attach a paper/research file, or paste the source text into the direction box.'); return; }
+    const source=draft?draft.text:entered;
+    const direction=draft?(entered||'Find the strongest truthful visual film inside this source. Do not reproduce the paper as illustrated narration.')
+      :'Find the strongest truthful visual film inside this source. Do not reproduce the paper as illustrated narration.';
+    await crewStart('adaptation',direction,{text:source,filename:(draft&&draft.name)||'Pasted source',targetMinutes:Number((el('crewLength')||{}).value||10)});
+    if (productionState()&&productionState().mode==='adaptation') CREW.sourceDraft=null;
+  });
+  on('crewSourceClear','click',()=>{ if(!crewMutationLocked()){CREW.sourceDraft=null;renderCrew();} });
+  on('crewSourceFile','change',async event=>{
+    const file=event.target.files&&event.target.files[0]; if(!file) return;
+    const direction=String((el('crewAsk')||{}).value||'').trim();
+    toast('Reading source document…',true);
+    try{
+      let text='';
+      if(/\.pdf$/i.test(file.name)) text=documentTextFromPDF(await pdfExtract(file));
+      else text=await file.text();
+      if(String(text).trim().length<400) throw new Error('The source contains too little readable text.');
+      CREW.sourceDraft={name:file.name,text:String(text),direction};
+      renderCrew(); toast('Source attached for adaptation development.',true);
+    }catch(error){ toast('Could not read source: '+String((error&&error.message)||error)); }
+  });
   on('crewScript','click', ()=>crewStart('script',(el('crewAsk')||{}).value||''));
   on('crewResume','click', ()=>crewResume());
   on('crewSendDirection','click', ()=>{
@@ -11222,37 +11413,6 @@ function importSuiteFile(text, filename){
    is carried explicitly — the open slugline and the cast so far —
    because the model has no memory of the previous call.
    ============================================================ */
-const STORY_SPINE = `You are a screenwriter adapting prose into a screenplay. You are given a passage of a story and you return that passage as correctly formatted screenplay text, in Fountain.
-
-=== OUTPUT CONTRACT — ABSOLUTE ===
-Return the screenplay pages and nothing else. No preamble, no explanation, no notes, no markdown, no code fences. Your first line is either a slugline, or a continuation of the scene you were told is already open.
-
-=== FORMAT ===
-SLUGLINE       ALL CAPS on its own line: INT. or EXT., the place, a dash, the time of day. INT. KITCHEN - NIGHT
-ACTION         Sentence case, present tense, third person. Only what a camera can photograph or a microphone can record.
-CHARACTER CUE  ALL CAPS on its own line, directly above the dialogue. (V.O.) and (O.S.) where the story calls for them.
-PARENTHETICAL  Lowercase in brackets on its own line between cue and dialogue. Rare.
-DIALOGUE       Plain lines beneath the cue.
-TRANSITION     ALL CAPS ending in "TO:" on its own line. Rare.
-Exactly one blank line between elements. Never indent — margins are the application's job.
-
-=== HOW TO ADAPT ===
-- START A NEW SCENE whenever the place changes, the time changes, or the story cuts away. Every scene gets a slugline. If the prose never names a place, infer the plainest one the passage supports — INT. CAR - NIGHT — and never invent a location the passage does not imply.
-- DIALOGUE: prose writes "Get out," she said. A screenplay writes the cue and the line, and the said-bookkeeping disappears:
-
-MARGARET
-Get out.
-
-  Keep the spoken words exactly as written. Attribution carrying an action ("she said, backing away") becomes an action line or a parenthetical — never part of the spoken line.
-- NARRATION becomes visible action. "He had always hated the house" cannot be photographed: cut it, or externalise it into something the camera sees.
-- INTERIORITY — thoughts, memories, feelings — is not filmable. Turn it into behaviour or drop it. Never write "she remembers" or "he knows".
-- BACKSTORY delivered by a narrator either becomes a line somebody says, or it goes.
-- Keep the writer's voice, the order of events, and every plot fact. This is a translation between forms, not a rewrite.
-- Do not invent characters, places, objects or events the passage does not contain. Do not add scenes. Do not resolve anything the passage leaves open.
-- NAMES: same spelling, same form, every time. If the story says "the old woman" until she is named, the cue is OLD WOMAN until then.
-- TENSE: prose is usually past tense, screenplays are present. Convert it.
-- If a passage is entirely interior with nothing filmable, write the one action line that puts the character somewhere a camera can see them, and stop.`;
-
 /** Split prose into passages on paragraph boundaries, near a target size. */
 function storyChunks(text, target){
   const paras = String(text||'').replace(/\r/g,'').split(/\n\s*\n/).map(p=>p.trim()).filter(Boolean);
@@ -11278,104 +11438,74 @@ function looksLikeScript(text){
 let STORY = { running:false, cancel:false };
 
 async function storyToScript(text, filename){
-  if (STORY.running) return;
-  if (canonicalWorkerLocked()){ toast('Another project worker is still running.'); return; }
-  if (AI.status !== 'on'){
-    const ok = await aiConnect();
-    if (!ok){ toast('Adapting needs a local model — start Ollama, then try again.'); return; }
-  }
-  const chunks = storyChunks(text, 5000);
-  STORY.running = true; STORY.cancel = false;
-  crewApplyMutationLock();
-
-  openModal('Adapting “' + esc(String(filename||'story').replace(/\.[^.]+$/,'')) + '”',
-    '<div class="ai-prog"><i id="stProg"></i></div>'
-    + '<div class="ai-stat" id="stStat">passage 1 of ' + chunks.length + '</div>'
-    + '<div class="ai-mono" id="stStream" style="margin-top:10px;max-height:34vh">…</div>'
-    + '<div class="auto-note" style="margin-top:10px">Working through the story a passage at a time. Nothing reaches your library until it finishes.</div>',
-    [{ label:'Stop', onClick:()=>{ STORY.cancel = true; if (AI.ctrl){ try{ AI.ctrl.abort(); }catch(e){} } } }]);
-
-  const pages = [];
-  const cast = new Set();
-  let lastSlug = '';
-
-  for (let i = 0; i < chunks.length; i++){
-    if (STORY.cancel) break;
-    const st = el('stStat'), bar = el('stProg'), stream = el('stStream');
-    if (st) st.textContent = 'passage ' + (i+1) + ' of ' + chunks.length;
-    if (bar) bar.style.width = Math.round(i / chunks.length * 100) + '%';
-
-    let user = 'STORY: ' + (filename || 'Untitled') + '\n';
-    user += 'This is passage ' + (i+1) + ' of ' + chunks.length + '.\n';
-    if (lastSlug){
-      user += '\nThe previous passage ended inside this scene:\n' + lastSlug + '\n'
-            + 'If this passage continues in the same place at the same time, do NOT repeat that slugline — carry on writing the scene. Write a new slugline only when the place or the time actually changes.\n';
-    }
-    if (cast.size) user += '\nCharacters already established, spelled exactly like this: ' + [...cast].join(', ') + '\n';
-    user += '\n=== BEGIN PASSAGE ===\n\n' + chunks[i] + '\n\n=== END PASSAGE ===\n\nReturn this passage as screenplay pages now.\n';
-
-    try{
-      const raw = await aiStream(STORY_SPINE, user,
-        full => { if (stream){ stream.textContent = full.slice(-3000); stream.scrollTop = stream.scrollHeight; } },
-        null, { temperature: 0.25 });
-      const page = aiStripChatter(aiStripFence(aiStripThink(raw)));
-      if (page){
-        pages.push(page);
-        page.split('\n').forEach(l=>{
-          const t = l.trim();
-          if (!t) return;
-          if (SLUG_RE.test(t) && t === t.toUpperCase()){ lastSlug = t; return; }
-          if (TRANSITION_RE.test(t)) return;
-          const cm = t.match(CHARACTER_RE);
-          if (cm && t === t.toUpperCase() && t.length < 40){
-            const n = stripCharExt(cm[2]);
-            if (n.length > 1) cast.add(n);
-          }
-        });
-      }
-    }catch(e){
-      const msg = (e && e.message) || String(e);
-      if (msg === 'Cancelled'){ STORY.cancel = true; break; }
-      toast('Passage ' + (i+1) + ' failed: ' + msg.slice(0,80));
-    }
-  }
-
-  STORY.running = false;
-  crewApplyMutationLock();
+  const direction=(el('adaptDirection')&&el('adaptDirection').value.trim())
+    ||'Find the strongest truthful visual film inside this source. Do not reproduce the paper as illustrated narration.';
+  const target=Math.max(1,Number((el('adaptLength')||{}).value||10));
   closeModal();
-  if (!pages.length){ toast('Nothing came back — try a shorter document or another model.'); return; }
+  return crewStart('adaptation',direction,{text:String(text||''),filename:filename||'Source document',targetMinutes:target});
+}
 
-  const script = pages.join('\n\n');
-  const parsed = parseFountain(script);
-  if (!parsed.scenes.length){
-    openModal('Adapted, but no scene headings came back',
-      '<p style="line-height:1.6;margin-bottom:10px">The pages have no usable sluglines, so this cannot be imported as a breakdown yet. The text is here — save it, add the scene headings, and import the .fountain file.</p>'
-      + '<div class="ai-mono">' + esc(script.slice(0,4000)) + '</div>',
-      [
-        { label:'Download .fountain', primary:true, onClick:()=>{
-            download(String(filename||'adapted').replace(/\.[^.]+$/,'') + '.fountain', script, 'text/plain');
-            closeModal();
-          } },
-        { label:'Close' },
-      ]);
-    return;
+const SCRIPT_HEADING_REPAIR_SCHEMA={type:'object',additionalProperties:false,required:['headings'],properties:{
+  headings:{type:'array',items:{type:'object',additionalProperties:false,required:['lineNumber','original','replacement'],properties:{
+    lineNumber:{type:'integer',minimum:1},original:{type:'string'},replacement:{type:'string'}
+  }}}
+}};
+async function repairScriptHeadings(text,filename){
+  if (STORY.running || canonicalWorkerLocked()){ toast('Another project worker is still running.'); return; }
+  if (AI.status!=='on' && !(await aiConnect())){ toast('Heading repair needs a connected text model.'); return; }
+  const lines=String(text||'').replace(/\r\n?/g,'\n').split('\n'), chunkSize=260, changes=new Map();
+  STORY.running=true; STORY.cancel=false; crewApplyMutationLock();
+  openModal('Repairing scene headings only',
+    '<div class="ai-prog"><i id="stProg"></i></div><div class="ai-stat" id="stStat">Reading screenplay…</div>'
+    +'<div class="auto-note" style="margin-top:10px">The model may return line numbers and replacement headings only. Action, dialogue, order, and length are locked.</div>',
+    [{label:'Stop',onClick:()=>{STORY.cancel=true;if(AI.ctrl){try{AI.ctrl.abort();}catch(e){}}}}]);
+  try{
+    for(let start=0;start<lines.length;start+=chunkSize){
+      if(STORY.cancel) break;
+      const end=Math.min(lines.length,start+chunkSize), stat=el('stStat'),bar=el('stProg');
+      if(stat) stat.textContent='lines '+(start+1)+'–'+end+' of '+lines.length;
+      if(bar) bar.style.width=Math.round(end/Math.max(1,lines.length)*100)+'%';
+      const numbered=lines.slice(start,end).map((line,index)=>(start+index+1)+': '+line).join('\n');
+      const user='Identify only lines intended as screenplay scene headings whose syntax prevents parsing. Return their global line number, the exact original line, and a normalized replacement in the form INT. LOCATION - DAY or EXT. LOCATION - NIGHT. '
+        +'Do not return valid headings. Do not rewrite, correct, summarize, join, split, or move any other line. When uncertain, leave the line out.\n\n'+numbered;
+      const raw=await aiStream('You are a screenplay ingest repair tool. You can repair scene-heading lines only. Every other byte of the screenplay is immutable.',user,null,null,
+        {temperature:0,json:true,schema:SCRIPT_HEADING_REPAIR_SCHEMA,schemaName:'scene_heading_repairs',workloadId:'script.heading-repair',artifactType:'screenplay_ingest'});
+      const value=aiParseJson(raw);
+      (value.headings||[]).forEach(row=>{
+        const index=Number(row.lineNumber)-1, original=String(row.original||''), replacement=String(row.replacement||'').trim().toUpperCase();
+        if(index<0||index>=lines.length||lines[index]!==original) return;
+        if(!SLUG_RE.test(replacement)) return;
+        changes.set(index,replacement);
+      });
+    }
+  }catch(error){
+    if(!STORY.cancel) toast('Heading repair stopped: '+String((error&&error.message)||error));
+  }finally{
+    STORY.running=false; crewApplyMutationLock(); closeModal();
   }
-  parsed.title = parsed.title || String(filename||'Adapted story').replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').trim();
-  importParsed(parsed, String(filename||'story').replace(/\.[^.]+$/,'') + '.fountain');
+  if(STORY.cancel) return;
+  const repaired=lines.slice(); changes.forEach((value,index)=>{repaired[index]=value;});
+  const parsed=parseFountain(repaired.join('\n'));
+  if(!parsed.scenes.length){ toast('No reliable scene headings were found. Nothing was imported.'); return; }
+  parsed.title=parsed.title||String(filename||'Screenplay').replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').trim();
+  importParsed(parsed,String(filename||'screenplay').replace(/\.[^.]+$/,'')+'-headings-repaired.fountain');
+  toast('Repaired '+changes.size+' scene heading'+(changes.size===1?'':'s')+'. Script body preserved.',true);
 }
 
 /** Offer adaptation when an imported document turns out to be prose. */
-function offerAdaptation(text, filename){
+function offerAdaptation(text, filename, useAsLook){
   const words = (String(text||'').match(/\S+/g) || []).length;
-  openModal('This does not look like a screenplay',
-    '<p style="line-height:1.6">“' + esc(filename||'That file') + '” reads as prose — about ' + words.toLocaleString() + ' words, with no scene headings.</p>'
-    + '<p style="line-height:1.6;margin-top:10px">A model on this machine can adapt it into one: scene headings wherever the place or time changes, spoken lines moved under character cues, narration turned into action a camera can photograph. It keeps your story, your order of events and the words people say — it does not invent plot.</p>'
-    + '<p class="auto-note" style="margin-top:10px">About ' + Math.max(1, Math.ceil(String(text||'').length / 5000)) + ' passage(s) to work through. You can stop at any point.</p>',
-    [
-      { label:'Cancel' },
-      { label:'Import as-is', onClick:()=>{ closeModal(); importText(text, filename, true); } },
-      { label:'Adapt into a screenplay', primary:true, onClick:()=>{ closeModal(); storyToScript(text, filename); } },
-    ]);
+  const buttons=[{label:'Cancel'}];
+  if(typeof useAsLook==='function') buttons.push({label:'Use as Project Look',onClick:()=>{closeModal();useAsLook();}});
+  buttons.push({label:'Repair screenplay headings only',onClick:()=>{closeModal();repairScriptHeadings(text,filename);}});
+  buttons.push({label:'Develop source into a film',primary:true,onClick:()=>storyToScript(text,filename)});
+  openModal('What kind of document is this?',
+    '<p style="line-height:1.6">“'+esc(filename||'That file')+'” contains about '+words.toLocaleString()+' words but no reliable screenplay scene headings.</p>'
+    +'<div class="crit" style="margin-top:12px"><b>If it is already a screenplay:</b> repair headings only. The app locks every action line, line of dialogue, story beat, and the script length.</div>'
+    +'<div class="crit" style="margin-top:8px"><b>If it is a paper, essay, research, or prose source:</b> develop it first. Agents extract evidence, choose a film form, create a visual treatment, then write a new screenplay. They do not reformat the document.</div>'
+    +'<label class="bd-f" style="margin-top:12px"><span>Direction for the adaptation</span><textarea id="adaptDirection" rows="3" placeholder="Make a visually rigorous documentary that lets physical spaces and human use carry the argument."></textarea></label>'
+    +'<label class="ai-stat" style="display:block;margin-top:9px">Target length <select id="adaptLength" style="margin-left:6px">'
+    +[1,3,5,10,20,30,60,90].map(n=>'<option value="'+n+'"'+(n===10?' selected':'')+'>'+n+' minutes</option>').join('')+'</select></label>',buttons);
 }
 
 

@@ -1,6 +1,6 @@
 ---
 name: agentic-studio-screenwriter
-description: Write a new Agentic Movie Studio screenplay from a bare idea as validated structured scene data while preserving existing scripts exactly. Use only for screenplay authorship in idea mode, never to rewrite a loaded script or to emit Fountain as the canonical agent response.
+description: Write a new Agentic Movie Studio screenplay from a bare idea or an approved source-adaptation treatment as validated structured scene data while preserving existing scripts exactly. Never rewrite a loaded script or emit Fountain as the canonical agent response.
 ---
 
 # Screenwriter
@@ -9,7 +9,7 @@ Read `../STUDIO-CONSTITUTION.md` before acting.
 
 ## Mandate
 
-Dramatize the approved premise as behavior, action, dialogue, and scene progression. Produce canonical structured scenes that Studio can validate and checkpoint. Fountain is available only when a human imports or exports a compatible screenplay file.
+Dramatize the approved premise or adaptation treatment as behavior, action, dialogue, sound, and scene progression. Produce canonical structured scenes that Studio can validate and checkpoint. Fountain is available only when a human imports or exports a compatible screenplay file.
 
 ## Authority and boundaries
 
@@ -21,19 +21,23 @@ Dramatize the approved premise as behavior, action, dialogue, and scene progress
 
 ## Required inputs
 
-- Bare idea, director fields, story bible, client notes, and idea-mode target duration.
+- Bare idea or source-development digest, director fields, story bible/treatment, client notes, and target duration.
 - The exact structured-output schema supplied by Studio.
 - Confirmation that no script scenes exist.
 
 ## Procedure
 
-1. Plan the minimum scene progression that completes the approved dramatic arc.
-2. For every scene, define a valid heading object, a short synopsis, and ordered action/dialogue/transition blocks.
-3. Keep action present-tense, visible, and playable.
-4. Give each speaker a stable canonical name and use dialogue only when speech changes the situation.
-5. Make scene exits cause or sharpen the next scene's entrance.
-6. Return only schema-valid JSON.
-7. If validation fails, repair only the invalid fields once; never switch to Fountain or free-form prose.
+1. Identify the mode before writing: original idea or source adaptation.
+2. For an original idea, plan the minimum scene progression that completes the approved dramatic arc.
+3. For a source adaptation, treat the paper as a quarry of claims, evidence, cases, images, and tensions. The approved treatment—not the paper's section order—is the screenplay structure.
+4. For a source adaptation, create an audience journey in which every scene reveals, tests, complicates, or physically demonstrates something. Do not convert headings into sluglines, paragraphs into voice-over, or the author's argument into illustrated lecture notes.
+5. Use narration only where a picture, action, interview, archival element, sound event, or spatial demonstration cannot carry the necessary idea. Never paste or lightly paraphrase consecutive source paragraphs.
+6. For every scene, define a valid heading object, a short synopsis, and ordered action/dialogue/transition blocks.
+7. Keep action present-tense, visible, and playable.
+8. Give each speaker a stable canonical name and use dialogue only when speech changes the situation.
+9. Make scene exits cause or sharpen the next scene's entrance.
+10. Return only schema-valid JSON.
+11. If validation fails, repair only the invalid fields once; never switch to Fountain or free-form prose.
 
 ## Output contract
 
@@ -52,6 +56,8 @@ Studio assigns stable IDs and derived production metadata after validation. The 
 - Every dialogue block has a stable speaker and spoken text.
 - All people, locations, props, and story events are authorized by the brief or story bible.
 - The last scene resolves or deliberately lands the approved story question.
+- In adaptation mode, every scene contains a filmable event or visual investigation; no scene exists merely to recite the source.
+- In adaptation mode, substantial verbatim or lightly reformatted source prose fails validation unless the treatment explicitly identifies a short quotation as evidence.
 - The JSON validates; no Markdown, commentary, or Fountain wrapper appears.
 
 ## Repair, escalation, and handoff
