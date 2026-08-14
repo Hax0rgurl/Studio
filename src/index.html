@@ -2845,6 +2845,7 @@ let CREW = { gr: localStorage.getItem('studio.crew.gr') || CREW_GR_DEFAULT,
              resumePromise:null, resumeOwner:'', startPromise:null,
              reconcileCtrl:null, calling:false,
              roleLeaseTimer:null, roleLease:null,
+             live:null,
              providers:[], providerLoadErrors:[], providerError:'',providerDirectory:'',
              videoProviderId:localStorage.getItem(VIDEO_PROVIDER_KEY)||'phosphene',
              videoModel:'',imageProviderId:localStorage.getItem(IMAGE_PROVIDER_KEY)||'pitchdeck-stills',
@@ -3932,14 +3933,33 @@ function crewJsonRepairSystem(role){
 function crewLookSchema(fields){
   return {type:'object',additionalProperties:false,required:['decisions','clientUpdate','handoffChecks'],properties:{
     decisions:{type:'array',minItems:fields.length,maxItems:fields.length,items:{type:'object',additionalProperties:false,
-      required:['field','value','evidence','constraints'],properties:{field:{type:'string'},value:{type:'string',minLength:80},
+      required:['field','value','evidence','constraints'],properties:{field:{type:'string',enum:fields.slice()},value:{type:'string',minLength:80},
         evidence:{type:'array',minItems:1,items:{type:'string',minLength:8}},constraints:{type:'array',minItems:1,items:{type:'string',minLength:8}}}}},
     clientUpdate:{type:'string',minLength:30},handoffChecks:{type:'array',minItems:1,items:{type:'string',minLength:2}}
   }};
 }
+const CREW_LOOK_FIELD_ALIASES={
+  aspect:['aspect ratio'],format:['format / stock','format stock'],lensing:['lens','lenses'],
+  framing:['framing & composition','framing and composition','composition'],camera:['camera movement'],
+  lighting:['lighting style','light'],palette:['color palette','colour palette','color'],
+  design:['production design & locations','production design and locations','production design'],
+  wardrobe:['wardrobe language','costume'],music:['music & sound','music and sound','sound'],
+  tone:['tone / themes','tone and themes','themes'],refs:['reference films / looks','reference films and looks','references','reference looks'],
+  negative:['avoid (negative guidance)','negative guidance','avoid']
+};
+function crewLookFieldKey(value,fields){
+  const token=String(value||'').toLowerCase().replace(/[^a-z0-9]+/g,'');
+  if (!token) return '';
+  return fields.find(field=>[field].concat(CREW_LOOK_FIELD_ALIASES[field]||[])
+    .some(name=>String(name).toLowerCase().replace(/[^a-z0-9]+/g,'')===token))||'';
+}
 function crewParseLook(value,fields){
   const decisions=Array.isArray(value&&value.decisions)?value.decisions:[];
-  const byField=new Map(decisions.map(row=>[String(row&&row.field||'').trim(),row]));
+  const byField=new Map();
+  decisions.forEach(row=>{
+    const field=crewLookFieldKey(row&&row.field,fields);
+    if (field&&!byField.has(field)){ row.field=field; byField.set(field,row); }
+  });
   const missing=fields.filter(k=>!byField.has(k)||String((byField.get(k)||{}).value||'').trim().length<80);
   if (missing.length) throw new Error('Missing substantive Look decisions for: '+missing.join(', ')+'.');
   const rows=fields.map(k=>byField.get(k));
@@ -5253,6 +5273,7 @@ async function crewRun(roleId, ask){
     return {ok:status!=='failed',status,out,artifact};
   }finally{
     if (typeof crewStopRoleLease==='function') crewStopRoleLease();
+    if (CREW.live&&CREW.live.roleId===role.id) CREW.live=null;
     if (!pipelineOwned && createdDirectProduction && owner && crewRunOwnerMatches(owner)){
       const direct=productionState();
       if (direct && ['starting','running'].includes(direct.status)){
@@ -5748,7 +5769,7 @@ function renderCrew(){
       + (rp.total?'<span class="ai-stat">'+rp.done+' / '+rp.total+' clips finished'+(rp.failed?' · '+rp.failed+' failed':'')+'</span>':'')
       + (flaggedShots.length?'<span class="ai-badge err">'+flaggedShots.length+' shot'+(flaggedShots.length===1?'':'s')+' flagged for targeted rework</span>':'')
       + '</div><div class="ai-prog" style="margin-top:11px"><i style="width:'+pct+'%"></i></div>'
-      + (p.currentStep?'<div class="auto-note" style="margin-top:8px">Working now: @'+esc((crewFind(p.currentStep)||{}).at||p.currentStep)+'</div>':'')
+      + (p.currentStep?'<div class="auto-note" id="crewLiveActivity" style="margin-top:8px">'+esc(crewLiveActivityText(p.currentStep))+'</div>':'')
       + (p.error?'<div class="crit bad" style="margin-top:10px"><div class="crit-head">needs attention</div>'+esc(p.error)+'</div>':'')
       + (p.pollError?'<div class="auto-note" style="margin-top:8px">Last render check: '+esc(p.pollError)+'</div>':'')
       + '</div>';
@@ -6106,7 +6127,7 @@ function sceneHeaderMd(sc){
   return `### Scene ${sc.num} — ${sc.slug}  (${eighthsFmt(sc.eighths)} pg)`;
 }
 function sceneContextMd(sc, includeText){
-  let out = '';
+  let out = '', thought=0;
   if (sc.characters.length) out += `Characters present: ${sc.characters.join(', ')}\n`;
   const els = [];
   for (const c of cats()){ if (c.auto) continue; const items = sc.elements[c.k]||[]; if (items.length) els.push(`${c.label}: ${items.join(', ')}`); }
@@ -6893,6 +6914,27 @@ function aiController(next){
 }
 function aiCancel(){ DOC.cancel = true; if (AI.ctrl){ try{ AI.ctrl.abort(); }catch(e){} } }
 
+function crewLiveActivityText(roleId){
+  const role=crewFind(roleId)||{}, live=CREW.live&&CREW.live.roleId===roleId?CREW.live:null;
+  if (!live) return 'Working now: @'+(role.at||roleId)+' · preparing the department handoff.';
+  const count=Math.max(0,Number(live.characters)||0);
+  if (live.phase==='thinking') return '@'+(role.at||roleId)+' is reasoning locally'+(count?' · '+count.toLocaleString()+' reasoning characters processed':'')+'.';
+  if (live.phase==='drafting') return '@'+(role.at||roleId)+' is drafting the handoff · '+count.toLocaleString()+' model characters received. The artifact appears after validation and its safe checkpoint.';
+  if (live.phase==='validating') return '@'+(role.at||roleId)+' finished drafting · validating and checkpointing '+count.toLocaleString()+' characters before the next agent starts.';
+  return '@'+(role.at||roleId)+' is contacting the selected local model.';
+}
+function crewLiveActivity(opts,phase,characters,force){
+  const roleId=String((opts&&opts.roleId)||'');
+  const production=typeof productionState==='function'?productionState():null;
+  if (!roleId||typeof CREW==='undefined'||!production||production.currentStep!==roleId) return;
+  const now=Date.now(), prior=CREW.live||{};
+  CREW.live={roleId,phase:String(phase||'connecting'),characters:Math.max(0,Number(characters)||0),updatedAt:now,lastPaintAt:prior.lastPaintAt||0};
+  if (!force&&now-CREW.live.lastPaintAt<250) return;
+  CREW.live.lastPaintAt=now;
+  const node=el('crewLiveActivity');
+  if (node) node.textContent=crewLiveActivityText(roleId);
+}
+
 /** Stream one completion. Resolves with the full raw text. */
 async function aiStream(system, user, onDelta, onThink, opts){
   if (!AI.base) throw new Error('Not connected to a local model server.');
@@ -6913,6 +6955,7 @@ async function aiStream(system, user, onDelta, onThink, opts){
   const isOllama = AI.kind === 'ollama';
   const ctrl = new AbortController();
   aiController(ctrl);
+  crewLiveActivity(opts,'connecting',0,true);
   const messages = [{role:'system', content:system}, {role:'user', content:user}];
   const body = isOllama
     ? { model:AI.model, messages, stream:true, options:{ temperature:AI.temperature, num_ctx:AI.numCtx } }
@@ -6971,13 +7014,13 @@ async function aiStream(system, user, onDelta, onThink, opts){
     if (obj && obj.error) throw new Error(String(obj.error.message || obj.error));
     if (isOllama){
       const m = (obj && obj.message) || {};
-      if (typeof m.thinking === 'string' && m.thinking && onThink) onThink(m.thinking);
-      if (typeof m.content === 'string' && m.content){ out += m.content; if (onDelta) onDelta(out); }
+      if (typeof m.thinking === 'string' && m.thinking){ thought+=m.thinking.length; crewLiveActivity(opts,'thinking',thought); if (onThink) onThink(m.thinking); }
+      if (typeof m.content === 'string' && m.content){ out += m.content; crewLiveActivity(opts,'drafting',out.length); if (onDelta) onDelta(out); }
     } else {
       const d = (obj && obj.choices && obj.choices[0] && obj.choices[0].delta) || {};
       const th = d.reasoning_content || d.reasoning;
-      if (typeof th === 'string' && th && onThink) onThink(th);
-      if (typeof d.content === 'string' && d.content){ out += d.content; if (onDelta) onDelta(out); }
+      if (typeof th === 'string' && th){ thought+=th.length; crewLiveActivity(opts,'thinking',thought); if (onThink) onThink(th); }
+      if (typeof d.content === 'string' && d.content){ out += d.content; crewLiveActivity(opts,'drafting',out.length); if (onDelta) onDelta(out); }
     }
   };
   const feed = raw => {
@@ -7016,6 +7059,7 @@ async function aiStream(system, user, onDelta, onThink, opts){
     const reason='The model returned nothing. Try a smaller scene, a larger context window, or another model.';
     await settle('failed','',reason); throw new Error(reason);
   }
+  crewLiveActivity(opts,'validating',out.length,true);
   await settle('completed',out,'');
   return out;
 }

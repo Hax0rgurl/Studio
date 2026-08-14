@@ -409,6 +409,18 @@ test('manual Greenroom agent work repairs a stale offline connection before it f
   assert.doesNotMatch(claim,/if \(!CREW\.online\) throw/);
 });
 
+test('Client Room shows live model activity until the validated agent checkpoint exists', () => {
+  const stream=bodyBetween('/** Stream one completion.', '/* ---------- scrubbing what the model gives back ---------- */');
+  assert.match(stream,/crewLiveActivity\(opts,'connecting',0,true\)/);
+  assert.match(stream,/crewLiveActivity\(opts,'drafting',out\.length\)/);
+  assert.match(stream,/crewLiveActivity\(opts,'validating',out\.length,true\)/);
+  const room=bodyBetween('function renderCrew', '/* ================= render all + init ================= */');
+  assert.match(room,/id="crewLiveActivity"/);
+  assert.match(room,/crewLiveActivityText\(p\.currentStep\)/);
+  const run=bodyBetween('async function crewRun', 'async function crewFillMissingLook');
+  assert.match(run,/CREW\.live&&CREW\.live\.roleId===role\.id/);
+});
+
 test('standalone AI work and delayed style-guide reads cannot cross project ownership', () => {
   const workerLock = bodyBetween('function canonicalWorkerLocked', 'function crewMutationLocked');
   assert.match(workerLock, /AI\.status==='probing' \|\| AI\.ctrl/);
