@@ -378,6 +378,37 @@ test('service startup is single-flight in the webview and model choice remains u
   assert.match(connect, /if \(!AI\.model \|\| !hit\.models\.includes\(AI\.model\)\)/);
 });
 
+test('manual Greenroom agent work repairs a stale offline connection before it fails', async () => {
+  let checks = 0;
+  let starts = 0;
+  const connected = {
+    console, String,
+    CREW: { online: false, services: {}, startResults: [] },
+    crewConnect: async () => {
+      checks++;
+      connected.CREW.services={greenroom:{ok:true}};
+      connected.CREW.online=true;
+      return connected.CREW.services;
+    },
+    crewEnsureServices: async () => { starts++; return {greenroom:{ok:true}}; }
+  };
+  const requireGreenroom=loadFunction(
+    'async function crewRequireGreenroom',
+    'async function crewEnsureServices',
+    'crewRequireGreenroom',
+    connected
+  );
+  assert.equal(await requireGreenroom(),true);
+  assert.equal(checks,1,'a stale offline flag must trigger a live health check');
+  assert.equal(starts,0,'an already-running Greenroom must not be launched again');
+
+  const claim=bodyBetween('async function crewClaimRoleWork','function crewStopRoleLease');
+  const open=bodyBetween('async function crewOpenRecord','/** File every handoff');
+  assert.match(claim,/await crewRequireGreenroom\(\)/);
+  assert.match(open,/await crewRequireGreenroom\(\)/);
+  assert.doesNotMatch(claim,/if \(!CREW\.online\) throw/);
+});
+
 test('standalone AI work and delayed style-guide reads cannot cross project ownership', () => {
   const workerLock = bodyBetween('function canonicalWorkerLocked', 'function crewMutationLocked');
   assert.match(workerLock, /AI\.status==='probing' \|\| AI\.ctrl/);

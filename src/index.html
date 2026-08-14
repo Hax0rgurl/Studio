@@ -3376,6 +3376,16 @@ async function crewConnect(){
   CREW.online = !!(CREW.services.greenroom && CREW.services.greenroom.ok);
   return CREW.services;
 }
+async function crewRequireGreenroom(){
+  if (CREW.online) return true;
+  let services=await crewConnect();
+  if (!(services.greenroom&&services.greenroom.ok)) services=await crewEnsureServices();
+  CREW.online=!!(services.greenroom&&services.greenroom.ok);
+  if (CREW.online) return true;
+  const result=(CREW.startResults||[]).find(row=>row&&row.id==='greenroom');
+  const detail=String((result&&result.detail)||'').trim();
+  throw new Error('Greenroom is required for agent work and is not connected.'+(detail?' '+detail:''));
+}
 async function crewEnsureServices(){
   if (CREW.startPromise) return CREW.startPromise;
   const work=(async()=>{
@@ -3739,7 +3749,8 @@ function crewMergeRecord(detail){
 }
 async function crewOpenRecord(){
   const p = productionState();
-  if (!p || !CREW.online) return p && p.greenroomThreadId;
+  if (!p) return '';
+  await crewRequireGreenroom();
   if (p.greenroomThreadId){
     try{
       const detail=await crewInvoke('greenroom_fetch_production_thread', {request:{projectId:p.id,threadId:p.greenroomThreadId}});
@@ -3840,7 +3851,7 @@ async function crewFinalizeRoleWork(role){
 async function crewClaimRoleWork(role,ask,needsAI){
   const p=productionState();
   if (!p) throw new Error('No production exists for this agent job.');
-  if (!CREW.online) throw new Error('Greenroom is required for agent work and is not connected.');
+  await crewRequireGreenroom();
   const threadId=p.greenroomThreadId||await crewOpenRecord();
   if (!threadId) throw new Error('Greenroom could not open this production record.');
   p.steps=p.steps||{};
