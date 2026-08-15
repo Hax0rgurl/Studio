@@ -2845,7 +2845,7 @@ let CREW = { gr: localStorage.getItem('studio.crew.gr') || CREW_GR_DEFAULT,
              resumePromise:null, resumeOwner:'', startPromise:null,
              reconcileCtrl:null, calling:false,
              roleLeaseTimer:null, roleLease:null,
-             live:null,
+             live:null, departmentsOpen:false,
              providers:[], providerLoadErrors:[], providerError:'',providerDirectory:'',
              videoProviderId:localStorage.getItem(VIDEO_PROVIDER_KEY)||'phosphene',
              videoModel:'',imageProviderId:localStorage.getItem(IMAGE_PROVIDER_KEY)||'pitchdeck-stills',
@@ -5816,7 +5816,7 @@ function renderCrew(){
       +'<div class="auto-note" style="margin-top:8px">'+esc(S.cut.outputPath||src)+'</div></div>';
   }
 
-  h+='<details style="max-width:1120px"><summary class="btn" style="display:inline-flex;cursor:pointer">Departments and individual controls</summary>'
+  h+='<details id="crewDepartmentControls"'+(CREW.departmentsOpen?' open':'')+' style="max-width:1120px;scroll-margin-top:82px"><summary class="btn" style="display:inline-flex;cursor:pointer">Departments and individual controls</summary>'
     +(active?'<div class="auto-note" style="margin:10px 0 2px;max-width:780px">The sequential crew is currently working. Individual departments cannot run concurrently against the same project. Click any “Why unavailable” button for the exact blocker, or use Stop safely and wait for the current checkpoint before running one department yourself.</div>':'');
   CREW_ROSTER.forEach(d=>{
     h += '<div class="nav-sec" style="padding-left:0;margin-top:18px">' + esc(d.dept) + '</div>';
@@ -5837,6 +5837,11 @@ function renderCrew(){
   w.innerHTML = h;
 
   const on = (id, ev, fn)=>{ const n = el(id); if (n) n.addEventListener(ev, fn); };
+  const departmentControls=el('crewDepartmentControls');
+  if (departmentControls) departmentControls.addEventListener('toggle',()=>{
+    CREW.departmentsOpen=departmentControls.open;
+    if (departmentControls.open) requestAnimationFrame(()=>departmentControls.scrollIntoView({block:'start',behavior:'smooth'}));
+  });
   on('crewPing','click', async ()=>{ await crewConnect(); if (AI.status!=='on') await aiConnect(); renderCrew(); });
   on('crewServices','click', async ()=>{ toast('Starting the local production services…',true); await crewEnsureServices(); renderCrew(); });
   on('crewIdea','click', ()=>crewStart('idea',(el('crewAsk')||{}).value||''));

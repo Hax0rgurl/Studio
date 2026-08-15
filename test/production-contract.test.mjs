@@ -423,6 +423,10 @@ test('Client Room shows live model activity until the validated agent checkpoint
 
 test('individual department controls explain an active-pipeline block instead of swallowing clicks', () => {
   const room=bodyBetween('function renderCrew', '/* ================= render all + init ================= */');
+  assert.match(room,/id="crewDepartmentControls"/);
+  assert.match(room,/CREW\.departmentsOpen\?' open'/);
+  assert.match(room,/addEventListener\('toggle'/);
+  assert.match(room,/scrollIntoView\(\{block:'start',behavior:'smooth'\}\)/);
   assert.match(room,/Why unavailable/);
   assert.match(room,/data-crew-blocked="1"/);
   assert.doesNotMatch(room,/data-crew="'\+r\.id\+'"'\+\(active\?' disabled'/);
