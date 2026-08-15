@@ -3792,7 +3792,7 @@ async function crewRecord(role, ask, out, status){
     if (!threadId) return false;
     await crewInvoke('greenroom_post_role_step', { request:{
       projectId:p.id, threadId,
-      roleId:role.id==='stills_prompt' ? 'prompt_writer' : role.id,
+      roleId:crewGreenroomRoleId(role),
       stepId:(role.id+'-'+(status||'done')).slice(0,80),
       summary:(role.title+' — '+(status||'done')).slice(0,400),
       details:('ASKED:\n'+ask+'\n\nWROTE TO '+role.owns+':\n'+String(out)).slice(0,20000),

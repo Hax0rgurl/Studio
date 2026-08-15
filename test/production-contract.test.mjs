@@ -447,6 +447,12 @@ test('Greenroom thread messages remain provenance-only and posts are ordered', (
   assert.ok(run.indexOf('productionStep(role.id,status') < run.indexOf('await crewFinalizeRoleWork'));
   assert.match(source, /greenroom_claim_role_work/);
   assert.match(source, /greenroom_ack_role_work/);
+  const record = bodyBetween('async function crewRecord', 'function crewGreenroomRoleId');
+  assert.match(record, /roleId:crewGreenroomRoleId\(role\)/);
+  const roleContext = {};
+  const greenroomRoleId = loadFunction('function crewGreenroomRoleId', 'function crewGreenroomWorkPacket', 'crewGreenroomRoleId', roleContext);
+  assert.equal(greenroomRoleId({id:'story_review',greenroomRoleId:'story_editor'}),'story_editor');
+  assert.equal(greenroomRoleId({id:'stills_prompt'}),'prompt_writer');
 });
 
 test('live resume returns to polling without rerunning departments', async () => {
