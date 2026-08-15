@@ -5816,7 +5816,8 @@ function renderCrew(){
       +'<div class="auto-note" style="margin-top:8px">'+esc(S.cut.outputPath||src)+'</div></div>';
   }
 
-  h+='<details style="max-width:1120px"><summary class="btn" style="display:inline-flex;cursor:pointer">Departments and individual controls</summary>';
+  h+='<details style="max-width:1120px"><summary class="btn" style="display:inline-flex;cursor:pointer">Departments and individual controls</summary>'
+    +(active?'<div class="auto-note" style="margin:10px 0 2px;max-width:780px">The sequential crew is currently working. Individual departments cannot run concurrently against the same project. Click any “Why unavailable” button for the exact blocker, or use Stop safely and wait for the current checkpoint before running one department yourself.</div>':'');
   CREW_ROSTER.forEach(d=>{
     h += '<div class="nav-sec" style="padding-left:0;margin-top:18px">' + esc(d.dept) + '</div>';
     h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px">';
@@ -5826,7 +5827,7 @@ function renderCrew(){
         +'<b>@'+esc(r.at)+'</b><span class="ai-stat">'+esc(r.title)+'</span><span class="ai-badge">'+esc(r.mod)+'</span>'
         +(busy?'<span class="ai-badge ok">working</span>':'')+'<div class="tb-spacer"></div>'
         +'<button class="btn small" data-crew-skill="'+r.id+'">Skill book</button>'
-        +'<button class="btn small" data-crew="'+r.id+'"'+(active?' disabled':'')+'>Run</button></div>'
+        +'<button class="btn small" data-crew="'+r.id+'"'+(active?' data-crew-blocked="1" title="The sequential crew is working; click for details."':'')+'>'+(active?'Why unavailable':'Run')+'</button></div>'
         +'<div class="auto-note" style="margin-top:6px">'+esc(r.job)+'</div>'
         +(st&&st.out?'<div style="font-size:11px;color:var(--tx3);margin-top:6px">'+esc(String(st.out).slice(0,220))+'</div>':'')+'</div>';
     });
@@ -5952,6 +5953,12 @@ function renderCrew(){
     toast('Stopping after the current safe checkpoint.');
   });
   w.querySelectorAll('[data-crew]').forEach(b=>b.addEventListener('click', ()=>{
+    if (crewMutationLocked()){
+      const current=productionState(), role=crewFind((current&&current.currentStep)||'');
+      const worker=(role&&role.at)||CREW.busy||'', label=worker?'@'+worker:'another project worker';
+      toast('Individual departments cannot start while '+label+' is working. Use Stop safely, wait for its checkpoint, then run the department you want.');
+      return;
+    }
     crewRun(b.dataset.crew, (el('crewAsk')||{}).value ? el('crewAsk').value.trim() : '');
   }));
   w.querySelectorAll('[data-crew-skill]').forEach(b=>b.addEventListener('click', ()=>{

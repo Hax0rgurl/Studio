@@ -421,6 +421,17 @@ test('Client Room shows live model activity until the validated agent checkpoint
   assert.match(run,/CREW\.live&&CREW\.live\.roleId===role\.id/);
 });
 
+test('individual department controls explain an active-pipeline block instead of swallowing clicks', () => {
+  const room=bodyBetween('function renderCrew', '/* ================= render all + init ================= */');
+  assert.match(room,/Why unavailable/);
+  assert.match(room,/data-crew-blocked="1"/);
+  assert.doesNotMatch(room,/data-crew="'\+r\.id\+'"'\+\(active\?' disabled'/);
+  const handler=room.slice(room.indexOf("w.querySelectorAll('[data-crew]')"));
+  assert.match(handler,/if \(crewMutationLocked\(\)\)/);
+  assert.match(handler,/Individual departments cannot start while/);
+  assert.ok(handler.indexOf('crewMutationLocked()') < handler.indexOf('crewRun(b.dataset.crew'));
+});
+
 test('standalone AI work and delayed style-guide reads cannot cross project ownership', () => {
   const workerLock = bodyBetween('function canonicalWorkerLocked', 'function crewMutationLocked');
   assert.match(workerLock, /AI\.status==='probing' \|\| AI\.ctrl/);
