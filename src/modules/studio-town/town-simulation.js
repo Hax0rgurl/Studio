@@ -101,9 +101,6 @@
             peerBuilding.door, this.layout.map.meetingPoint, homeBuilding.door, home];
         }
       }
-      if (activity === 'review' && destination.id !== homeBuilding.id) {
-        return [state, homeBuilding.door, this.layout.map.meetingPoint, destination.door, destinationPoint];
-      }
       if (activity === 'work') {
         const production = this.layout.buildingById.production;
         const collaborationPoint = production.slots[0] || production.door;
@@ -118,7 +115,7 @@
     }
 
     schedulePurposefulMovement(agent, state, immediate) {
-      if (state.route.length || !['work','talk','review'].includes(String(agent.activity || ''))) return;
+      if (state.route.length || !['work','talk'].includes(String(agent.activity || ''))) return;
       const activityKey = [agent.activity, agent.taskId || '', agent.lastEventId || ''].join(':');
       if (state.activityKey !== activityKey) {
         state.activityKey = activityKey;
@@ -151,7 +148,14 @@
           const home = this.layout.roleHome(agent.roleId);
           state.x = home.x; state.y = home.y;
           state.destinationBuildingId = agent.homeBuildingId || home.buildingId;
-          this.schedulePurposefulMovement(agent, state, true);
+          if (agent.buildingId && agent.buildingId !== state.destinationBuildingId) {
+            const target = this.destinationFor(agent);
+            const homeBuilding = this.layout.buildingForRole(agent.roleId);
+            const targetBuilding = this.layout.buildingById[agent.buildingId] || homeBuilding;
+            this.setRoute(state, [state, homeBuilding.door, this.layout.map.meetingPoint, targetBuilding.door, target],
+              `state:${agent.roleId}:${agent.buildingId}`);
+            state.destinationBuildingId = agent.buildingId;
+          } else this.schedulePurposefulMovement(agent, state, true);
         });
         const latest = (this.vm.events || [])[this.vm.events.length - 1];
         this.lastEventId = latest ? latest.id : '';

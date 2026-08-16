@@ -90,6 +90,12 @@ test('town activity is derived only from canonical work, human review, and durab
   assert.equal(view.agents.find(agent=>agent.roleId==='writer').activity,'review');
   assert.equal(view.agents.find(agent=>agent.roleId==='writer').buildingId,'screening');
 
+  production.steps.writer.finishedAt='2026-08-16T05:00:08Z';
+  production.steps.writer.updatedAt='2026-08-16T05:00:08Z';
+  view=model.deriveTownVM({...base,production,transcript:[]});
+  assert.equal(view.agents.find(agent=>agent.roleId==='writer').activity,'complete',
+    'a replacement artifact saved after the review must close the legacy review instead of looping in screening');
+
   production.status='needs_attention';production.currentStep='story_review';production.steps.story_review={status:'failed',error:'Review failed.'};
   view=model.deriveTownVM({...base,production,transcript:[]});
   assert.equal(view.currentRoleId,'story_editor');
@@ -105,6 +111,15 @@ test('real direction, producer handoff, and rework become typed town events', ()
   assert.equal(events[0].type,'request');assert.equal(JSON.stringify(events[0].toRoleIds),JSON.stringify(['director']));
   assert.equal(events[1].type,'handoff');assert.equal(events[1].fromRoleId,'producer');
   assert.equal(events[2].type,'rework');assert.equal(JSON.stringify(events[2].toRoleIds),JSON.stringify(['writer']));
+});
+
+test('a completed replacement closes its durable rework event', () => {
+  const {StudioTownLayout:layout,StudioTownModel:model}=loadTownModules();
+  const production={id:'run',status:'paused',steps:{first_ad:{status:'done',finishedAt:'2026-08-16T05:05:00Z'}},
+    reworkQueue:[{id:'rw-first-ad',roleId:'first_ad',requestedAt:'2026-08-16T05:00:00Z',preparedAt:'2026-08-16T05:00:01Z',note:'One shot per scene.'}]};
+  const events=model.deriveEvents({layout,roster:canonicalRoles.map(role),projectId:'p',production,transcript:[]});
+  assert.equal(events[0].status,'complete');
+  assert.equal(events[0].acknowledgedAt,'2026-08-16T05:05:00Z');
 });
 
 test('durable routing events move the exact sender and project changes clear stale travel', () => {
@@ -137,6 +152,21 @@ test('an already-working agent keeps making purposeful visible trips after Town 
   assert.notDeepEqual({x:after.x,y:after.y},before);
   assert.match(after.frameId,/^walk_(?:left|right)$/);
   assert.notEqual(after.walkBob,0);
+});
+
+test('an agent waiting in screening travels there once and does not loop', () => {
+  const {StudioTownLayout:layout,StudioTownSimulation}=loadTownModules();
+  const simulation=new StudioTownSimulation.TownSimulation(layout,{speed:5000});
+  const agents=canonicalRoles.map(id=>({...role(id),roleId:id,homeBuildingId:layout.roleBuildings[id],
+    buildingId:id==='first_ad'?'screening':layout.roleBuildings[id],activity:id==='first_ad'?'review':'idle'}));
+  simulation.update({projectId:'p',draftId:'d',runId:'run',agents,events:[]},1000);
+  assert.equal(simulation.snapshot().find(state=>state.roleId==='first_ad').moving,true);
+  for(let i=0;i<100;i++) simulation.tick(80);
+  const arrived=simulation.snapshot().find(state=>state.roleId==='first_ad');
+  assert.equal(arrived.moving,false);
+  simulation.update({projectId:'p',draftId:'d',runId:'run',agents,events:[]},61000);
+  assert.equal(simulation.snapshot().find(state=>state.roleId==='first_ad').moving,false,
+    'review movement must be a one-way state transition, not a repeating commute');
 });
 
 test('Studio Town and Client Room are first-class local app views, not iframes or demos', () => {

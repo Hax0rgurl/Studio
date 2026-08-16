@@ -176,6 +176,19 @@ test('the ChatDev-style production loop is finite, progress-bound, and yields to
   assert.doesNotMatch(call,/while \(turns\+\+<200\)/);
 });
 
+test('department rework completion is durable and First AD coverage is scene-bound', () => {
+  const rework=bodyBetween('function crewReworkQueue','function crewPrepareRework');
+  const run=bodyBetween('async function crewRun','/** The whole crew, in order, on one idea. */');
+  const coverage=bodyBetween('function crewCoverageSceneSatisfies','async function crewWritePrompts');
+  assert.match(rework,/function crewCompleteRoleRework/);
+  assert.match(rework,/item\.completedAt=completedAt/);
+  assert.match(rework,/step\.review\.resolvedAt=completedAt/);
+  assert.match(run,/crewCompleteRoleRework\(productionState\(\),role\.id\)/);
+  assert.match(coverage,/coverageConstraintKey/);
+  assert.match(coverage,/returned coverage for scene/);
+  assert.match(coverage,/department\.\'\+role\.id\+\'\.scene\.\'\+sceneId/);
+});
+
 test('schema-bound Ollama calls stop cleanly for Muse Glimmer and other reasoning templates', () => {
   const stream=bodyBetween('async function aiStream','/* ---------- scrubbing what the model gives back ---------- */');
   assert.match(stream,/body\.think = false/);
@@ -924,6 +937,7 @@ test('a manual department owns the draft before AI probing and consumes its own 
     crewVideo: async () => '',
     crewClaimRoleWork: async () => ({ id: 'work-id' }),
     crewFinalizeRoleWork: async () => true,
+    crewCompleteRoleRework: () => 0,
     crewEnsureCurrentProject: () => {},
     productionCheckpoint: () => true,
     uid: () => 'id'
@@ -987,6 +1001,7 @@ test('a direct media department cannot leave its synthetic production permanentl
     crewVideo: async () => '',
     crewClaimRoleWork: async () => ({ id: 'work-id' }),
     crewFinalizeRoleWork: async () => true,
+    crewCompleteRoleRework: () => 0,
     crewEnsureCurrentProject: () => {},
     productionCheckpoint: () => true,
     uid: () => `id-${++serial}`

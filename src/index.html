@@ -3645,6 +3645,27 @@ function crewArtifactForRole(role,artifact){
   return crewArtifactRef(row[0],row[1],row[2],'Open the full canonical artifact.',meta);
 }
 function crewReworkQueue(p){ return Array.isArray(p&&p.reworkQueue)?p.reworkQueue:[]; }
+function crewCompleteRoleRework(p,roleId){
+  const step=p&&p.steps&&p.steps[roleId];
+  if (!p||!step||step.status!=='done') return 0;
+  const finishedAt=Date.parse(step.finishedAt||step.updatedAt||'');
+  if (!Number.isFinite(finishedAt)) return 0;
+  const completedAt=step.finishedAt||step.updatedAt||new Date().toISOString();
+  let completed=0;
+  crewReworkQueue(p).forEach(item=>{
+    if (!item||item.roleId!==roleId||item.completedAt||!item.preparedAt) return;
+    const requestedAt=Date.parse(item.requestedAt||'');
+    if (!Number.isFinite(requestedAt)||finishedAt<requestedAt) return;
+    item.completedAt=completedAt; item.resolution='reworked';
+    item.replacementArtifact=step.artifact||null; completed++;
+  });
+  if (completed&&step.review&&['revise','flag','kill'].includes(String(step.review.verdict||'').toLowerCase())){
+    step.review.resolvedAt=completedAt; step.review.resolution='reworked';
+    step.review.replacementArtifact=step.artifact||null;
+  }
+  if (completed&&Array.isArray(p.reworkRoles)) p.reworkRoles=p.reworkRoles.filter(id=>id!==roleId);
+  return completed;
+}
 function crewPrepareRework(p){
   const queue=crewReworkQueue(p).filter(item=>item&&!item.preparedAt);
   if (!p||!queue.length) return false;
@@ -4958,7 +4979,8 @@ function crewCoverageSceneSatisfies(sc,constraint){
     // A single filmmaker-authored/edited/locked shot is the binding scene plan.
     // Agent plans additionally need their saved coverage check.
     const sh=shots[0]||{},human=!sh.auto||sh.locked||sh.humanLocked;
-    return !!human||(sh.crewPlanned===true&&!!String(sc.coverageCheck||'').trim());
+    return !!human||(sh.crewPlanned===true&&!!String(sc.coverageCheck||'').trim()
+      &&(!constraint.constraintKey||String(sc.coverageConstraintKey||'')===constraint.constraintKey));
   }
   return false;
 }
@@ -4969,6 +4991,8 @@ const CREW_COVERAGE_SCHEMA={type:'object',additionalProperties:false,required:['
       description:{type:'string',minLength:12},storyBeat:{type:'string',minLength:8},purpose:{type:'string',minLength:8},
       continuity:{type:'string',minLength:8}}}},coverageCheck:{type:'string',minLength:20}}};
 function crewCoverageValue(value,sc,constraint){
+  if (String((value&&value.sceneNumber)||'').trim()!==String(sc.num||'').trim())
+    throw new Error('The First AD returned coverage for scene '+String((value&&value.sceneNumber)||'unknown')+' while scene '+sc.num+' was assigned.');
   const rows=Array.isArray(value&&value.shots)?value.shots:[];
   if (!rows.length) throw new Error('Scene '+sc.num+' has no coverage.');
   if (constraint&&constraint.onePerScene&&rows.length!==1)
@@ -4985,6 +5009,7 @@ async function crewCoverage(role, ask){
   if (!S.scenes.length) return {status:'failed',text:'No script yet. @writer goes first.'};
   const p=productionState(),constraint=crewCoverageConstraint(p);
   const constraintKey=(constraint.sourceId||'coverage')+'|'+(constraint.onePerScene?'one-per-scene':'open')+'|'+constraint.text;
+  constraint.constraintKey=constraintKey;
   let progress=p&&p.coverageProgress;
   if (p&&(!progress||progress.constraintKey!==constraintKey)){
     const satisfied=S.scenes.filter(sc=>crewCoverageSceneSatisfies(sc,constraint));
@@ -5024,13 +5049,13 @@ async function crewCoverage(role, ask){
       +(constraint.onePerScene?' The response must contain exactly one shot for this scene. Compress the complete beat into that sustained shot; do not return alternates, inserts, or extra coverage.':'');
     let raw='',value,planned;
     try{
-      raw=await aiStream(crewJsonRepairSystem(role),user,null,null,{temperature:0.4,json:true,schema:coverageSchema,schemaName:'scene_coverage',roleId:role.id,workloadId:'department.'+role.id,artifactType:'coverage'});
+      raw=await aiStream(crewJsonRepairSystem(role),user,null,null,{temperature:0.4,json:true,schema:coverageSchema,schemaName:'scene_coverage',roleId:role.id,workloadId:'department.'+role.id+'.scene.'+sceneId,artifactType:'coverage'});
       value=aiParseJson(raw); planned=crewCoverageValue(value,sc,constraint);
     }catch(firstError){
       const repair=user+'\n\nVALIDATION FAILURE: '+String((firstError&&firstError.message)||firstError)
         +'\nReturn only the complete corrected JSON scene plan. Do not explain the schema or describe what you will return. Previous response:\n'+String(raw||'').slice(0,4000);
       value=aiParseJson(await aiStream(crewJsonRepairSystem(role),repair,null,null,
-        {temperature:0.15,json:true,schema:coverageSchema,schemaName:'scene_coverage',roleId:role.id,workloadId:'department.'+role.id+'.repair',artifactType:'coverage'}));
+        {temperature:0.15,json:true,schema:coverageSchema,schemaName:'scene_coverage',roleId:role.id,workloadId:'department.'+role.id+'.scene.'+sceneId+'.repair',artifactType:'coverage'}));
       planned=crewCoverageValue(value,sc,constraint);
     }
     if (!planned.length) throw new Error('The first AD returned no executable shots for scene '+sc.num+'.');
@@ -5968,6 +5993,11 @@ async function crewRun(roleId, ask){
     }
     if (!await crewFinalizeRoleWork(role)){
       const pending='@'+role.at+' saved its canonical '+role.owns+' result, but Greenroom could not record and acknowledge the agent handoff. Resume will finalize this same job without rerunning the department.';
+      return {ok:false,status:'waiting',out:pending,artifact};
+    }
+    const completedReworks=crewCompleteRoleRework(productionState(),role.id);
+    if (completedReworks&&productionCheckpoint()===false){
+      const pending='@'+role.at+' finished the replacement artifact, but Studio could not save the completed rework receipt. No dependent department was started.';
       return {ok:false,status:'waiting',out:pending,artifact};
     }
     return {ok:status!=='failed',status,out,artifact};

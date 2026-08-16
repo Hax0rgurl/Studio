@@ -68,10 +68,18 @@
     }
 
     for (const item of production.reworkQueue || []) {
+      const step = (production.steps || {})[item.roleId] || {};
+      const requestedAt = Date.parse(item.requestedAt || '');
+      const finishedAt = Date.parse(step.finishedAt || step.updatedAt || '');
+      const inferredComplete = TERMINAL.has(step.status) && Number.isFinite(requestedAt)
+        && Number.isFinite(finishedAt) && finishedAt >= requestedAt;
+      const completedAt = item.completedAt || item.resolvedAt || (inferredComplete ? (step.finishedAt || step.updatedAt) : '');
       rows.push(event({
         id:item.id || `rework:${item.roleId}:${item.requestedAt || ''}`,
         projectId, runId, type:'rework', fromRoleId:'client', toRoleIds:[item.roleId],
-        taskId:item.roleId, status:item.preparedAt ? 'prepared' : 'requested', createdAt:item.requestedAt,
+        taskId:item.roleId, status:completedAt ? 'complete' : (item.preparedAt ? 'prepared' : 'requested'),
+        acknowledgedAt:completedAt,
+        createdAt:item.requestedAt,
         text:item.note || item.verdict || ''
       }));
     }
@@ -102,6 +110,19 @@
     return steps[roleId] || {};
   }
 
+  function reviewIsOpen(step) {
+    const review = step && step.review;
+    if (!review || !REVIEW_VERDICTS.has(String(review.verdict || '').toLowerCase())) return false;
+    if (review.resolvedAt) return false;
+    const reviewedAt = Date.parse(review.at || '');
+    const finishedAt = Date.parse(step.finishedAt || step.updatedAt || '');
+    // Older productions did not mark department rework requests complete.
+    // A later durable terminal artifact is nevertheless proof that the cited
+    // review was handled; do not strand that agent in the screening room.
+    return !(TERMINAL.has(step.status) && Number.isFinite(reviewedAt)
+      && Number.isFinite(finishedAt) && finishedAt >= reviewedAt);
+  }
+
   function deriveAgent(role, input, events) {
     const production = input.production || {};
     const nowMs = Number(input.nowMs || Date.now());
@@ -120,7 +141,7 @@
       || (roleId === 'second_unit' && Number(media.videoRunning || 0) > 0)
       || (roleId === 'editor' && media.assembling === true);
     const working = !failed && (current || input.busyAt === role.at || step.status === 'running' || mediaWorking);
-    const waitingReview = !failed && review && REVIEW_VERDICTS.has(String(review.verdict || '').toLowerCase());
+    const waitingReview = !failed && reviewIsOpen(step);
     const talking = !failed && !working && !waitingReview && latestMessage && recent(latestMessage.at, nowMs, 15000);
     const complete = !failed && !working && !waitingReview && TERMINAL.has(step.status);
 
@@ -206,5 +227,5 @@
     };
   }
 
-  root.StudioTownModel = Object.freeze({ SCHEMA, effectiveRoleId, deriveEvents, deriveTownVM });
+  root.StudioTownModel = Object.freeze({ SCHEMA, effectiveRoleId, reviewIsOpen, deriveEvents, deriveTownVM });
 })(globalThis);
