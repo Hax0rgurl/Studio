@@ -154,6 +154,7 @@ test('Studio Town and Client Room are first-class local app views, not iframes o
 
 test('Town UI provides DOM-based access, exact status, review, direction, and skill controls', () => {
   const controller=fs.readFileSync(path.join(root,'src/modules/studio-town/town-controller.js'),'utf8');
+  const css=fs.readFileSync(path.join(root,'src/modules/studio-town/town.css'),'utf8');
   assert.match(controller,/role="img" tabindex="0" aria-label="Live Agentic Movie Studio town/);
   assert.match(controller,/All 23 agents/);
   assert.match(controller,/Durable event record/);
@@ -162,6 +163,13 @@ test('Town UI provides DOM-based access, exact status, review, direction, and sk
   assert.match(controller,/Send direction/);
   assert.match(controller,/Read full checkpoint/);
   assert.match(controller,/data-town-direction/);
+  assert.match(controller,/townInspectorToggle/);
+  assert.match(controller,/townInspectorClose/);
+  assert.match(controller,/setInspectorOpen\(open\)/);
+  assert.match(controller,/studio\.town\.inspector\.open/);
+  assert.match(controller,/this\.inspectorOpen=false/,'the town map must start full-width until the filmmaker opens details');
+  assert.match(css,/studio-town-workspace\.inspector-open\{grid-template-columns:minmax\(0,1fr\) 330px\}/);
+  assert.match(css,/studio-town-inspector\[hidden\]\{display:none\}/);
   assert.doesNotMatch(controller,/Math\.random|ambient chatter|wander/i);
   assert.match(html,/crewConnect\(\)\.then\(\(\)=>\{[\s\S]{0,320}activeView\(\)==='town'/);
 });
