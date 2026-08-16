@@ -18,6 +18,17 @@ It is being rebuilt and expanded by **Abandoned Muse** as one connected applicat
 - Persists render and assembly receipts so interrupted productions can resume safely.
 - Assembles completed shots into an ordered movie through the local PitchDeck bridge.
 
+## Studio Town
+
+Studio Town is a first-class view inside the same macOS application. It places all 23 canonical crew agents on the approved studio map and exposes the production as a readable, explorable town without creating a second simulation state.
+
+- The Canvas playfield draws the validated full-body source sprites with bottom-center anchors; DOM controls beside it keep every role, status, action, and message accessible.
+- Agents move only for a real routing, assignment, review, or rework transition. There is no ambient chatter, random wandering, fabricated progress, or decorative completion.
+- Agent status is derived from the active `S.production` checkpoint, Greenroom-backed role work, current model activity, human review, and durable media jobs.
+- Clicking an agent opens its exact role, ownership, skill book, current checkpoint, provider, artifact, review controls, and targeted direction box.
+- Buildings open the canonical Studio pages they represent. The Production Dashboard remains the operational control surface, and the dedicated Client Room remains the filmmaker’s conversation, approval, and rework surface.
+- The checked-in map and 92 sprite frames are reproducibly validated and staged by `script/build_studio_town_assets.mjs`; clipped or edge-touching frames fail the build step.
+
 ## Settings
 
 The gear in the top bar opens the one app-wide Settings center. It controls the text-model server and freely selectable model ID, temperature/context, separate storyboard-photo and video providers/models, local service addresses, workflow defaults, and every configuration field declared by an installed trusted media adapter. The same provider state drives the Make a Film dropdowns; there is no second hidden copy.
@@ -45,7 +56,7 @@ The application has no hosted account, analytics service, or required cloud mode
 
 ## Crew skill books
 
-The 23 agent manuals live in [`src/crew-skills`](src/crew-skills). Each book defines the role's authority, required inputs, canonical fields, forbidden changes, procedure, output contract, validation, repair rules, client-room update, and handoff. A shared Studio Constitution makes human direction, durable checkpoints, stable IDs, and real artifact verification binding across departments.
+The 23 agent manuals live in [`src/crew-skills`](src/crew-skills). Each book defines the role's authority, required inputs, canonical fields, forbidden changes, procedure, output contract, validation, repair rules, client-room update, and handoff. A shared Studio Constitution makes human direction, durable checkpoints, stable IDs, and real artifact verification binding across departments. The Dashboard and Studio Town both open this exact runtime manual; neither substitutes a shorter UI description.
 
 `scripts/build-crew-skill-registry.mjs` compiles those readable Markdown files into the local runtime registry. Tests fail if a roster role has no book or if the runtime copy drifts from the authored file.
 

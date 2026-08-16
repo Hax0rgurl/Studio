@@ -42,6 +42,7 @@ const ALLOWED_DIMENSIONS: &[&str] = &[
 ];
 
 const ALLOWED_ROLES: &[&str] = &[
+    "producer",
     "director",
     "story_editor",
     "writer",
@@ -2078,6 +2079,17 @@ mod tests {
             validation_status: if phase == "completed" { "passed".into() } else { String::new() },
             artifact_type: "look".into(), artifact_id: "production-a:production_designer".into(), occurred_at: now_iso(),
         }
+    }
+
+    #[test]
+    fn every_canonical_studio_role_including_the_producer_can_record_evidence() {
+        assert_eq!(ALLOWED_ROLES.len(), 23);
+        assert!(ALLOWED_ROLES.contains(&"producer"));
+        let mut request = workload_request("producer-run", "started");
+        request.role = "producer".into();
+        request.workload_id = "department.producer.route".into();
+        request.skill_name = "agentic-studio-producer".into();
+        assert_eq!(clean_workload_request(request, 1).unwrap().role, "producer");
     }
 
     #[test]
