@@ -20,6 +20,8 @@ function loadFunction(start, end, name, context) {
 
 function providerStubs() {
   return {
+    crewConnect: async () => ({ pitchdeck: { ok: true } }),
+    crewEnsureServices: async () => ({ pitchdeck: { ok: true } }),
     videoProviderSelection: production => production?.videoProvider || { id: 'phosphene', model: '', billingApproved: false },
     videoProviderDescriptor: id => ({ id, name: id === 'phosphene' ? 'Phosphene' : id, configured: true, requiresBillingApproval: false }),
     videoReviewEnvelope: () => ({ schema: 'studio/video-review@1', gate: 'approved', reasons: [] }),
@@ -159,6 +161,21 @@ test('a bounded producer agent selects only departments proven ready by the cano
   assert.doesNotMatch(producer,/providerId\s*=|billingApproved\s*=|model\s*=/);
 });
 
+test('the ChatDev-style production loop is finite, progress-bound, and yields to media rendering', () => {
+  const guard=bodyBetween("const CREW_LOOP_GUARD_SCHEMA",'function crewRoleFinished');
+  const call=bodyBetween('async function crewCall','async function crewStart');
+  assert.match(guard,/studio\/chatdev-bounded-loop@1/);
+  assert.match(guard,/maxNoProgressFailures:3/);
+  assert.match(guard,/crewProgressFingerprint/);
+  assert.match(guard,/after!==ticket\.fingerprint/);
+  assert.match(call,/const turnLimit=Math\.max\(80/);
+  assert.match(call,/const loopTicket=crewLoopTicket\(p,id\)/);
+  assert.match(call,/const loopResult=crewLoopRecord\(p,loopTicket,result\)/);
+  assert.match(call,/returned without changing/);
+  assert.match(call,/\['rendering','assembling','paused'\]\.includes\(p\.status\)\) break/);
+  assert.doesNotMatch(call,/while \(turns\+\+<200\)/);
+});
+
 test('schema-bound Ollama calls stop cleanly for Muse Glimmer and other reasoning templates', () => {
   const stream=bodyBetween('async function aiStream','/* ---------- scrubbing what the model gives back ---------- */');
   assert.match(stream,/body\.think = false/);
@@ -248,6 +265,8 @@ test('storyboard photos are reviewed and rendered one shot at a time before moti
   assert.match(prompts,/No video prompt exists yet/);
   assert.doesNotMatch(prompts,/No prompts yet\. @prompt-writer goes first/);
   assert.match(images,/\.slice\(0,1\)/);
+  assert.match(images,/await crewEnsureServices\(\)/);
+  assert.match(images,/media gateway did not start/);
   assert.match(images,/activeView\(\)==='boards'/);
   assert.match(images,/await renderBoards\(\)/);
   assert.ok(readiness.indexOf('crewStoryboardNextRole(p)') < readiness.indexOf('CREW_MOTION_PREP_PHASE'));
@@ -394,6 +413,8 @@ test('PitchDeck adapter preserves shot identity and timing', () => {
   assert.match(promptWriter, /Script mode[\s\S]*length is not rewritten to fit the new-film target control/);
   assert.doesNotMatch(promptWriter, /target:'seedance',seconds:5/);
   const video = bodyBetween('async function crewVideo', 'function crewStatusRows');
+  assert.match(video, /await crewEnsureServices\(\)/);
+  assert.match(video, /media gateway did not start/);
   assert.match(video, /frames:Math\.round\(seconds\*24\)\+1/);
 });
 
@@ -1001,6 +1022,9 @@ test('stopping an in-flight department cancels cleanly instead of becoming a fal
       context.CREW.cancel = true;
       return { ok: false, status: 'failed', out: 'AbortError' };
     },
+    allShots: () => [],
+    crewLoopTicket: () => ({ ok: true, key: 'prompt_writer:project', fingerprint: 'before', failures: 0 }),
+    crewLoopRecord: () => ({ progressed: true }),
     productionStep: (id, status, out, error) => { production.steps[id] = { status, out, error }; },
     productionCheckpoint: () => {},
     crewFind: () => ({ at: 'prompt-writer' }),
