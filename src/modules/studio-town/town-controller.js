@@ -15,6 +15,8 @@
       this.layout=this.options.layout||root.StudioTownLayout;
       this.assets=this.options.assets||root.STUDIO_TOWN_ASSETS;
       this.vm=null;this.active=false;this.timer=0;this.selectedRoleId='';this.loaded=false;
+      this.inspectorOpen=false;
+      try { this.inspectorOpen=root.localStorage&&root.localStorage.getItem('studio.town.inspector.open')==='1'; } catch(error){}
       this.reducedMotion=!!(root.matchMedia&&root.matchMedia('(prefers-reduced-motion: reduce)').matches);
       this.mount();
     }
@@ -28,12 +30,14 @@
         +'<button class="btn small" data-town-ui id="townZoomOut" title="Zoom out" aria-label="Zoom out">−</button>'
         +'<button class="btn small" data-town-ui id="townFit" title="Fit town to window">Fit</button>'
         +'<button class="btn small" data-town-ui id="townZoomIn" title="Zoom in" aria-label="Zoom in">+</button>'
+        +'<button class="btn small" data-town-ui id="townInspectorToggle" title="Show agent details" aria-controls="townInspector" aria-expanded="'+(this.inspectorOpen?'true':'false')+'">'+(this.inspectorOpen?'Hide details':'Show details')+'</button>'
         +'<button class="btn small" data-town-ui id="townRefresh">Refresh record</button>'
         +'</div></header>'
-        +'<div class="studio-town-workspace">'
+        +'<div class="studio-town-workspace '+(this.inspectorOpen?'inspector-open':'')+'">'
         +'<div class="studio-town-stage"><canvas id="studioTownCanvas" role="img" tabindex="0" aria-label="Live Agentic Movie Studio town. Use the accessible crew list beside the map to inspect every agent."></canvas>'
         +'<div class="studio-town-legend"><span><i class="work"></i>working</span><span><i class="review"></i>review</span><span><i class="blocked"></i>blocked</span><span><i class="complete"></i>complete</span></div></div>'
-        +'<aside class="studio-town-inspector" aria-label="Studio Town inspector">'
+        +'<aside class="studio-town-inspector" id="townInspector" aria-label="Studio Town inspector" '+(this.inspectorOpen?'':'hidden')+'>'
+        +'<div class="studio-town-inspector-head"><b>Agent details</b><button class="btn small" data-town-ui id="townInspectorClose" title="Close agent details" aria-label="Close agent details">×</button></div>'
         +'<label class="studio-town-building-jump"><span>Open a building</span><select id="townBuildingSelect" data-town-ui><option value="">Choose…</option>'
         +this.layout.buildings.map(row=>'<option value="'+esc(row.id)+'">'+esc(row.label)+'</option>').join('')+'</select></label>'
         +'<div id="townAgentDrawer"></div>'
@@ -45,7 +49,7 @@
       this.simulation=new root.StudioTownSimulation.TownSimulation(this.layout,{reducedMotion:this.reducedMotion});
       this.renderer=new root.StudioTownRenderer.TownRenderer(canvas,{
         assets:this.assets,layout:this.layout,simulation:this.simulation,
-        onAgent:roleId=>this.selectRole(roleId),onBuilding:id=>this.openBuilding(id)
+        onAgent:roleId=>this.selectRole(roleId,true),onBuilding:id=>this.openBuilding(id)
       });
       this.renderer.load().then(()=>{this.loaded=true;this.renderer.setActive(this.active);}).catch(error=>{
         const stage=this.container.querySelector('.studio-town-stage');
@@ -55,8 +59,26 @@
       this.container.querySelector('#townZoomOut').addEventListener('click',()=>this.renderer.zoomBy(.85));
       this.container.querySelector('#townZoomIn').addEventListener('click',()=>this.renderer.zoomBy(1.18));
       this.container.querySelector('#townFit').addEventListener('click',()=>this.renderer.fit());
+      this.container.querySelector('#townInspectorToggle').addEventListener('click',()=>this.setInspectorOpen(!this.inspectorOpen));
+      this.container.querySelector('#townInspectorClose').addEventListener('click',()=>this.setInspectorOpen(false));
       this.container.querySelector('#townRefresh').addEventListener('click',()=>this.options.onRefresh&&this.options.onRefresh());
       this.container.querySelector('#townBuildingSelect').addEventListener('change',event=>this.openBuilding(event.target.value));
+    }
+
+    setInspectorOpen(open) {
+      this.inspectorOpen=!!open;
+      const workspace=this.container.querySelector('.studio-town-workspace');
+      const inspector=this.container.querySelector('#townInspector');
+      const toggle=this.container.querySelector('#townInspectorToggle');
+      if(workspace)workspace.classList.toggle('inspector-open',this.inspectorOpen);
+      if(inspector){inspector.hidden=!this.inspectorOpen;inspector.setAttribute('aria-hidden',this.inspectorOpen?'false':'true');}
+      if(toggle){
+        toggle.setAttribute('aria-expanded',this.inspectorOpen?'true':'false');
+        toggle.textContent=this.inspectorOpen?'Hide details':'Show details';
+        toggle.title=this.inspectorOpen?'Hide agent details':'Show agent details';
+      }
+      try { if(root.localStorage)root.localStorage.setItem('studio.town.inspector.open',this.inspectorOpen?'1':'0'); } catch(error){}
+      if(this.renderer){this.renderer.resize();this.renderer.draw();}
     }
 
     setActive(active) {
@@ -88,10 +110,11 @@
       }
     }
 
-    selectRole(roleId) {
+    selectRole(roleId, revealInspector) {
       this.selectedRoleId=String(roleId||'');
       if(this.vm)this.vm.selectedRoleId=this.selectedRoleId;
       this.renderer.selectRole(this.selectedRoleId);
+      if(revealInspector)this.setInspectorOpen(true);
       this.renderDom();
     }
 
