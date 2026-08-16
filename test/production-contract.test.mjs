@@ -36,6 +36,20 @@ test('all executable inline scripts parse', () => {
   for (const block of blocks) new Function(block);
 });
 
+test('large project libraries round-trip through the synchronous compressed durability journal', () => {
+  const codec=source.slice(source.indexOf("const PROJECT_DB_PREFIX='AMSZ1:'"),source.indexOf('const ProjectDBMirror'));
+  const context={Map,Array,String,Number,Uint8Array,TextEncoder,TextDecoder,btoa,atob,Error};
+  vm.createContext(context);
+  vm.runInContext(`${codec}; globalThis.encode=projectDbEncode; globalThis.decode=projectDbDecode;`,context);
+  const raw=JSON.stringify({projects:Array.from({length:1200},(_,index)=>({id:'project-'+index,
+    title:'Night laundromat – océano '+index,script:'A repeated cinematic screenplay passage. '.repeat(80)}))});
+  const encoded=context.encode(raw);
+  assert.match(encoded,/^AMSZ1:/);
+  assert.ok(encoded.length<raw.length*.7,'compressed journal must leave meaningful quota headroom');
+  assert.equal(context.decode(encoded),raw);
+  assert.equal(context.decode('{"projects":[]}'),'{"projects":[]}','legacy plain JSON remains readable');
+});
+
 test('idea screenplay stays in the active Studio project', () => {
   const writer = bodyBetween('async function crewWriteScript', 'async function crewCoverage');
   const executable = writer.replace(/\/\/.*$/gm, '');
@@ -131,9 +145,11 @@ test('a bounded producer agent selects only departments proven ready by the cano
   const producer=bodyBetween('async function crewPlanNext','/** The whole crew');
   const call=bodyBetween('async function crewCall','async function crewStart');
   assert.match(readiness,/CREW_BIBLE_PHASE/);
-  assert.match(readiness,/CREW_PREP_PHASE/);
+  assert.match(readiness,/CREW_VISUAL_PREP_PHASE/);
+  assert.match(readiness,/crewStoryboardNextRole\(p\)/);
+  assert.match(readiness,/CREW_MOTION_PREP_PHASE/);
   assert.match(readiness,/CREW_PROMPT_PHASE/);
-  assert.match(readiness,/\['script_supervisor'\],\['taste'\],\['stills'\],\['second_unit'\],\['editor'\]/);
+  assert.match(readiness,/\['second_unit'\],\['editor'\]/);
   assert.match(producer,/schema\.properties\.nextRole\.enum=candidates/);
   assert.match(producer,/if \(!candidates\.includes\(decision\.nextRole\)\)/);
   assert.match(producer,/p\.orchestration\.decisions\.push\(record\)/);
@@ -147,7 +163,22 @@ test('schema-bound Ollama calls stop cleanly for Muse Glimmer and other reasonin
   const stream=bodyBetween('async function aiStream','/* ---------- scrubbing what the model gives back ---------- */');
   assert.match(stream,/body\.think = false/);
   assert.match(stream,/body\.options\.stop = \['<\|eot\|>','<\|im_end\|>'\]/);
+  assert.match(stream,/num_predict:maxTokens/);
+  assert.match(stream,/Math\.min\(8192/);
+  assert.match(stream,/let out = '', thought = 0/);
   assert.match(stream,/if \(!out\.trim\(\)\)/);
+});
+
+test('Greenroom seminars stay agentic without starving the storyboard renderer', () => {
+  const seminar=bodyBetween('async function crewChatDevSeminar','function crewGreenroomWorkPacket');
+  assert.match(seminar,/shotSeminarRoles/);
+  assert.match(seminar,/scenes:seminarScenes,budget:16000,taskFirst:true,collaborationCap:5000/);
+  assert.match(seminar,/artifactType:'conversation_plan',maxTokens:512/);
+  assert.match(seminar,/artifactType:'conversation_reply',maxTokens:1800/);
+  const context=bodyBetween('function crewContext','/* ---------- production state + trusted local service bridge ---------- */');
+  assert.match(context,/opts\.taskFirst&&opts\.extra/);
+  assert.match(context,/opts\.extra&&!opts\.taskFirst/);
+  assert.match(context,/\[earlier Greenroom context omitted\]/);
 });
 
 test('long Greenroom agent work renews its exclusive lease before expiry', () => {
@@ -204,6 +235,43 @@ test('whole-film pipeline reaches taste, stills, video, and editor', () => {
   assert.ok(pipeline.indexOf("'taste'") < pipeline.indexOf("'stills'"));
 });
 
+test('storyboard photos are reviewed and rendered one shot at a time before motion work', () => {
+  const routing=bodyBetween('function crewStoryboardCurrentRow','async function crewStillPrompts');
+  const prompts=bodyBetween('async function crewStillPrompts','const CREW_BIBLE_SCHEMA');
+  const images=bodyBetween('async function crewImages','function crewJobId');
+  const readiness=bodyBetween('function crewReadyRoles','const CREW_PRODUCER_DECISION_BASE');
+  assert.match(routing,/find\(row=>!boardOf\(row\.sh\)\.frame\)/);
+  assert.match(routing,/return 'stills_prompt'/);
+  assert.match(routing,/return 'script_supervisor'/);
+  assert.match(routing,/return 'taste'/);
+  assert.match(routing,/return 'stills'/);
+  assert.match(prompts,/No video prompt exists yet/);
+  assert.doesNotMatch(prompts,/No prompts yet\. @prompt-writer goes first/);
+  assert.match(images,/\.slice\(0,1\)/);
+  assert.match(images,/activeView\(\)==='boards'/);
+  assert.match(images,/await renderBoards\(\)/);
+  assert.ok(readiness.indexOf('crewStoryboardNextRole(p)') < readiness.indexOf('CREW_MOTION_PREP_PHASE'));
+});
+
+test('the progressive storyboard router cannot skip prompt, craft, taste, or a real frame', () => {
+  const rows=[1,2].map(index=>({sc:{num:String(index)},sh:{id:'shot-'+index,board:{desc:'',frame:'',craft:null,taste:null}}}));
+  const context={Date,allShots:()=>rows,boardOf:shot=>shot.board};
+  vm.createContext(context);
+  vm.runInContext(`${bodyBetween('function crewStoryboardCurrentRow','async function crewStillPrompts')}
+    globalThis.next=crewStoryboardNextRole; globalThis.current=crewStoryboardCurrentRow;`,context);
+  const p={};
+  assert.equal(context.next(p),'stills_prompt');
+  rows[0].sh.board.desc='A complete photo prompt';
+  assert.equal(context.next(p),'script_supervisor');
+  rows[0].sh.board.craft={verdict:'pass'};
+  assert.equal(context.next(p),'taste');
+  rows[0].sh.board.tasteUntrainedAt='receipt';
+  assert.equal(context.next(p),'stills');
+  rows[0].sh.board.frame='frame-1';
+  assert.equal(context.current(p).sh.id,'shot-2');
+  assert.equal(context.next(p),'stills_prompt');
+});
+
 test('taste evidence is read across the Studio library', () => {
   const taste = bodyBetween('function tasteLibraryStates', 'function tasteBlock');
   assert.match(taste, /DB\.projects/);
@@ -249,6 +317,19 @@ test('canon and TasteOS review gate every image or video provider before spend',
   assert.match(videos, /review:videoReviewEnvelope\(sh\)/);
 });
 
+test('canon audit ignores photographic prose but still catches invented visible entities', () => {
+  const auditSource=bodyBetween('const plNorm', '/** Hand the model the exact ranges');
+  const context={Set,String,Object,Array,
+    SUGGEST:{props:['umbrella','photograph'],vehicles:['plane'],vfx:['floating'],stunts:[],sfx:[],sound:[],animals:[],wardrobe:[],extras:[],setdress:[],makeup:[]},
+    PL_CRAFT_WORDS:['photograph','plane'],PL_STOPWORDS:[]};
+  vm.createContext(context);
+  vm.runInContext(`${auditSource}; globalThis.add=plAddWords; globalThis.audit=plCanonAudit;`,context);
+  const vocab=new Set();
+  context.add(vocab,'laundromat washing machine red photograph plane');
+  assert.deepEqual([...context.audit('SUBJECT photograph surface deformation environment physical state; no floating objects',vocab)],[]);
+  assert.deepEqual([...context.audit('A red umbrella sits beside the washing machine.',vocab)],['umbrella']);
+});
+
 test('the script supervisor independently reviews storyboard-photo prompts', () => {
   assert.match(source, /const CRITIC_STILL_SPINE/);
   assert.match(source, /STILL-PROMPT RUBRIC/);
@@ -262,6 +343,44 @@ test('the script supervisor independently reviews storyboard-photo prompts', () 
   assert.match(rework, /await crewTaste\(crewFind\('taste'\)/);
 });
 
+test('the still critic cannot delete fields required by the storyboard photo contract', () => {
+  const critic=bodyBetween('const CRITIC_STILL_SPINE','/** Deterministic findings the critic must not argue with. */');
+  for (const label of ['FILM STOCK','IMPERFECTION','AESTHETIC REFUSALS','AVOID']) assert.match(critic,new RegExp(label));
+  assert.match(critic,/Never flag a block merely because it exists/);
+  assert.match(critic,/never request that a required block be removed/);
+  assert.match(critic,/Calling the artifact a photograph or stating the canonical time of day is allowed/);
+  const note=bodyBetween('function critiqueStillToNote','/* ============================================================\n   ⚡⚡ STYLE THE BIBLES');
+  assert.match(note,/film stock\|imperfection\|aesthetic refusals\|avoid/);
+  assert.match(note,/photograph wording\|time reference/);
+  const stills=bodyBetween('async function crewStillPrompts','const CREW_BIBLE_SCHEMA');
+  assert.match(stills,/critiqueStillToNote\(board\.craft\)/);
+});
+
+test('a binding one-shot-per-scene direction is executable coverage validation', () => {
+  const parse = loadFunction('function crewCoverageConstraintText', 'function crewCoverageConstraint(p)', 'crewCoverageConstraintText', {});
+  assert.equal(parse('Replace the overcoverage with exactly ONE deliberate static shot per scene, seven shots total.').onePerScene, true);
+  assert.equal(parse('Keep the coverage lean and purposeful.').onePerScene, false);
+  const satisfies = loadFunction('function crewCoverageSceneSatisfies', 'const CREW_COVERAGE_SCHEMA', 'crewCoverageSceneSatisfies', {});
+  assert.equal(satisfies({shots:[{crewPlanned:true}],coverageCheck:'The whole beat is covered.'},{onePerScene:true}),true);
+  assert.equal(satisfies({shots:[{crewPlanned:true},{crewPlanned:true}],coverageCheck:'Too many.'},{onePerScene:true}),false);
+  assert.equal(satisfies({shots:[{auto:false,humanLocked:true}]},{onePerScene:true}),true);
+  assert.equal(satisfies({shots:[{auto:true}]},{onePerScene:true}),false);
+  const coverage = bodyBetween('function crewCoverageConstraintText', 'async function crewWritePrompts');
+  assert.match(coverage, /coverageSchema\.properties\.shots\.maxItems=1/);
+  assert.match(coverage, /Binding human direction requires exactly one shot/);
+  assert.match(coverage, /crewCoverageValue\(value,sc,constraint\)/);
+  assert.match(coverage, /studio\/coverage-progress@1/);
+  assert.match(coverage, /completedSceneIds/);
+  assert.match(coverage, /budget:28000/);
+  assert.match(coverage, /valid scene checkpoints resumed/);
+  assert.match(coverage, /filmmaker-approved coverage/);
+});
+
+test('editing an automatic shot makes it binding human direction', () => {
+  const wiring = bodyBetween('function wireShotTables()', '/* ================= elements view ================= */');
+  assert.match(wiring, /sh\.auto=false; sh\.humanLocked=true/);
+});
+
 test('PitchDeck adapter preserves shot identity and timing', () => {
   const adapter = bodyBetween('async function buildPitchDeckProject', 'async function exportToPitchDeck');
   assert.match(adapter, /studioShotId:\s*sh\.id/);
@@ -270,6 +389,9 @@ test('PitchDeck adapter preserves shot identity and timing', () => {
   assert.doesNotMatch(adapter, /Math\.min\(5/);
   const promptWriter = bodyBetween('async function crewWritePrompts', 'async function crewSupervise');
   assert.match(promptWriter, /capabilities\.defaultClipSeconds\|\|capabilities\.defaultSeconds\|\|PL\.seconds/);
+  assert.match(promptWriter, /\['idea','adaptation'\]\.includes\(p\.mode\)/);
+  assert.match(promptWriter, /targetSeconds\/Math\.max\(1,shotCount\)/);
+  assert.match(promptWriter, /Script mode[\s\S]*length is not rewritten to fit the new-film target control/);
   assert.doesNotMatch(promptWriter, /target:'seedance',seconds:5/);
   const video = bodyBetween('async function crewVideo', 'function crewStatusRows');
   assert.match(video, /frames:Math\.round\(seconds\*24\)\+1/);
@@ -343,16 +465,12 @@ test('render and assembly are single-flight and lock conflicting production acti
 });
 
 test('service startup is single-flight in the webview and model choice remains user-controlled', async () => {
-  let releaseStart;
   let starts = 0;
   let connects = 0;
   const context = {
     console, Promise, String,
     CREW: { startPromise: null, startResults: [] },
-    crewInvoke: () => {
-      starts++;
-      return new Promise(resolve => { releaseStart = resolve; });
-    },
+    crewInvoke: async () => { starts++; return []; },
     setTimeout: callback => { callback(); return 1; },
     crewConnect: async () => {
       connects++;
@@ -362,10 +480,9 @@ test('service startup is single-flight in the webview and model choice remains u
   const ensure = loadFunction('async function crewEnsureServices', 'function productionState', 'crewEnsureServices', context);
   const first = ensure();
   const second = ensure();
-  assert.equal(starts, 1, 'concurrent callers must share one native start');
-  releaseStart([]);
   await Promise.all([first, second]);
-  assert.equal(connects, 1);
+  assert.equal(starts, 0, 'healthy services must not be redundantly launched');
+  assert.equal(connects, 1, 'concurrent callers must share one health/start owner');
   assert.equal(context.CREW.startPromise, null);
   const ensureSource = bodyBetween('async function crewEnsureServices', 'function productionState');
   assert.match(ensureSource, /CREW\.startPromise=null/);
@@ -421,6 +538,17 @@ test('Client Room shows live model activity until the validated agent checkpoint
   assert.match(run,/CREW\.live&&CREW\.live\.roleId===role\.id/);
 });
 
+test('Client Room controls survive transcript rerenders through one delegated controller', () => {
+  const client = bodyBetween('function clientTranscriptHtml', '/* ================= render all + init ================= */');
+  assert.match(client, /function wireClientRoom\(wrap\)/);
+  assert.match(client, /if \(!wrap \|\| wrap\._clientRoomWired\) return/);
+  assert.match(client, /wrap\.addEventListener\('click',async event=>/);
+  assert.match(client, /button\.id==='clientSend'/);
+  assert.match(client, /button\.dataset\.clientRevise/);
+  assert.match(client, /wireClientRoom\(wrap\)/);
+  assert.doesNotMatch(client, /querySelectorAll\('\[data-client-revise\]'\)\.forEach/);
+});
+
 test('individual department controls explain an active-pipeline block instead of swallowing clicks', () => {
   const room=bodyBetween('function renderCrew', '/* ================= render all + init ================= */');
   assert.match(room,/id="crewDepartmentControls"/);
@@ -468,6 +596,22 @@ test('Greenroom thread messages remain provenance-only and posts are ordered', (
   const greenroomRoleId = loadFunction('function crewGreenroomRoleId', 'function crewGreenroomWorkPacket', 'crewGreenroomRoleId', roleContext);
   assert.equal(greenroomRoleId({id:'story_review',greenroomRoleId:'story_editor'}),'story_editor');
   assert.equal(greenroomRoleId({id:'stills_prompt'}),'prompt_writer');
+});
+
+test('synthetic screenplay review records TasteOS evidence as the canonical story editor', () => {
+  const context = {
+    String,
+    productionState: () => ({ currentStep: 'story_review' }),
+    crewFind: id => id === 'story_review'
+      ? { id: 'story_review', skillRoleId: 'story_editor', greenroomRoleId: 'story_editor' }
+      : null,
+    crewSkillBook: () => ({ name: 'Story editor', version: '1.0.0' })
+  };
+  const identity = loadFunction('function tasteWorkloadIdentity', 'async function tasteWorkloadStart', 'tasteWorkloadIdentity', context);
+  const result = identity({ roleId: 'story_review', workloadId: 'department.story_editor.screenplay_review.0' });
+  assert.equal(result.roleId, 'story_editor');
+  assert.equal(result.requestedRoleId, 'story_review');
+  assert.equal(result.workloadId, 'department.story_editor.screenplay_review.0');
 });
 
 test('live resume returns to polling without rerunning departments', async () => {

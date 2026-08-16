@@ -202,7 +202,8 @@
       if (!node) return;
       const height=roleAsset.displayHeight||64,width=height*frame.width/frame.height;
       const anchorX=width*(frame.anchor.x/frame.width),anchorY=height*(frame.anchor.y/frame.height);
-      ctx.drawImage(node,state.x-anchorX,state.y-anchorY,width,height);
+      const bob=Number(state.walkBob||0);
+      ctx.drawImage(node,state.x-anchorX,state.y-anchorY+bob,width,height);
 
       const agent=state.agent||{},status=STATUS[agent.activity]||STATUS.idle;
       const selected=this.selectedRoleId===state.roleId,hover=this.hoverRoleId===state.roleId;

@@ -107,7 +107,7 @@ test('real direction, producer handoff, and rework become typed town events', ()
   assert.equal(events[2].type,'rework');assert.equal(JSON.stringify(events[2].toRoleIds),JSON.stringify(['writer']));
 });
 
-test('sprite travel begins only when a new durable routing event appears', () => {
+test('durable routing events move the exact sender and project changes clear stale travel', () => {
   const {StudioTownLayout:layout,StudioTownSimulation}=loadTownModules();
   const simulation=new StudioTownSimulation.TownSimulation(layout,{speed:500});
   const agents=canonicalRoles.map(id=>({...role(id),roleId:id,buildingId:layout.roleBuildings[id],homeBuildingId:layout.roleBuildings[id],activity:'idle'}));
@@ -118,6 +118,25 @@ test('sprite travel begins only when a new durable routing event appears', () =>
   assert.ok(simulation.snapshot().filter(state=>state.roleId!=='producer').every(state=>!state.moving));
   simulation.update({projectId:'other',draftId:'draft',runId:'run-2',agents,events:[]},1400);
   assert.ok(simulation.snapshot().every(state=>!state.moving),'switching canonical owners must reset instead of animating stale state');
+});
+
+test('an already-working agent keeps making purposeful visible trips after Town opens', () => {
+  const {StudioTownLayout:layout,StudioTownSimulation}=loadTownModules();
+  const simulation=new StudioTownSimulation.TownSimulation(layout,{speed:500});
+  const agents=canonicalRoles.map(id=>({...role(id),roleId:id,buildingId:layout.roleBuildings[id],homeBuildingId:layout.roleBuildings[id],
+    activity:id==='gaffer'?'work':'idle',taskId:id==='gaffer'?'lighting-pass':''}));
+  simulation.update({projectId:'p',draftId:'d',runId:'run',agents,events:[]},1000);
+  const gaffer=simulation.snapshot().find(state=>state.roleId==='gaffer');
+  assert.equal(gaffer.moving,true,'opening Town during a claimed task must show that worker moving');
+  assert.ok(gaffer.route.length>=4,'the work trip must visibly connect the department and production office');
+  assert.ok(simulation.snapshot().filter(state=>state.roleId!=='gaffer').every(state=>!state.moving),
+    'idle agents must not pretend to be working');
+  const before={x:gaffer.x,y:gaffer.y};
+  simulation.tick(250);
+  const after=simulation.snapshot().find(state=>state.roleId==='gaffer');
+  assert.notDeepEqual({x:after.x,y:after.y},before);
+  assert.match(after.frameId,/^walk_(?:left|right)$/);
+  assert.notEqual(after.walkBob,0);
 });
 
 test('Studio Town and Client Room are first-class local app views, not iframes or demos', () => {

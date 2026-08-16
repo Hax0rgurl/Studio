@@ -73,9 +73,11 @@ test('every formal prompt and review agent receives its full skill book and curr
   assert.match(promptEngine, /crewSystem\(crewRole\)/);
   assert.match(promptEngine, /crewContext\(crewRole/);
   assert.match(supervisor, /critique\([\s\S]*,role\)/);
-  assert.match(supervisor, /status:bad\?'failed':'done'/);
+  assert.match(supervisor, /canRevise\?'waiting':'failed'/);
+  assert.match(supervisor, /crewStoryboardCraftComplete\(\)\?'done':'waiting'/);
   assert.match(taste, /critiqueTaste\([\s\S]*,role\)/);
-  assert.match(taste, /status:kill\?'failed':'done'/);
+  assert.match(taste, /canRevise\?'waiting':'failed'/);
+  assert.match(taste, /crewStoryboardTasteComplete\(\)\?'done':'waiting'/);
   assert.match(source, /FILMMAKER FOUNDATION — explicit and locked/);
   assert.match(source, /HOW YOUR HANDOFF WILL BE JUDGED/);
 });

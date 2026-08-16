@@ -18,6 +18,12 @@
     return points;
   }
 
+  function roleDelay(roleId) {
+    let hash = 0;
+    for (const ch of String(roleId || '')) hash = ((hash * 31) + ch.charCodeAt(0)) >>> 0;
+    return 1800 + (hash % 2200);
+  }
+
   class TownSimulation {
     constructor(layout, options) {
       if (!layout) throw new Error('Studio Town simulation requires a layout.');
@@ -41,6 +47,11 @@
           route:[], routeIndex:0,
           moving:false,
           frameId:'idle',
+          facing:1,
+          walkPhase:0,
+          activityKey:'',
+          nextPurposefulMoveAt:0,
+          tripSerial:0,
           destinationBuildingId:agent.buildingId || home.buildingId,
           transientEventId:''
         };
@@ -71,6 +82,56 @@
       }
     }
 
+    purposefulRoute(agent, state) {
+      const homeBuilding = this.layout.buildingForRole(agent.roleId);
+      const destination = this.layout.buildingById[agent.buildingId] || homeBuilding;
+      const home = this.layout.roleHome(agent.roleId);
+      const destinationPoint = this.destinationFor(agent);
+      const activity = String(agent.activity || 'idle');
+      if (activity === 'talk') {
+        const related = [...((this.vm && this.vm.events) || [])].reverse().find(row =>
+          row && (row.fromRoleId === agent.roleId || (row.toRoleIds || []).includes(agent.roleId)));
+        const peerId = related && (related.fromRoleId === agent.roleId
+          ? (related.toRoleIds || []).find(id => this.states.has(id))
+          : related.fromRoleId);
+        if (peerId && this.states.has(peerId)) {
+          const peerBuilding = this.layout.buildingForRole(peerId);
+          const peer = this.states.get(peerId);
+          return [state, homeBuilding.door, this.layout.map.meetingPoint, peerBuilding.door, peer,
+            peerBuilding.door, this.layout.map.meetingPoint, homeBuilding.door, home];
+        }
+      }
+      if (activity === 'review' && destination.id !== homeBuilding.id) {
+        return [state, homeBuilding.door, this.layout.map.meetingPoint, destination.door, destinationPoint];
+      }
+      if (activity === 'work') {
+        const production = this.layout.buildingById.production;
+        const collaborationPoint = production.slots[0] || production.door;
+        if (homeBuilding.id !== production.id) {
+          return [state, homeBuilding.door, this.layout.map.meetingPoint, production.door, collaborationPoint,
+            production.door, this.layout.map.meetingPoint, homeBuilding.door, home];
+        }
+        const alternate = homeBuilding.slots.find(point => distance(point, home) > 8) || homeBuilding.door;
+        return [state, homeBuilding.door, alternate, home];
+      }
+      return [];
+    }
+
+    schedulePurposefulMovement(agent, state, immediate) {
+      if (state.route.length || !['work','talk','review'].includes(String(agent.activity || ''))) return;
+      const activityKey = [agent.activity, agent.taskId || '', agent.lastEventId || ''].join(':');
+      if (state.activityKey !== activityKey) {
+        state.activityKey = activityKey;
+        state.nextPurposefulMoveAt = this.nowMs;
+      }
+      if (!immediate && this.nowMs < Number(state.nextPurposefulMoveAt || 0)) return;
+      const route = this.purposefulRoute(agent, state);
+      if (!route.length) return;
+      state.tripSerial += 1;
+      this.setRoute(state, route, `activity:${agent.roleId}:${state.tripSerial}`);
+      state.nextPurposefulMoveAt = this.nowMs + 9000 + roleDelay(agent.roleId);
+    }
+
     update(vm, nowMs) {
       this.vm = vm || { agents:[], events:[] };
       this.nowMs = Number(nowMs || Date.now());
@@ -87,9 +148,10 @@
       if (!this.initialized) {
         agents.forEach(agent => {
           const state = this.ensureAgent(agent);
-          const target = this.destinationFor(agent);
-          state.x = target.x; state.y = target.y;
-          state.destinationBuildingId = agent.buildingId;
+          const home = this.layout.roleHome(agent.roleId);
+          state.x = home.x; state.y = home.y;
+          state.destinationBuildingId = agent.homeBuildingId || home.buildingId;
+          this.schedulePurposefulMovement(agent, state, true);
         });
         const latest = (this.vm.events || [])[this.vm.events.length - 1];
         this.lastEventId = latest ? latest.id : '';
@@ -109,6 +171,7 @@
           this.setRoute(state, route, `state:${agent.roleId}:${agent.buildingId}`);
           state.destinationBuildingId = agent.buildingId;
         }
+        this.schedulePurposefulMovement(agent, state, false);
       });
 
       const events = this.vm.events || [];
@@ -145,25 +208,27 @@
             state.route.shift(); remaining -= d;
           } else {
             const ratio = remaining / d;
+            state.facing = target.x < state.x ? -1 : 1;
             state.x += (target.x - state.x) * ratio;
             state.y += (target.y - state.y) * ratio;
             remaining = 0;
           }
         }
         state.moving = state.route.length > 0;
+        if (state.moving) state.walkPhase = (Number(state.walkPhase || 0) + seconds * 5.5) % 1;
       }
       return this.snapshot();
     }
 
     snapshot() {
       const byRole = new Map((this.vm && this.vm.agents || []).map(agent => [agent.roleId, agent]));
-      const phase = Math.floor(this.nowMs / 240) % 2;
       return [...this.states.values()].map(state => {
         const agent = byRole.get(state.roleId) || {};
         let frameId = 'idle';
-        if (state.moving) frameId = phase ? 'walk_left' : 'walk_right';
+        if (state.moving) frameId = state.facing < 0 ? 'walk_left' : 'walk_right';
         else if (agent.activity === 'talk' || agent.activity === 'work') frameId = 'talk';
-        return Object.assign({}, state, { frameId, agent });
+        const walkBob = state.moving ? Math.sin(Number(state.walkPhase || 0) * Math.PI * 2) * 2.4 : 0;
+        return Object.assign({}, state, { frameId, walkBob, agent });
       }).sort((a, b) => a.y - b.y || a.x - b.x);
     }
 
@@ -180,5 +245,5 @@
     }
   }
 
-  root.StudioTownSimulation = Object.freeze({ TownSimulation, distance, routeFromPosition });
+  root.StudioTownSimulation = Object.freeze({ TownSimulation, distance, routeFromPosition, roleDelay });
 })(globalThis);

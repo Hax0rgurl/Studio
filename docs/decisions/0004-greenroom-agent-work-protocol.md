@@ -51,7 +51,9 @@ Completion requires the matching canonical artifact checkpoint.
   rerunning the department.
 - A delivery failure is checkpointed and acknowledged as a failed attempt; a later retry receives a new work id.
 - Credentials remain in the Rust broker and never enter browser storage or model context.
-- Tool-backed departments register as tool workers; Ollama roles register as stateless inference hosts.
+- Every active department registers the selected Ollama host for its bounded functional seminar. Image,
+  video, and assembly execution still goes through the separately selected trusted media adapter after the
+  seminar and canonical gates pass.
 
 ## Current limitation
 

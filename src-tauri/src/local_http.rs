@@ -86,6 +86,12 @@ pub(crate) fn request(
                     return Err("Local service response exceeded 4 MiB.".to_string());
                 }
                 raw.extend_from_slice(&buffer[..count]);
+                // HTTP/1.1 servers are allowed to keep the socket alive after
+                // the declared body is complete. Stop on framing instead of
+                // burning the entire read timeout for every health check.
+                if response_complete(&raw) {
+                    break;
+                }
             }
             Err(error)
                 if matches!(
@@ -102,6 +108,37 @@ pub(crate) fn request(
     }
 
     parse_response(&raw)
+}
+
+fn response_complete(raw: &[u8]) -> bool {
+    let Some(split) = raw.windows(4).position(|window| window == b"\r\n\r\n") else {
+        return false;
+    };
+    let Ok(headers) = std::str::from_utf8(&raw[..split]) else {
+        return false;
+    };
+    let body = &raw[split + 4..];
+    let mut chunked = false;
+    let mut content_length = None;
+    for line in headers.split("\r\n").skip(1) {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.eq_ignore_ascii_case("content-length") {
+            content_length = value.trim().parse::<usize>().ok();
+        }
+        if name.eq_ignore_ascii_case("transfer-encoding")
+            && value
+                .split(',')
+                .any(|encoding| encoding.trim().eq_ignore_ascii_case("chunked"))
+        {
+            chunked = true;
+        }
+    }
+    if chunked {
+        return decode_chunked(body).is_ok();
+    }
+    content_length.is_some_and(|expected| body.len() >= expected)
 }
 
 fn parse_response(raw: &[u8]) -> Result<HttpResponse, String> {
@@ -182,7 +219,7 @@ fn decode_chunked(mut input: &[u8]) -> Result<Vec<u8>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_chunked, parse_response};
+    use super::{decode_chunked, parse_response, response_complete};
 
     #[test]
     fn parses_content_length_response() {
@@ -197,5 +234,17 @@ mod tests {
             decode_chunked(b"4\r\ntest\r\n3\r\n123\r\n0\r\n\r\n").unwrap(),
             b"test123"
         );
+    }
+
+    #[test]
+    fn stops_when_a_keep_alive_response_body_is_complete() {
+        let complete = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\n{}";
+        assert!(response_complete(complete));
+        assert!(!response_complete(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: keep-alive\r\n\r\n{}"
+        ));
+        assert!(response_complete(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n"
+        ));
     }
 }
