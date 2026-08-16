@@ -9,6 +9,7 @@ It is being rebuilt and expanded by **Abandoned Muse** as one connected applicat
 - Builds or imports a screenplay and keeps every revision in a local project library.
 - Breaks scenes into cast, locations, props, continuity bibles, and planned shots.
 - Runs a role-based movie crew with a user-selectable local Ollama model.
+- Gives every department a real Greenroom producer handoff and one bounded ChatDev-style peer seminar before it writes or renders; exact requests and replies appear live in Studio Town and the Client Room and enter the agent's canonical evidence packet.
 - Loads a researched, versioned skill book for every crew agent and lets the filmmaker inspect the exact manual in the Crew room.
 - Maintains a single canonical project across Cards, Script, Boards, Slate, Prompts, and Takes.
 - Generates storyboard stills through an independently selected image provider and preserves provider/model provenance on the exact shot.
@@ -24,6 +25,7 @@ Studio Town is a first-class view inside the same macOS application. It places a
 
 - The Canvas playfield draws the validated full-body source sprites with bottom-center anchors; DOM controls beside it keep every role, status, action, and message accessible.
 - Agents move only for a real routing, assignment, review, or rework transition. There is no ambient chatter, random wandering, fabricated progress, or decorative completion.
+- The open Greenroom panel shows the exact authenticated producer handoffs, peer questions, replies, causal links, and acknowledgments. Sprite talking and travel are derived from those events rather than invented animation.
 - Agent status is derived from the active `S.production` checkpoint, Greenroom-backed role work, current model activity, human review, and durable media jobs.
 - Clicking an agent opens its exact role, ownership, skill book, current checkpoint, provider, artifact, review controls, and targeted direction box.
 - Buildings open the canonical Studio pages they represent. The Production Dashboard remains the operational control surface, and the dedicated Client Room remains the filmmaker’s conversation, approval, and rework surface.
@@ -49,6 +51,7 @@ Agentic Movie Studio coordinates four loopback-only services:
 
 - **Ollama** — user-selectable local language and vision models.
 - **Greenroom** — durable agent assignments, exclusive claims, stable crew identities, and production conversation. The Studio integration uses the open-source [Greenroom local-model fork](https://github.com/Hax0rgurl/greenroomlocalmodels/tree/codex/agentic-movie-studio-greenroom) and the [durable agent-work protocol](docs/decisions/0004-greenroom-agent-work-protocol.md).
+- **Functional seminars** — a bounded adaptation of the open-source [ChatDev 1.0 role-playing phase](https://github.com/OpenBMB/ChatDev/tree/chatdev1.0) carried through real Greenroom deliveries. See the [Greenroom functional-seminar decision](docs/decisions/0005-greenroom-functional-seminars.md).
 - **PitchDeck** — the provider registry, media bridge, render receipts, status recovery, and assembly.
 - **Phosphene** — the built-in local image-to-video and text-to-video provider.
 

@@ -41,16 +41,19 @@
 
     for (const entry of input.transcript || []) {
       const roleId = effectiveRoleId(entry.roleId);
+      const conversation = entry.kind === 'conversation';
       rows.push(event({
         id: entry.id || `message:${roleId || 'client'}:${entry.at || ''}`,
         projectId, runId,
-        type: entry.kind === 'client' ? 'request' : (entry.status === 'failed' ? 'blocker' : 'artifact'),
-        fromRoleId: entry.kind === 'client' ? 'client' : roleId,
-        toRoleIds: entry.kind === 'client' && entry.targetRoleId ? [entry.targetRoleId] : [],
+        type: entry.kind === 'client' ? 'request' : (conversation ? entry.eventType : (entry.status === 'failed' ? 'blocker' : 'artifact')),
+        fromRoleId: entry.kind === 'client' ? 'client' : (conversation ? entry.fromRoleId : roleId),
+        toRoleIds: entry.kind === 'client' && entry.targetRoleId ? [entry.targetRoleId] : (conversation ? entry.toRoleIds : []),
         taskId: roleId,
         artifactRef: entry.artifact || null,
         status: entry.status || '',
+        causedByEventId: entry.causedByEventId || '',
         createdAt: entry.at || '',
+        acknowledgedAt: entry.acknowledgedAt || '',
         text: entry.text || ''
       }));
     }
@@ -106,7 +109,9 @@
     const step = roleStep(production, roleId);
     const currentRoleId = effectiveRoleId(production.currentStep);
     const current = currentRoleId === roleId;
-    const latestMessage = [...(input.transcript || [])].reverse().find(entry => effectiveRoleId(entry.roleId) === roleId);
+    const latestMessage = [...(input.transcript || [])].reverse().find(entry => effectiveRoleId(entry.roleId) === roleId
+      || effectiveRoleId(entry.fromRoleId) === roleId
+      || (entry.toRoleIds || []).map(effectiveRoleId).includes(roleId));
     const latestEvent = [...events].reverse().find(row => row.fromRoleId === roleId || row.toRoleIds.includes(roleId));
     const review = step.review || null;
     const failed = step.status === 'failed' || (current && production.status === 'needs_attention');

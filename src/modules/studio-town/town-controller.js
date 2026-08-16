@@ -38,7 +38,7 @@
         +this.layout.buildings.map(row=>'<option value="'+esc(row.id)+'">'+esc(row.label)+'</option>').join('')+'</select></label>'
         +'<div id="townAgentDrawer"></div>'
         +'<details class="studio-town-crew-list" open><summary>All 23 agents</summary><div id="townCrewList"></div></details>'
-        +'<details class="studio-town-event-list"><summary>Durable event record</summary><div id="townEventList"></div></details>'
+        +'<details class="studio-town-event-list" open><summary>Live Greenroom conversation · Durable event record</summary><div id="townEventList"></div></details>'
         +'</aside></div><div class="sr-only" id="townLiveRegion" aria-live="polite"></div></section>';
 
       const canvas=this.container.querySelector('#studioTownCanvas');
@@ -120,6 +120,7 @@
       const agent=this.vm.agents.find(row=>row.roleId===this.selectedRoleId)||this.vm.agents[0];
       if(!agent){drawer.innerHTML='<div class="studio-town-empty">No canonical crew roster is loaded.</div>';return;}
       const fullStatus=String(agent.statusText||''),preview=fullStatus.length>760?fullStatus.slice(0,760).trimEnd()+'…':fullStatus;
+      const exchanges=(this.vm.events||[]).filter(row=>row.fromRoleId===agent.roleId||row.toRoleIds.includes(agent.roleId)).slice(-6).reverse();
       drawer.innerHTML='<article class="studio-town-agent-card">'
         +'<div class="studio-town-agent-head"><span class="studio-town-dot '+esc(agent.activity)+'"></span><div><h4>@'+esc(agent.at)+'</h4><p>'+esc(agent.title)+' · '+esc(agent.department)+'</p></div><span class="ai-badge">'+esc(statusLabel(agent.activity))+'</span></div>'
         +'<p class="studio-town-agent-status">'+esc(preview)+'</p>'
@@ -130,6 +131,7 @@
         +(agent.artifact&&agent.artifact.view?'<button class="btn small" data-town-ui id="townOpenArtifact">Open artifact</button>':'')
         +(agent.canRun?'<button class="btn small" data-town-ui id="townRunAgent">Run department</button>':'')+'</div>'
         +(agent.artifact?'<div class="studio-town-review"><b>Human review</b><textarea rows="2" data-town-direction id="townReviewNote" placeholder="What must this department keep or change?"></textarea><div><button class="btn small" data-town-ui id="townKeep">Keep</button><button class="btn small danger" data-town-ui id="townRevise">Flag & rework</button></div></div>':'')
+        +(exchanges.length?'<div class="studio-town-agent-messages"><b>Recent Greenroom exchanges</b>'+exchanges.map(row=>'<article><span>'+esc(row.type)+' · @'+esc(row.fromRoleId||'system')+(row.toRoleIds.length?' → '+row.toRoleIds.map(id=>'@'+id).join(', '):'')+'</span><p>'+esc(row.text||row.status)+'</p></article>').join('')+'</div>':'')
         +'<div class="studio-town-direction"><b>Direction to @'+esc(agent.at)+'</b><textarea rows="3" data-town-direction id="townDirection" placeholder="Give this department a precise instruction for its next checkpoint."></textarea><button class="btn primary small" data-town-ui id="townSendDirection">Send direction</button></div>'
         +'</article>';
       const on=(id,fn)=>{const node=drawer.querySelector('#'+id);if(node)node.addEventListener('click',fn);};
@@ -151,7 +153,7 @@
     renderEvents() {
       const wrap=this.container.querySelector('#townEventList');if(!wrap||!this.vm)return;
       const rows=(this.vm.events||[]).slice(-30).reverse();
-      wrap.innerHTML=rows.length?rows.map(row=>'<article><b>'+esc(row.type)+'</b><span>'+esc(row.fromRoleId||'system')+(row.toRoleIds.length?' → '+row.toRoleIds.map(id=>'@'+id).join(', '):'')+'</span><p>'+esc(row.text||row.status)+'</p><time>'+esc(row.createdAt?new Date(row.createdAt).toLocaleString():'')+'</time></article>').join(''):'<p class="studio-town-empty">No durable production events yet.</p>';
+      wrap.innerHTML=rows.length?rows.map(row=>'<article data-town-event-type="'+esc(row.type)+'"><b>'+esc(row.type)+'</b><span>@'+esc(row.fromRoleId||'system')+(row.toRoleIds.length?' → '+row.toRoleIds.map(id=>'@'+id).join(', '):'')+'</span><p>'+esc(row.text||row.status)+'</p><time>'+esc(row.createdAt?new Date(row.createdAt).toLocaleString():'')+(row.acknowledgedAt?' · acknowledged':'')+'</time></article>').join(''):'<p class="studio-town-empty">No Greenroom messages yet. The producer handoff appears here before the next department starts.</p>';
     }
   }
 
