@@ -133,6 +133,8 @@ test('photo and video agents are required to return full showcase artifacts', ()
     'COLOR GRADE', 'COMPOSITION', 'IMPERFECTION', 'AESTHETIC REFUSALS', 'AVOID']) {
     assert.match(stills, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
+  assert.match(stills,/BINDING REPAIR ORDER/);
+  assert.match(stills,/SCENE.*CANONICAL BEAT/);
   const promptSpines = bodyBetween('const PL_SHARED_CRAFT', 'let PL =');
   for (const label of ['REFERENCE', 'STYLE & MOOD', 'SHOT DIRECTION', 'ACTOR BEHAVIOR',
     'ENVIRONMENTAL FORCE', 'CAMERA BEHAVIOR', 'AUDIO']) {
@@ -148,7 +150,7 @@ test('a still identifier or thin checklist cannot pass as a showcase photo promp
   const functions = bodyBetween('const CREW_STILL_PROMPT_MIN', 'async function crewStillPrompts');
   const context = {};
   vm.createContext(context);
-  vm.runInContext(`${functions}\nglobalThis.__parseStill=crewParseStillPrompt;`, context);
+  vm.runInContext(`${functions}\nglobalThis.__parseStill=crewParseStillPrompt;globalThis.__repeated=crewStillRepeatedRejectedEvidence;`, context);
   const thin = {
     shot:'s1_wide_static',subject:'matte red rubber ball',environment:'ordinary room',lighting:'soft daylight',camera:'wide 35mm',
     filmStock:'digital',colorGrade:'neutral',composition:'ball beside chair',imperfection:'dust',aestheticRefusals:['no gloss'],avoid:[]
@@ -171,9 +173,23 @@ test('a still identifier or thin checklist cannot pass as a showcase photo promp
   const explicitSupport=structuredClone(real);
   explicitSupport.physicalState+=' It is not hovering or floating.';
   assert.equal(context.__parseStill(explicitSupport,'1A','The ball rolls across the oak floor.').physicalState,explicitSupport.physicalState);
+  const groundedRefusal=structuredClone(real);
+  groundedRefusal.physicalState+=' No objects float or hover; every object remains supported by the floor.';
+  assert.equal(context.__parseStill(groundedRefusal,'1A','The ball rolls across the oak floor.').physicalState,groundedRefusal.physicalState);
+  const aquatic=structuredClone(real);
+  aquatic.subject='Tiny silver fish are suspended in clear water inside the sealed glass drum, flashing as they turn.';
+  aquatic.physicalState+=' The fish remain suspended within the supported water mass; no floating or hovering elements exist outside it.';
+  assert.equal(context.__parseStill(aquatic,'3A','Tiny silver fish move behind the glass in clear water.').physicalState,aquatic.physicalState);
+  const buoyant=structuredClone(real);
+  buoyant.subject='One red sock floats on the shallow water surface while the tile supports the water mass beneath it.';
+  assert.equal(context.__parseStill(buoyant,'4A','A shallow wave carries one red sock across the tile.').subject,buoyant.subject);
   const floating=structuredClone(real);
   floating.subject='One matte red rubber ball is hovering one ball-width left of the oak chair leg without touching the floor.';
   assert.throws(()=>context.__parseStill(floating,'1A','The ball rolls across the oak floor.'),/unsupported hovering or floating/);
+  const stale=structuredClone(real);
+  stale.subject+=' The round glass shows no water visible.';
+  assert.equal(context.__repeated(stale,{failures:[{evidence:'no water visible',fix:'Show clear water behind the glass.'}]}).length,1);
+  assert.equal(context.__repeated(stale,{failures:[{evidence:'no water visible',fix:'Keep no water visible for this earlier scene.'}]}).length,0);
 });
 
 test('Client Room exposes checkpointed artifacts, live navigation, direction, and focused department rework', () => {

@@ -17,15 +17,79 @@ test('creative departments consult peers while formal reviewers and tool agents 
   const run=between('async function crewRun', 'async function crewFillMissingLook');
   assert.match(context,/GREENROOM PEER CONSULTATIONS AND HANDOFFS/);
   assert.match(context,/crewCollaborationContext\(role\)/);
-  assert.match(source,/const CREW_DIRECT_EXECUTION_ROLES=new Set\(\['producer','story_review','script_supervisor','taste','stills','second_unit','editor'\]\)/);
+  assert.match(source,/const CREW_DIRECT_EXECUTION_ROLES=new Set\(\['producer','story_review','script_supervisor','taste','stills_prompt','stills','second_unit','editor'\]\)/);
   assert.match(source,/const CREW_TOOL_ONLY_ROLES=new Set\(\['stills','second_unit','editor'\]\)/);
-  assert.match(source,/if \(board&&\(board\.craft\|\|board\.taste\)\) return false/);
   assert.match(run,/const needsAI = crewUsesLocalModel\(role,a\)/);
   assert.match(run,/await crewEnsureAssignmentHandoff/);
   assert.match(run,/await crewAcknowledgeAssignment/);
   assert.match(run,/crewUsesAgentSeminar\(role,a\)/);
   assert.match(run,/await crewChatDevSeminar/);
+  assert.match(run,/await crewSupersedeSkippedSeminar/);
   assert.ok(run.indexOf('await crewChatDevSeminar') < run.indexOf("if (role.blocked"));
+});
+
+test('peer conversation accepts substantive prose without weakening canonical artifact schemas', () => {
+  const context={String,Array,Error,aiParseJson:value=>JSON.parse(value)};
+  context.globalThis=context;vm.createContext(context);
+  vm.runInContext(`${between('function crewSeminarReplyFromOutput', 'async function crewChatDevSeminar')}
+    globalThis.parseReply=crewSeminarReplyFromOutput;`,context);
+  const prose='Keep the camera locked at the established doorway. Preserve the wet tile continuity, avoid a new light source, and hold the same low angle so the cut remains spatially coherent.';
+  assert.equal(context.parseReply(prose),prose);
+  const structured=context.parseReply(JSON.stringify({
+    reply:'Use the doorway obstruction because it turns the established premise into visible behavior inside this exact room.',
+    recommendations:['Keep the obstruction inside the established room geometry.'],
+    constraints:['Do not add explanatory dialogue.'],blockers:[]
+  }));
+  assert.match(structured,/Recommendations:/);
+  assert.match(structured,/Do not add explanatory dialogue/);
+  assert.throws(()=>context.parseReply('Looks good.'),/substantive production ruling/);
+  assert.match(source,/schema:replySchema/,'peer requests still ask the model for the bounded schema first');
+});
+
+test('a schema-bound agent repairs its own malformed JSON within a finite phase', async () => {
+  const prompts=[];
+  let attempt=0;
+  const context={
+    String,Number,Math,Object,Array,Error,Promise,
+    crewJsonRepairSystem:()=> 'full role skill book plus JSON contract',
+    aiParseJson:value=>JSON.parse(value),
+    aiStream:async(system,prompt)=>{
+      prompts.push({system,prompt}); attempt++;
+      return attempt===1?'{"decision": "ask", broken':JSON.stringify({decision:'proceed',targetRole:'none'});
+    }
+  };
+  context.globalThis=context;vm.createContext(context);
+  vm.runInContext(`${between('async function crewJsonAgentCall', 'function crewSeminarReplyFromOutput')}
+    globalThis.callAgent=crewJsonAgentCall;`,context);
+  const value=await context.callAgent({id:'director',at:'director'},'Choose the next action.',{
+    schemaName:'test_schema',artifactType:'test artifact',workloadId:'test.work',maxRepairAttempts:3
+  },parsed=>{
+    if(parsed.decision!=='proceed') throw new Error('decision must be proceed');
+    return parsed;
+  });
+  assert.equal(value.decision,'proceed');
+  assert.equal(attempt,2);
+  assert.match(prompts[1].prompt,/REQUIRED SELF-REPAIR PASS 1 OF 2/);
+  assert.match(prompts[1].prompt,/VALIDATOR ERROR/);
+  assert.match(prompts[1].prompt,/FAILING RESPONSE/);
+  assert.doesNotMatch(prompts[1].prompt,/try forever|unbounded/i);
+});
+
+test('schema repair never turns cancellation or transport failure into another model call', async () => {
+  let attempts=0;
+  const context={
+    String,Number,Math,Object,Array,Error,Promise,
+    crewJsonRepairSystem:()=> 'full role skill book plus JSON contract',
+    aiParseJson:value=>JSON.parse(value),
+    aiStream:async()=>{ attempts++; throw new Error('Cancelled'); }
+  };
+  context.globalThis=context;vm.createContext(context);
+  vm.runInContext(`${between('async function crewJsonAgentCall', 'function crewSeminarReplyFromOutput')}
+    globalThis.callAgent=crewJsonAgentCall;`,context);
+  await assert.rejects(()=>context.callAgent({id:'director',at:'director'},'Choose the next action.',{
+    schemaName:'test_schema',artifactType:'test artifact',workloadId:'test.work',maxRepairAttempts:3
+  }),/Cancelled/);
+  assert.equal(attempts,1);
 });
 
 test('the exact peer ruling is injected into the canonical department evidence packet', () => {

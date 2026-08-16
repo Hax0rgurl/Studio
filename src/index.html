@@ -3568,6 +3568,9 @@ function crewAddClientNote(text,targetRoleId){
     id:'client_'+uid(), text:note.slice(0,4000), at:new Date().toISOString(),
     afterStep:p.currentStep||'', projectId:ACTIVE.p, draftId:ACTIVE.d, targetRoleId:target
   }]).slice(-100);
+  // Human direction is an explicit new phase input. It is the only UI action
+  // that clears a no-progress retry latch without changing the artifact graph.
+  if (p.orchestration&&p.orchestration.loopGuard) p.orchestration.loopGuard.stages={};
   if (productionCheckpoint()===false){
     p.clientNotes=prior;
     toast('Agentic Movie Studio could not save your direction. Free local storage and try again.');
@@ -4134,6 +4137,87 @@ async function crewFinalizeSeminarReceipts(session){
     if (event&&!event.acknowledgedAt) await crewFinishConversation(event,'ack');
   }
 }
+async function crewJsonAgentCall(role,user,options,validate){
+  const base=Object.assign({},options||{}), maxAttempts=Math.max(1,Math.min(3,Number(base.maxRepairAttempts)||3));
+  delete base.maxRepairAttempts;
+  const workload=String(base.workloadId||('department.'+String(role&&role.id||'agent')));
+  const artifact=String(base.artifactType||base.schemaName||'structured artifact');
+  let prompt=String(user||''), raw='', lastError=null;
+  for (let attempt=0;attempt<maxAttempts;attempt++){
+    const callOptions=Object.assign({},base,{json:true,
+      temperature:attempt===0?Number(base.temperature==null?0.2:base.temperature):0.08,
+      workloadId:attempt===0?workload:workload+'.self-repair.'+attempt});
+    // Only malformed or schema-invalid model output is repairable here.
+    // Cancellation, service, transport, and durable-receipt failures must stop
+    // immediately; retrying those as "bad JSON" creates invisible work after
+    // Stop and can waste the same request repeatedly.
+    try{
+      raw=await aiStream(crewJsonRepairSystem(role),prompt,null,null,callOptions);
+    }catch(error){
+      throw error;
+    }
+    try{
+      const parsed=aiParseJson(raw);
+      return typeof validate==='function'?validate(parsed):parsed;
+    }catch(error){
+      lastError=error;
+      if (attempt+1>=maxAttempts) break;
+      prompt=String(user||'')+'\n\n=== REQUIRED SELF-REPAIR PASS '+(attempt+1)+' OF '+(maxAttempts-1)+' ===\n'
+        +'Your prior response failed the application validator. Diagnose and repair the JSON envelope yourself before returning it. '
+        +'Fix missing or invalid keys, types, quotes, commas, arrays, and schema violations. Preserve valid creative content; do not replace it with an explanation, apology, status report, filename, or summary. '
+        +'Return one complete corrected JSON value and nothing else.\n\nVALIDATOR ERROR:\n'
+        +String((error&&error.message)||error).slice(0,3000)+'\n\nFAILING RESPONSE:\n'+String(raw||'').slice(0,18000);
+    }
+  }
+  const failure=new Error('@'+String((role&&role.at)||'agent')+' could not self-repair its '+artifact+' after '+maxAttempts
+    +' bounded attempts. Last validator error: '+String((lastError&&lastError.message)||lastError||'unknown error'));
+  failure.code='AGENT_SCHEMA_REPAIR_EXHAUSTED'; throw failure;
+}
+function crewSeminarReplyFromOutput(raw){
+  const source=String(raw||'').trim();
+  let answer=null;
+  try { answer=aiParseJson(source); } catch(error){}
+  if (answer&&typeof answer==='object'){
+    const reply=String(answer.reply||'').trim();
+    if (reply.length>=50){
+      const recommendations=Array.isArray(answer.recommendations)?answer.recommendations.map(String).map(item=>item.trim()).filter(Boolean):[];
+      const constraints=Array.isArray(answer.constraints)?answer.constraints.map(String).map(item=>item.trim()).filter(Boolean):[];
+      const blockers=Array.isArray(answer.blockers)?answer.blockers.map(String).map(item=>item.trim()).filter(Boolean):[];
+      return [reply,
+        recommendations.length?'Recommendations:\n'+recommendations.map(item=>'- '+item).join('\n'):'',
+        constraints.length?'Constraints:\n'+constraints.map(item=>'- '+item).join('\n'):'',
+        blockers.length?'Blockers:\n'+blockers.map(item=>'- '+item).join('\n'):'Blockers: none'].filter(Boolean).join('\n\n').slice(0,12000);
+    }
+  }
+  // Greenroom discussion is evidence, not a canonical project artifact. A
+  // skilled model may answer the production question clearly while ignoring a
+  // requested JSON envelope. Preserve that substantive ruling instead of
+  // aborting the department; the later craft and TasteOS gates remain strict.
+  const prose=source.replace(/<think>[\s\S]*?<\/think>/gi,'')
+    .replace(/^```(?:json|text|markdown)?\s*/i,'').replace(/```\s*$/,'')
+    .replace(/^\s*(?:answer|reply)\s*:\s*/i,'').trim();
+  const words=prose.match(/[A-Za-z0-9][A-Za-z0-9'’-]*/g)||[];
+  if (prose.length<80||words.length<12) throw new Error('The peer did not return a substantive production ruling.');
+  return prose.slice(0,12000);
+}
+async function crewSupersedeSkippedSeminar(role,work){
+  const p=productionState(),state=p&&crewCollaborationState(p);
+  if (!p||!state||!work) return false;
+  const session=state.sessions.find(row=>row&&row.workId===work.id&&row.roleId===role.id);
+  if (!session||['complete','superseded'].includes(session.status)) return false;
+  const cleanupErrors=[];
+  for (const eventId of [session.requestEventId,session.replyEventId]){
+    const event=crewConversationEvent(p,eventId);
+    if (!event||!event.deliveryId||event.acknowledgedAt||event.status==='released') continue;
+    try { await crewFinishConversation(event,'release'); }
+    catch(error){ cleanupErrors.push(String((error&&error.message)||error)); }
+  }
+  session.status='superseded'; session.completedAt=new Date().toISOString();
+  session.consultation='Preflight peer seminar superseded. This artifact proceeds through its formal craft and TasteOS review gates.';
+  session.error=cleanupErrors.join(' · '); session.updatedAt=session.completedAt;
+  if (productionCheckpoint()===false) throw new Error('The superseded seminar state could not be saved.');
+  return true;
+}
 async function crewChatDevSeminar(role,ask,work){
   const p=productionState(),state=p&&crewCollaborationState(p);
   if (!p||!state||!work) throw new Error('The agent seminar has no durable department job.');
@@ -4162,8 +4246,8 @@ async function crewChatDevSeminar(role,ask,work){
       return '- '+id+' @'+crewConversationRoleAt(id)+': '+String(peer.job||'');}).join('\n');
     const prompt=crewContext(role,{scenes:seminarScenes,budget:16000,taskFirst:true,collaborationCap:5000,extra:'CHATDEV-STYLE FUNCTIONAL SEMINAR\nBefore committing '+role.owns+', decide whether one peer department has missing expertise that would materially improve or unblock this exact artifact. Ask at most one precise, answerable production question. Do not ask for praise, brainstorming, status, or work that belongs to you. Proceed only if the canonical evidence and existing Greenroom handoffs already resolve every cross-department dependency.\n\nAVAILABLE PEERS:\n'+candidateText+'\n\nFILMMAKER ASSIGNMENT:\n'+String(ask||'(continue the approved production)')})
       +'\n\nReturn decision=ask with one canonical targetRole and a concrete question, or decision=proceed with targetRole=none and question="". Return schema only.';
-    const plan=aiParseJson(await aiStream(crewJsonRepairSystem(role),prompt,null,null,{temperature:0.15,json:true,
-      schema,schemaName:'greenroom_peer_decision',roleId:role.id,workloadId:'greenroom.seminar.plan',artifactType:'conversation_plan',maxTokens:512}));
+    const plan=await crewJsonAgentCall(role,prompt,{temperature:0.15,schema,
+      schemaName:'greenroom_peer_decision',roleId:role.id,workloadId:'greenroom.seminar.plan',artifactType:'conversation_plan',maxTokens:512});
     if (!['ask','proceed'].includes(plan.decision)) throw new Error('@'+role.at+' returned an invalid seminar decision.');
     // Some reasoning templates emit `proceed` while still naming a real peer
     // and concrete question. That combination plainly requests consultation;
@@ -4205,12 +4289,9 @@ async function crewChatDevSeminar(role,ask,work){
         blockers:{type:'array',maxItems:6,items:{type:'string',minLength:8}}
       }};
       const peerPrompt=crewContext(peer,{scenes:seminarScenes,budget:16000,taskFirst:true,collaborationCap:5000,extra:'GREENROOM FUNCTIONAL SEMINAR REQUEST\nFrom @'+role.at+' ('+role.title+'):\n'+session.plan.question+'\n\nWhy they need you:\n'+session.plan.why+'\n\nAnswer only from your department expertise. Make the answer operational and specific to the supplied film evidence. Do not narrate private reasoning, flatter the requester, invent files, or take ownership of '+role.owns+'.'});
-      const answer=aiParseJson(await aiStream(crewJsonRepairSystem(peer),peerPrompt,null,null,{temperature:0.2,json:true,
-        schema:replySchema,schemaName:'greenroom_peer_reply',roleId:peer.id,workloadId:'greenroom.seminar.reply',artifactType:'conversation_reply',maxTokens:1800}));
-      session.replyText=[String(answer.reply||'').trim(),
-        'Recommendations:\n'+(answer.recommendations||[]).map(item=>'- '+item).join('\n'),
-        'Constraints:\n'+(answer.constraints||[]).map(item=>'- '+item).join('\n'),
-        (answer.blockers||[]).length?'Blockers:\n'+answer.blockers.map(item=>'- '+item).join('\n'):'Blockers: none'].join('\n\n');
+      const replyOutput=await aiStream(crewJsonRepairSystem(peer),peerPrompt,null,null,{temperature:0.2,json:true,
+        schema:replySchema,schemaName:'greenroom_peer_reply',roleId:peer.id,workloadId:'greenroom.seminar.reply',artifactType:'conversation_reply',maxTokens:1800});
+      session.replyText=crewSeminarReplyFromOutput(replyOutput);
       session.replyEventId=session.replyEventId||crewConversationEventId('reply');
       if (productionCheckpoint()===false) throw new Error('The peer reply could not be saved before Greenroom delivery.');
     }
@@ -5120,11 +5201,15 @@ function crewParseStillPrompt(value,shotNum,canonText){
     throw new Error('Still prompt for shot '+shotNum+' described a file or process instead of the photograph.');
   if (/\b(?:then|afterward|will|about to|begins? to|seconds?|music|dialogue|soundtrack)\b|\bcamera\s+(?:moves|pans|tilts|dollies|tracks|zooms)\b/i.test(positive))
     throw new Error('Still prompt for shot '+shotNum+' contains timeline, future action, audio, or camera travel.');
-  const unsupportedState=/\b(?:hover(?:ing|s)?|float(?:ing|s)?|levitat(?:e|es|ing)|suspend(?:ed|s)?)\b/i;
-  const unsupportedPhrase='(?:hover(?:ing|s)?|float(?:ing|s)?|levitat(?:e|es|ing)|suspend(?:ed|s)?)';
+  const unsupportedState=/\b(?:hover(?:ing|s)?|float(?:ing|s)?|levitat(?:e|es|ing))\b/i;
+  const unsupportedPhrase='(?:hover(?:ing|s)?|float(?:ing|s)?|levitat(?:e|es|ing))';
   const unnegatedState=positive
     .replace(new RegExp('\\b(?:not|never|no)\\s+'+unsupportedPhrase+'(?:\\s+or\\s+'+unsupportedPhrase+')*\\b','gi'),'')
-    .replace(new RegExp('\\b(?:does|do|is|are)\\s+not\\s+'+unsupportedPhrase+'(?:\\s+or\\s+'+unsupportedPhrase+')*\\b','gi'),'');
+    .replace(new RegExp('\\b(?:does|do|is|are)\\s+not\\s+'+unsupportedPhrase+'(?:\\s+or\\s+'+unsupportedPhrase+')*\\b','gi'),'')
+    .replace(new RegExp('\\b(?:no|neither|nothing|none)\\s+(?:(?![.;,:])\\S+\\s+){0,5}'+unsupportedPhrase+'(?:\\s+(?:or|nor)\\s+'+unsupportedPhrase+')*\\b','gi'),'')
+    .replace(new RegExp('\\bwithout\\s+(?:any\\s+)?'+unsupportedPhrase+'(?:\\s+or\\s+'+unsupportedPhrase+')*\\b','gi'),'')
+    // Buoyancy is physical support, not an impossible hover. Keep it available for water scenes.
+    .replace(/\bfloat(?:ing|s)?\b(?=[^.;,:]{0,64}\b(?:water|ocean|liquid|wave|pool|surface)\b)/gi,'');
   if (unsupportedState.test(unnegatedState)&&!unsupportedState.test(String(canonText||'')))
     throw new Error('Still prompt for shot '+shotNum+' introduced unsupported hovering or floating that canon does not authorize.');
   if (!Array.isArray(row.aestheticRefusals)||!row.aestheticRefusals.some(item=>String(item||'').trim().length>=3))
@@ -5171,6 +5256,19 @@ function crewEnsureStoryboardVisualState(p){
   p.storyboardVisual.updatedAt=new Date().toISOString();
   return p.storyboardVisual;
 }
+function crewStillRepeatedRejectedEvidence(value,review){
+  const failures=Array.isArray(review&&review.failures)?review.failures:[];
+  if (!failures.length) return [];
+  const normalize=text=>String(text||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  const artifact=normalize(Object.keys(CREW_STILL_PROMPT_MIN).map(key=>value&&value[key]).join(' '));
+  return failures.filter(failure=>{
+    const evidence=normalize(failure&&failure.evidence), fix=normalize(failure&&failure.fix);
+    if (evidence.length<8||!artifact.includes(evidence)) return false;
+    // Some review rows cite an already-correct anchor merely to say keep or
+    // confirm it. Only a demanded change makes repeated evidence a failure.
+    return !/^(?:keep|confirm|ensure|preserve|maintain|retain)\b/.test(fix);
+  });
+}
 async function crewStillPrompts(role, ask){
   const p=productionState(), row=crewStoryboardCurrentRow(p), rewrite=!!(p&&(p.reworkRoles||[]).includes('stills_prompt'));
   const shots=row?[row]:allShots().filter(x=>rewrite||!String(boardOf(x.sh).desc||'').trim());
@@ -5179,29 +5277,34 @@ async function crewStillPrompts(role, ask){
   let n = 0;
   for (const { sc,sh } of shots){
     const board=boardOf(sh), prior=String(board.desc||'').trim(), reviewNote=critiqueStillToNote(board.craft)+tasteToNote(board.taste);
-    const user = crewContext(role,{scenes:[sc],budget:22000,taskFirst:true,collaborationCap:7000,extra:'SHOT '+sh.num+' SPECIFICATION:\n'
+    const repairDirective=prior&&reviewNote
+      ? '=== BINDING REPAIR ORDER — READ THIS BEFORE ALL OTHER CONTEXT ===\n'+reviewNote
+        +'\nThe prior prompt is rejected. Apply every cited correction to this new JSON artifact; do not repeat a contradicted prior state.\n\n'
+      : '';
+    const user = repairDirective+crewContext(role,{scenes:[sc],budget:22000,taskFirst:true,collaborationCap:7000,
+      extra:'SCENE '+sc.num+' CANONICAL BEAT:\n'+[sc.synopsis,sc.text].filter(Boolean).join('\n')+'\n\nSHOT '+sh.num+' SPECIFICATION:\n'
       +[sh.size,sh.angle,sh.move,sh.lens,sh.desc].filter(Boolean).join(' | ')})
       +(sh.prompt&&sh.prompt.text?'\n\n=== APPROVED VIDEO PROMPT FOR THIS SHOT ===\n'+sh.prompt.text
         :'\n\nNo video prompt exists yet. Author the source photograph directly from the screenplay, planned shot, approved Look, and bibles; do not invent the later motion timeline.')
       +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
-      +(prior?'\n\n=== PRIOR STORYBOARD PROMPT TO REWORK ===\n'+prior+reviewNote:'')
+      +(prior&&!reviewNote?'\n\n=== PRIOR STORYBOARD PROMPT TO REWORK ===\n'+prior:'')
       + '\n\nAuthor ONE showcase-quality source photograph at the strongest exact instant in this shot. It must be usable as the first frame/reference image for the video model. '
       + 'Freeze one physical moment: no timeline, no seconds, no camera movement instruction, no audio, and no screenplay dialogue. '
       + 'State every labeled photographic block with concrete, canon-bound visual information; repeat identity anchors that continuity depends on. '
       + 'SHOT is a full descriptive sentence naming the framing and frozen instant, never a stable ID or slug. SUBJECT includes physical identity, surface/state, and position. '
       + 'PHYSICAL STATE explicitly states mass, gravity, supporting surface, contact points, and deformation at this one instant. Nothing hovers or floats unless canon says it does. '
       + 'ENVIRONMENT, LIGHTING, and CAMERA repeat only approved facts. COMPOSITION gives reproducible spatial relationships. IMPERFECTION names physical texture, not fake damage.';
-    let raw='',value;
-    try{
-      raw=await aiStream(crewJsonRepairSystem(role),user,null,null,{temperature:0.35,json:true,schema:CREW_STILL_PROMPT_SCHEMA,schemaName:'storyboard_photo_prompt',roleId:role.id,workloadId:'department.'+role.id,artifactType:'still_prompt',maxTokens:2600});
-      value=crewParseStillPrompt(aiParseJson(raw),sh.num,[sc.text,sh.desc,sh.prompt&&sh.prompt.text].filter(Boolean).join('\n'));
-    }catch(firstError){
-      const repair=user+'\n\nVALIDATION FAILURE: '+String((firstError&&firstError.message)||firstError)
-        +'\nReturn the complete corrected photo-prompt object. Previous response:\n'+String(raw||'').slice(0,18000);
-      value=crewParseStillPrompt(aiParseJson(await aiStream(crewJsonRepairSystem(role),repair,null,null,
-        {temperature:0.12,json:true,schema:CREW_STILL_PROMPT_SCHEMA,schemaName:'storyboard_photo_prompt',roleId:role.id,workloadId:'department.'+role.id+'.repair',artifactType:'still_prompt',maxTokens:2600})),sh.num,
-        [sc.text,sh.desc,sh.prompt&&sh.prompt.text].filter(Boolean).join('\n'));
-    }
+    const value=await crewJsonAgentCall(role,user,{temperature:0.35,schema:CREW_STILL_PROMPT_SCHEMA,
+      schemaName:'storyboard_photo_prompt',roleId:role.id,workloadId:'department.'+role.id,
+      artifactType:'still_prompt',maxTokens:2600},parsed=>{
+        const checked=crewParseStillPrompt(parsed,sh.num,
+          [sc.text,sh.desc,sh.prompt&&sh.prompt.text].filter(Boolean).join('\n'));
+        const repeated=crewStillRepeatedRejectedEvidence(checked,board.craft);
+        if (repeated.length) throw new Error('Still prompt for shot '+sh.num
+          +' repeated supervisor-rejected evidence instead of applying the correction: '
+          +repeated.slice(0,4).map(item=>'"'+String(item.evidence||'').trim()+'" -> '+String(item.fix||'').trim()).join('; ')+'.');
+        return checked;
+      });
     const labels=[['SHOT','shot'],['SUBJECT','subject'],['PHYSICAL STATE','physicalState'],['ENVIRONMENT','environment'],['LIGHTING','lighting'],
       ['CAMERA','camera'],['FILM STOCK','filmStock'],['COLOR GRADE','colorGrade'],['COMPOSITION','composition'],['IMPERFECTION','imperfection']];
     const t=labels.map(([label,key])=>label+'\n'+String(value[key]).trim()).join('\n\n')
@@ -5291,6 +5394,9 @@ async function crewImages(role, ask){
   const shots=current?[current]:allShots().filter(x=>String(boardOf(x.sh).desc||'').trim()&&!boardOf(x.sh).frame).slice(0,1);
   if (!shots.length) return { status:'done', text:'Every planned shot already has a real board frame.' };
   if (shots.some(row=>!String(boardOf(row.sh).desc||'').trim())) throw new Error('The still-prompt agent must author this shot before image rendering.');
+  let services=await crewConnect();
+  if (!(services.pitchdeck&&services.pitchdeck.ok)) services=await crewEnsureServices();
+  if (!(services.pitchdeck&&services.pitchdeck.ok)) throw new Error('The media gateway did not start, so no storyboard-image request was sent.');
   const selection=imageProviderSelection(p), provider=imageProviderDescriptor(selection.id);
   if (!provider) throw new Error('The saved still-image provider is not installed: '+selection.id+'.');
   if (provider.configured===false) throw new Error(provider.name+' is installed but not configured.');
@@ -5411,6 +5517,9 @@ async function crewVideo(role, ask){
   if (!shots.length) throw new Error('No prompts yet. @prompt-writer goes first.');
   const p=productionState(), jobs=crewJobs();
   if (!p) throw new Error('No production run is active.');
+  let services=await crewConnect();
+  if (!(services.pitchdeck&&services.pitchdeck.ok)) services=await crewEnsureServices();
+  if (!(services.pitchdeck&&services.pitchdeck.ok)) throw new Error('The media gateway did not start, so no video-render request was sent.');
   const selection=videoProviderSelection(p), provider=videoProviderDescriptor(selection.id);
   if (!provider) throw new Error('The saved video provider is not installed: '+selection.id+'. Restore that adapter or archive this render manifest.');
   if (provider.configured===false) throw new Error(provider.name+' is installed but not configured. Add its endpoint and credentials before rendering.');
@@ -5735,15 +5844,9 @@ function crewRunOwnerMatches(owner){
   return !!(owner && ACTIVE.p===owner.projectId && ACTIVE.d===owner.draftId
     && String((current&&current.id)||'')===owner.runId);
 }
-const CREW_DIRECT_EXECUTION_ROLES=new Set(['producer','story_review','script_supervisor','taste','stills','second_unit','editor']);
+const CREW_DIRECT_EXECUTION_ROLES=new Set(['producer','story_review','script_supervisor','taste','stills_prompt','stills','second_unit','editor']);
 const CREW_TOOL_ONLY_ROLES=new Set(['stills','second_unit','editor']);
 function crewUsesAgentSeminar(role,action){
-  if (role&&role.id==='stills_prompt'&&typeof crewStoryboardCurrentRow==='function'){
-    const row=crewStoryboardCurrentRow(productionState()), board=row&&boardOf(row.sh);
-    // A revision already has a concrete supervisor/TasteOS handoff. Asking a
-    // second peer question before applying that exact ruling is duplicate talk.
-    if (board&&(board.craft||board.taste)) return false;
-  }
   return !!(role&&action&&action!=='none'&&!CREW_DIRECT_EXECUTION_ROLES.has(role.id));
 }
 function crewUsesLocalModel(role,action){
@@ -5830,6 +5933,8 @@ async function crewRun(roleId, ask){
         if (typeof crewAcknowledgeAssignment==='function') await crewAcknowledgeAssignment(role,roleWork);
         if (crewUsesAgentSeminar(role,a)&&typeof crewChatDevSeminar==='function'){
           await crewChatDevSeminar(role,ask||('Continue '+String(S.title||'this film')+'.'),roleWork);
+        }else if (typeof crewSupersedeSkippedSeminar==='function'){
+          await crewSupersedeSkippedSeminar(role,roleWork);
         }
         if (!crewRunOwnerMatches(owner)) throw new Error('The active project changed during the Greenroom seminar.');
         if (CREW.cancel) throw new Error('Stopped during the Greenroom seminar.');
@@ -5954,6 +6059,65 @@ const CREW_BIBLE_PHASE=['casting_director','location_scout','prop_master'];
 const CREW_VISUAL_PREP_PHASE=['production_designer','costume_designer','first_ad','dp','camera_operator','gaffer','colorist'];
 const CREW_MOTION_PREP_PHASE=['key_grip','composer'];
 const CREW_PROMPT_PHASE=['prompt_writer'];
+const CREW_LOOP_GUARD_SCHEMA='studio/chatdev-bounded-loop@1';
+function crewProgressHash(value){
+  const text=String(value||''); let hash=2166136261;
+  for (let i=0;i<text.length;i++){ hash^=text.charCodeAt(i); hash=Math.imul(hash,16777619); }
+  return (hash>>>0).toString(36)+':'+text.length;
+}
+function crewProgressFingerprint(p){
+  const bibleRows={};
+  ['characters','locations','props'].forEach(kind=>{
+    bibleRows[kind]=Object.entries((S.bibles&&S.bibles[kind])||{}).sort(([a],[b])=>a.localeCompare(b))
+      .map(([name,entry])=>[name,crewProgressHash(entry&&entry.desc||''),entry&&entry.src||'']);
+  });
+  const scenes=(S.scenes||[]).map(sc=>[String(sc.num||''),crewProgressHash(sc.slug||''),crewProgressHash(sc.text||''),
+    crewProgressHash(sc.synopsis||''),(sc.shots||[]).map(sh=>{
+      const board=boardOf(sh),prompt=sh.prompt||{},takes=Array.isArray(sh.takes)?sh.takes:[];
+      return [String(sh.id||sh.num||''),crewProgressHash([sh.size,sh.angle,sh.move,sh.lens,sh.desc].join('|')),
+        crewProgressHash(board.desc||''),String(board.craft&&board.craft.verdict||''),Number(board.revisionPass)||0,
+        String(board.taste&&board.taste.verdict||board.tasteUntrainedAt||''),String(board.frame||''),
+        crewProgressHash(prompt.text||''),takes.map(take=>[take.jobId||'',take.status||'',take.outputPath||take.file||''])];
+    })]);
+  const look=LOOK_FIELDS.map(field=>[field.k,crewProgressHash((S.look||{})[field.k]||''),lookSrcOf(field.k)]);
+  const jobs=Object.entries((p&&p.jobs)||{}).sort(([a],[b])=>a.localeCompare(b))
+    .map(([shotId,job])=>[shotId,job&&job.id||'',job&&job.status||'',Number(job&&job.attempt)||0,job&&job.outputPath||'']);
+  return crewProgressHash(JSON.stringify({bible:crewProgressHash(S.bible||''),source:crewProgressHash(p&&p.sourceDigest||''),
+    scenes,look,bibles:bibleRows,writer:p&&p.writerWork||null,jobs,
+    expected:p&&p.expectedShotIds||[],cut:S.cut&&[S.cut.productionRunId,S.cut.outputPath,S.cut.mediaUrl,S.cut.jobIds]||null}));
+}
+function crewLoopGuard(p){
+  p.orchestration=p.orchestration||{schema:'studio/agentic-orchestration@1',decisions:[]};
+  let guard=p.orchestration.loopGuard;
+  if (!guard||guard.schema!==CREW_LOOP_GUARD_SCHEMA){
+    guard={schema:CREW_LOOP_GUARD_SCHEMA,maxNoProgressFailures:3,stages:{}};
+    p.orchestration.loopGuard=guard;
+  }
+  guard.stages=guard.stages&&typeof guard.stages==='object'?guard.stages:{};
+  return guard;
+}
+function crewLoopStageKey(p,roleId){
+  const row=typeof crewStoryboardCurrentRow==='function'?crewStoryboardCurrentRow(p):null;
+  return String(roleId||'unknown')+':' +(row&&row.sh?String(row.sh.id||row.sh.num||'shot'):'project');
+}
+function crewLoopTicket(p,roleId){
+  const guard=crewLoopGuard(p),key=crewLoopStageKey(p,roleId),fingerprint=crewProgressFingerprint(p);
+  const prior=guard.stages[key];
+  if (prior&&prior.fingerprint===fingerprint&&Number(prior.failures)>=guard.maxNoProgressFailures){
+    return {ok:false,key,fingerprint,failures:Number(prior.failures),error:prior.error||''};
+  }
+  return {ok:true,key,fingerprint,failures:prior&&prior.fingerprint===fingerprint?Number(prior.failures)||0:0};
+}
+function crewLoopRecord(p,ticket,result){
+  const guard=crewLoopGuard(p),after=crewProgressFingerprint(p);
+  const skipped=result&&result.status==='skipped';
+  if (after!==ticket.fingerprint||skipped){ delete guard.stages[ticket.key]; return {progressed:true,after}; }
+  const failures=Math.max(0,Number(ticket.failures)||0)+1;
+  guard.stages[ticket.key]={fingerprint:after,failures,roleId:ticket.key.split(':')[0],
+    error:String((result&&result.out)||'The department returned without changing its owned canonical artifact.').slice(0,2000),
+    updatedAt:new Date().toISOString()};
+  return {progressed:false,after,failures,blocked:failures>=guard.maxNoProgressFailures};
+}
 function crewRoleFinished(p,roleId){
   const step=p&&p.steps&&p.steps[roleId];
   return !!(step&&['done','skipped'].includes(step.status));
@@ -5996,8 +6160,8 @@ async function crewPlanNext(role,ask){
     }).join('\n')+'\n\nCHECKPOINTED DEPARTMENT STATE:\n'+JSON.stringify(statuses)})
     +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
     +'\n\nChoose the single next department that best advances this exact film. You cannot select a role outside the enum, declare work complete, waive a gate, or change any provider/model/billing setting. Return the decision schema only.';
-  const decision=aiParseJson(await aiStream(crewJsonRepairSystem(role),user,null,null,{temperature:0.15,json:true,
-    schema,schemaName:'producer_next_department',roleId:role.id,workloadId:'department.producer.route',artifactType:'orchestration_decision'}));
+  const decision=await crewJsonAgentCall(role,user,{temperature:0.15,schema,
+    schemaName:'producer_next_department',roleId:role.id,workloadId:'department.producer.route',artifactType:'orchestration_decision'});
   if (!candidates.includes(decision.nextRole)) throw new Error('The producer selected a department that is not ready: '+decision.nextRole);
   p.orchestration=p.orchestration||{schema:'studio/agentic-orchestration@1',decisions:[]};
   const record={at:new Date().toISOString(),nextRole:decision.nextRole,reason:String(decision.reason||''),
@@ -6032,8 +6196,13 @@ async function crewCall(ask){
       toast(p.error);
       return;
     }
+    // ChatDev-style composed phases are finite and check their environment on
+    // both sides of every cycle. Scale the ceiling with the actual shot graph,
+    // while the per-stage guard below stops repeated work that changes nothing.
+    const graphShotCount=typeof allShots==='function'?allShots().length:Math.max(1,(p.expectedShotIds||[]).length);
+    const turnLimit=Math.max(80,Math.min(20000,CREW_PIPELINE.length*3+Math.max(1,graphShotCount)*6));
     let turns=0;
-    while (turns++<200){
+    while (turns++<turnLimit){
       if (CREW.cancel){
         CREW.cancel=false; p.status='cancelled'; p.currentStep=''; productionCheckpoint();
         toast('Production stopped. You can resume it from this project.'); return;
@@ -6068,7 +6237,15 @@ async function crewCall(ask){
           productionCheckpoint(); toast(p.error); return;
         }
       }
+      const loopTicket=crewLoopTicket(p,id);
+      if (!loopTicket.ok){
+        p.status='needs_attention';
+        p.error='@'+((crewFind(id)||{}).at||id)+' was stopped after '+loopTicket.failures
+          +' attempts made no canonical progress on the same artifact. Give the crew new direction or change the blocked input before Resume.';
+        productionCheckpoint(); toast(p.error); return;
+      }
       const result=await crewRun(id, ask);
+      const loopResult=crewLoopRecord(p,loopTicket,result);
       if (CREW.cancel){
         CREW.cancel=false;
         // crewRun checkpoints before awaiting the Greenroom provenance post.
@@ -6083,6 +6260,12 @@ async function crewCall(ask){
         p.status='needs_attention'; p.error=(result&&result.out)||('The '+id+' step failed.');
         productionCheckpoint(); toast('Production needs attention at @'+(crewFind(id)||{}).at+'.'); return;
       }
+      if (!loopResult.progressed){
+        p.status='needs_attention';
+        p.error='@'+((crewFind(id)||{}).at||id)+' returned without changing '+String((crewFind(id)||{}).owns||'its owned artifact')
+          +'. The phase stopped instead of assigning the same unchanged work again.';
+        productionCheckpoint(); toast(p.error); return;
+      }
       if (Array.isArray(p.reworkRoles)) p.reworkRoles=p.reworkRoles.filter(roleId=>roleId!==id);
       if (id==='story_review' && p.writerWork&&p.writerWork.review&&p.writerWork.review.verdict==='revise'){
         if (Number(p.writerWork.revisionPass||0)>=2){
@@ -6095,10 +6278,14 @@ async function crewCall(ask){
           p.status='needs_attention'; p.error='The screenplay revision loop could not be checkpointed.'; return;
         }
       }
+      // Queue submission hands control to the durable media state machine.
+      // Do not immediately assign @second-unit again while those same jobs are
+      // already rendering, which was the largest remaining infinite-loop path.
+      if (['rendering','assembling','paused'].includes(p.status)) break;
     }
     CREW.orchestratorCandidates=[];
-    if (turns>=200){
-      p.status='needs_attention'; p.error='The guarded agent loop reached its 200-handoff safety limit.';
+    if (turns>=turnLimit){
+      p.status='needs_attention'; p.error='The guarded agent loop reached its '+turnLimit+'-handoff safety limit for this artifact graph.';
       productionCheckpoint(); toast(p.error); return;
     }
     if (p.status==='complete') toast('The finished movie is ready.', true);
