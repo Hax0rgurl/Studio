@@ -3050,7 +3050,11 @@ function videoReviewEnvelope(sh){
   };
 }
 function imageReviewEnvelope(sc,sh,promptText){
-  const board=boardOf(sh), craft=board.craft||null, taste=board.taste||null;
+  const board=boardOf(sh), craft=board.craft?crewNormalizeStillReview(board.craft,promptText):null, taste=board.taste||null;
+  // Older runs may contain an adversarial-review false positive. Apply the
+  // current material gate before admission and preserve the discarded notes
+  // as advisories instead of making the film repeat a harmless prompt forever.
+  if (craft) board.craft=craft;
   const offScript=Array.isArray(board.offScript)?board.offScript:[];
   const reasons=[];
   if (offScript.length) reasons.push('still prompt introduces off-script canon');
@@ -5076,6 +5080,114 @@ async function crewCoverage(role, ask){
     +made+' newly planned by the agent, '+resumed+' valid scene checkpoints resumed, '+preserved+' human-authored/locked shots preserved.',
     artifact:crewArtifactRef('coverage','Complete coverage plan','shots',allShots().length+' shots mapped to screenplay beats',{sceneCount:S.scenes.length,shotCount:allShots().length,preserved})};
 }
+const CREW_VIDEO_PROMPT_BATCH_LIMIT=4;
+function crewDeliveryAspect(){
+  const match=String((S.look&&S.look.aspect)||'').match(/\b\d+(?:\.\d+)?\s*:\s*\d+(?:\.\d+)?\b/);
+  return match?match[0].replace(/\s+/g,''):'16:9';
+}
+function crewVideoPromptBatchSchema(rows){
+  return {type:'object',additionalProperties:false,required:['prompts'],properties:{prompts:{type:'array',
+    minItems:rows.length,maxItems:rows.length,items:{type:'object',additionalProperties:false,
+      required:['shotId','text'],properties:{shotId:{type:'string',enum:rows.map(row=>String(row.sh.id||''))},
+        text:{type:'string',minLength:320,maxLength:7000}}}}}};
+}
+function crewVideoPromptShape(target,seconds){
+  const duration=Number(seconds.toFixed(3));
+  if (target==='seedance') return 'Each text value contains, in order: optional ASSET BINDING; one-sentence summary; one LOOK line; the exact contiguous ranges '
+    +plRanges(seconds).join(', ')+'; and one closing CONSISTENCY paragraph. The final range states the last frame and hold. Silence is explicit inside every range where it applies.';
+  return 'Each text value uses these exact labels in order: [REFERENCE], [STYLE & MOOD], [SHOT DIRECTION], [ACTOR BEHAVIOR], [ENVIRONMENTAL FORCE], [CAMERA BEHAVIOR], [AUDIO]. '
+    +'[REFERENCE] says “Image 1 is the first frame.” CAMERA BEHAVIOR contains exactly one positive camera contract. End exactly with “Duration: '+duration+'s · Aspect: '
+    +crewDeliveryAspect()+' · Negative: text, watermark, subtitles.”';
+}
+function crewValidateVideoPromptText(text,target,seconds,sc,sh){
+  const value=String(text||'').trim();
+  if (value.length<320) throw new Error('Video prompt for shot '+sh.num+' is too thin.');
+  if (target==='generic'){
+    const labels=['[REFERENCE]','[STYLE & MOOD]','[SHOT DIRECTION]','[ACTOR BEHAVIOR]','[ENVIRONMENTAL FORCE]','[CAMERA BEHAVIOR]','[AUDIO]'];
+    let cursor=-1; for (const label of labels){ const index=value.indexOf(label); if (index<0||index<=cursor) throw new Error('Video prompt for shot '+sh.num+' is missing or misorders '+label+'.'); cursor=index; }
+    if (!/Duration:\s*[0-9.]+s\s*·\s*Aspect:/i.test(value)) throw new Error('Video prompt for shot '+sh.num+' has no duration/aspect closing line.');
+  }else{
+    const ranges=plRanges(seconds); for (const range of ranges) if (!value.includes(range)) throw new Error('Video prompt for shot '+sh.num+' omits timeline range '+range+'.');
+  }
+  if (/\b(?:here is|i created|i wrote|prompt follows|json file)\b/i.test(value)) throw new Error('Video prompt for shot '+sh.num+' contains process narration.');
+  const offScript=plCanonAudit(value,plCanonVocab(sc,sh));
+  if (offScript.length) throw new Error('Video prompt for shot '+sh.num+' introduces off-script terms: '+offScript.slice(0,12).join(', ')+'.');
+  return {text:value,offScript};
+}
+function crewVideoPromptAssignment(sc,sh){
+  const prior=sh.prompt&&String(sh.prompt.text||'').trim(),review=sh.prompt&&sh.prompt.verdict;
+  return '=== VIDEO SHOT '+String(sh.id||sh.num)+' ===\nshotId (copy exactly): '+String(sh.id||'')
+    +'\nSCENE '+sc.num+' CANON:\n'+[sc.synopsis,sc.text].filter(Boolean).join('\n')
+    +'\nPLANNED SHOT '+sh.num+': '+[sh.size,sh.angle,sh.move,sh.lens,sh.desc].filter(Boolean).join(' | ')
+    +'\nAPPROVED FIRST-FRAME PROMPT:\n'+String(boardOf(sh).desc||'')
+    +(prior?'\nPRIOR VIDEO PROMPT TO REPAIR:\n'+prior:'')
+    +(review&&review.verdict!=='pass'?critiqueToNote(review):'');
+}
+async function crewGenerateVideoPromptBatch(rows,role,ask,target,seconds,provider){
+  const sceneMap=new Map(); rows.forEach(row=>sceneMap.set(String(row.sc.id||row.sc.num),row.sc));
+  const user=crewContext(role,{scenes:[...sceneMap.values()],budget:20000,taskFirst:true,collaborationCap:3000,
+      extra:'WRITE '+rows.length+' COMPLETE VIDEO PROMPTS IN THIS ONE BOUNDED PASS FOR '+String(provider.name||provider.id||'the selected provider')+'.\n\n'
+        +rows.map(row=>crewVideoPromptAssignment(row.sc,row.sh)).join('\n\n')})
+    +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')+'\n\n'+crewVideoPromptShape(target,seconds)
+    +'\nOne prompt is one continuous shot. Animate forward from the approved first frame through only the scene action. Repeat the physical identity, geography, light, lens, and state anchors needed by the video model. '
+    +'Do not add people, props, events, cuts, camera moves, text, sound, or explanations that canon does not establish. The outer response is the requested prompts JSON array; each text field contains the finished provider-ready prompt.';
+  return crewJsonAgentCall(role,user,{temperature:0.25,schema:crewVideoPromptBatchSchema(rows),schemaName:'video_prompt_batch',
+    roleId:role.id,workloadId:'department.'+role.id+'.video_prompt.batch',artifactType:'video_prompt_batch',
+    maxTokens:Math.min(8192,1600+rows.length*1050),maxRepairAttempts:2},parsed=>{
+      const list=parsed&&Array.isArray(parsed.prompts)?parsed.prompts:[];
+      if (list.length!==rows.length) throw new Error('Expected '+rows.length+' video prompts; received '+list.length+'.');
+      const byId=new Map(); list.forEach(value=>{ const id=String(value&&value.shotId||''); if (!id||byId.has(id)) throw new Error('Every video prompt needs one unique assigned shotId.'); byId.set(id,value); });
+      return rows.map(({sc,sh})=>{
+        const value=byId.get(String(sh.id||'')); if (!value) throw new Error('The video-prompt batch omitted shot '+sh.num+'.');
+        return {sc,sh,validated:crewValidateVideoPromptText(value.text,target,seconds,sc,sh)};
+      });
+    });
+}
+function crewVideoPromptReviewBatchSchema(rows){
+  const failure={type:'object',additionalProperties:false,required:['check','severity','evidence','fix'],properties:{
+    check:{type:'string'},severity:{type:'string',enum:['high','medium','low']},evidence:{type:'string'},fix:{type:'string'}}};
+  return {type:'object',additionalProperties:false,required:['reviews'],properties:{reviews:{type:'array',minItems:rows.length,maxItems:rows.length,
+    items:{type:'object',additionalProperties:false,required:['shotId','verdict','score','failures','worst'],properties:{
+      shotId:{type:'string',enum:rows.map(row=>String(row.sh.id||''))},verdict:{type:'string',enum:['pass','revise','reject']},
+      score:{type:'integer',minimum:0,maximum:100},failures:{type:'array',maxItems:8,items:failure},worst:{type:'string'}}}}}};
+}
+function crewNormalizeVideoReview(review,text){
+  const source=Array.isArray(review&&review.failures)?review.failures:[], material=[],advisories=[];
+  const materialChecks=new Set(['canon','timeline','physicality','constraints','collision','state','location','spatial','continuity','identity']);
+  const artifactText=String(text||'').toLowerCase().replace(/\s+/g,' ').trim();
+  source.forEach(row=>{
+    const evidence=String(row&&row.evidence||'').trim(), normalizedEvidence=evidence.toLowerCase().replace(/\s+/g,' ').trim();
+    const quoted=normalizedEvidence.length>=8&&artifactText.includes(normalizedEvidence.slice(0,80));
+    const blocking=row&&String(row.severity||'').toLowerCase()==='high'&&materialChecks.has(String(row.check||'').toLowerCase())&&quoted;
+    (blocking?material:advisories).push(Object.assign({},row));
+  });
+  const next=Object.assign({},review,{rawFailures:source.slice(0,16),failures:material.slice(0,8),advisories:advisories.slice(0,12),
+    verdict:material.length?(material.some(row=>String(row.check||'').toLowerCase()==='canon')?'reject':'revise'):'pass',
+    score:material.length?Math.min(79,Number(review&&review.score)||50):Math.max(80,Number(review&&review.score)||90),
+    reviewPolicy:'studio/material-video-gate@1',at:new Date().toISOString(),model:AI.model});
+  return next;
+}
+async function crewReviewVideoPromptBatch(rows,role,target,seconds){
+  const reviewer=crewFind('script_supervisor')||role;
+  const artifacts=rows.map(({sc,sh})=>'=== VIDEO REVIEW '+String(sh.id||sh.num)+' ===\nshotId: '+String(sh.id||'')
+    +'\nSCENE '+sc.num+' CANON:\n'+[sc.synopsis,sc.text].filter(Boolean).join('\n')
+    +'\nPLANNED SHOT: '+[sh.size,sh.angle,sh.move,sh.lens,sh.desc].filter(Boolean).join(' | ')
+    +'\nPROMPT:\n'+String(sh.prompt&&sh.prompt.text||'')).join('\n\n');
+  const user=crewContext(reviewer,{scenes:rows.map(row=>row.sc),budget:16000,taskFirst:true,collaborationCap:2500,
+      extra:'INDEPENDENT REVIEW OF '+rows.length+' PROVIDER-READY VIDEO PROMPTS.\n\n'+artifacts})
+    +'\n\nThe application already verified the required '+target+' shape, exact shot IDs, duration '+seconds+' seconds, and deterministic off-script audit. '
+    +'Review only material canon, action order, physicality, state, geography, one-camera behavior, ending, and continuity defects. Quote exact words. '
+    +'High severity is reserved for a defect likely to spoil the rendered clip; style preferences are medium or low advisories. Return one review for every shotId.';
+  return crewJsonAgentCall(reviewer,user,{temperature:0.1,schema:crewVideoPromptReviewBatchSchema(rows),
+    schemaName:'video_prompt_review_batch',roleId:reviewer.id,workloadId:'review.'+reviewer.id+'.video.batch',
+    artifactType:'video_prompt_review_batch',maxTokens:Math.min(6200,1000+rows.length*700),maxRepairAttempts:2},parsed=>{
+      const list=parsed&&Array.isArray(parsed.reviews)?parsed.reviews:[];
+      if (list.length!==rows.length) throw new Error('Expected '+rows.length+' video reviews; received '+list.length+'.');
+      const byId=new Map(); list.forEach(value=>{ const id=String(value&&value.shotId||''); if (!id||byId.has(id)) throw new Error('Every video review needs one unique assigned shotId.'); byId.set(id,value); });
+      return rows.map(({sc,sh})=>{ const review=byId.get(String(sh.id||'')); if (!review) throw new Error('The video reviewer omitted shot '+sh.num+'.');
+        return {sc,sh,review:crewNormalizeVideoReview(review,sh.prompt&&sh.prompt.text)}; });
+    });
+}
 async function crewWritePrompts(role, ask){
   if (!allShots().length) return 'No shots yet. @first-ad goes first.';
   const p=productionState(), selection=videoProviderSelection(p), provider=videoProviderDescriptor(selection.id)||{};
@@ -5103,25 +5215,32 @@ async function crewWritePrompts(role, ask){
     : providerSeconds;
   const seconds=Math.max(minimumSeconds,Math.min(maximumSeconds,Number.isFinite(configuredSeconds)?configuredSeconds:8));
   if (p&&p.videoProvider){ p.videoProvider.promptTarget=target; p.videoProvider.secondsPerShot=seconds; }
-  // A production run is isolated from whatever filters/rewrite switches the
-  // filmmaker last used manually in Prompts. Generate only missing shots,
-  // across the entire film, with the production review gates on.
-  const before={
-    target:PL.target,seconds:PL.seconds,scope:PL.scope,range:PL.range,redo:PL.redo,
-    licence:PL.licence,critic:PL.critic,autofix:PL.autofix,taste:PL.taste,cancel:PL.cancel
-  };
-  let targets=[];
-  try{
-    Object.assign(PL,{target,seconds,scope:'all',range:'',redo:false,
-      licence:false,critic:true,autofix:true,taste:true,cancel:false});
-    const rewrite=!!(p&&(p.reworkRoles||[]).includes('prompt_writer'));
-    targets=plTargets().filter(t=>{
-      const item=plGet(t), prompt=item&&item.prompt;
-      return rewrite || !(prompt && prompt.text);
-    });
-    if (targets.length) await plRun(targets,role);
-  }finally{
-    Object.assign(PL,before);
+  // One agent context now carries a bounded group of shots. The former path
+  // performed generation + critic + repair + critic separately for every
+  // shot, multiplying the 30B-model latency into hours before media work even
+  // started. Each batch still receives an independent script-supervisor
+  // review and one targeted repair window.
+  const rewrite=!!(p&&(p.reworkRoles||[]).includes('prompt_writer'));
+  const targets=allShots().filter(row=>rewrite||!(row.sh.prompt&&String(row.sh.prompt.text||'').trim()));
+  for (let offset=0;offset<targets.length;offset+=CREW_VIDEO_PROMPT_BATCH_LIMIT){
+    let pending=targets.slice(offset,offset+CREW_VIDEO_PROMPT_BATCH_LIMIT);
+    for (let pass=0;pass<2&&pending.length;pass++){
+      const generated=await crewGenerateVideoPromptBatch(pending,role,ask,target,seconds,provider);
+      for (const {sh,validated} of generated){
+        const prior=sh.prompt&&String(sh.prompt.text||'').trim();
+        sh.prompt={text:validated.text,target,seconds,model:AI.model,at:new Date().toISOString(),short:false,
+          offScript:validated.offScript,licence:false,revised:prior?'craft':''};
+        if (!persistNow()) throw new Error('The video prompt for shot '+sh.num+' could not be saved.');
+      }
+      const reviews=await crewReviewVideoPromptBatch(generated.map(({sc,sh})=>({sc,sh})),role,target,seconds);
+      for (const {sh,review} of reviews){ sh.prompt.verdict=review; if (!persistNow()) throw new Error('The video review for shot '+sh.num+' could not be saved.'); }
+      pending=reviews.filter(row=>row.review.verdict!=='pass').map(({sc,sh})=>({sc,sh}));
+      if (pending.length&&pass===1){
+        const labels=pending.map(row=>'scene '+row.sc.num+' shot '+row.sh.num).join(', ');
+        throw new Error('The video-prompt batch still has material canon or physical faults after one targeted repair: '+labels+'.');
+      }
+    }
+    if (p&&productionCheckpoint()===false) throw new Error('The video-prompt batch checkpoint could not be saved.');
   }
   const shots=allShots();
   const missing=shots.filter(x=>!(x.sh.prompt&&String(x.sh.prompt.text||'').trim()));
@@ -5135,12 +5254,61 @@ async function crewWritePrompts(role, ask){
     artifact:crewArtifactRef('video_prompts','Full video prompt set','prompts',shots.length+' complete prompts for '+(provider.name||selection.id),
       {count:shots.length,target,seconds,providerId:selection.id,model:selection.model||''})};
 }
+const CREW_REVIEW_FAILURE_SCHEMA={type:'object',additionalProperties:false,required:['check','severity','evidence','fix'],properties:{
+  check:{type:'string',minLength:2},severity:{type:'string',enum:['high','medium','low']},
+  evidence:{type:'string',minLength:3},fix:{type:'string',minLength:3}}};
+function crewStillReviewBatchSchema(rows){
+  return {type:'object',additionalProperties:false,required:['reviews'],properties:{reviews:{type:'array',
+    minItems:rows.length,maxItems:rows.length,items:{type:'object',additionalProperties:false,
+      required:['shotId','verdict','score','failures','worst'],properties:{
+        shotId:{type:'string',enum:rows.map(row=>String(row.sh.id||''))},verdict:{type:'string',enum:['pass','revise','reject']},
+        score:{type:'integer',minimum:0,maximum:100},failures:{type:'array',maxItems:8,items:CREW_REVIEW_FAILURE_SCHEMA},
+        worst:{type:'string'}}}}}};
+}
+/** Review several already-authored frames in one model context. The supervisor
+ *  still inspects every exact artifact, while Studio's deterministic material
+ *  gate prevents low-risk prose notes from causing another expensive cycle. */
+async function critiqueStillBatch(rows,role){
+  if (!rows.length) return [];
+  const sceneMap=new Map(); rows.forEach(row=>sceneMap.set(String(row.sc.id||row.sc.num),row.sc));
+  const artifacts=rows.map(({sc,sh})=>'=== REVIEW ITEM '+String(sh.id||sh.num)+' ===\n'
+    +'shotId: '+String(sh.id||'')+'\nSCENE '+sc.num+' CANON:\n'+[sc.synopsis,sc.text].filter(Boolean).join('\n')
+    +'\nPLANNED SHOT '+sh.num+': '+[sh.size,sh.angle,sh.move,sh.lens,sh.desc].filter(Boolean).join(' | ')
+    +'\nVERIFIED OFF-SCRIPT TERMS: '+((boardOf(sh).offScript||[]).join(', ')||'none')
+    +'\nSTORYBOARD-PHOTO PROMPT:\n'+String(boardOf(sh).desc||'')).join('\n\n');
+  const user=crewContext(role,{scenes:[...sceneMap.values()],budget:24000,taskFirst:true,collaborationCap:3000,
+      extra:'INDEPENDENT BATCH REVIEW OF '+rows.length+' FINISHED STORYBOARD-PHOTO PROMPTS.\n\n'+artifacts})
+    +'\n\nReview every item against canon, one frozen instant, internal consistency, physical support, identity, geography, shot spec, lighting, composition, continuity, and clarity. '
+    +'Quote the exact offending words for every finding. Do not manufacture faults. Calling the artifact a photograph is allowed. '
+    +'“At the instant”, “caught as”, and comparable language identify a frozen state and are allowed unless the same prompt actually describes multiple states or a sequence. '
+    +'FILM STOCK, IMPERFECTION, AESTHETIC REFUSALS, and AVOID are required Studio blocks; never fail their existence. '
+    +'Use high severity only for a real canon, multi-instant, impossible-physics, identity, geography, or continuity defect that could materially spoil the generated frame. '
+    +'Use medium or low for optional clarification. Return exactly one review for every assigned shotId.';
+  const values=await crewJsonAgentCall(role,user,{temperature:0.1,schema:crewStillReviewBatchSchema(rows),
+    schemaName:'storyboard_photo_review_batch',roleId:role.id,workloadId:'review.'+role.id+'.still.batch',
+    artifactType:'still_review_batch',maxTokens:Math.min(7000,1200+rows.length*850),maxRepairAttempts:2},parsed=>{
+      const list=parsed&&Array.isArray(parsed.reviews)?parsed.reviews:[];
+      if (list.length!==rows.length) throw new Error('Expected '+rows.length+' still reviews; received '+list.length+'.');
+      const byId=new Map(); list.forEach(value=>{
+        const id=String(value&&value.shotId||''); if (!id||byId.has(id)) throw new Error('Every review needs one unique assigned shotId.');
+        byId.set(id,value);
+      });
+      return rows.map(({sc,sh})=>{
+        const review=byId.get(String(sh.id||'')); if (!review) throw new Error('The supervisor omitted shot '+sh.num+'.');
+        return {sc,sh,review:crewNormalizeStillReview(Object.assign({},review,{at:new Date().toISOString(),model:AI.model}),boardOf(sh).desc||'')};
+      });
+    });
+  return values;
+}
 async function crewSupervise(role, ask){
-  const p=productionState(),visualRow=crewStoryboardCurrentRow(p);
-  const targetShotId=String((p&&p.targetShotReworkId)||(visualRow&&visualRow.sh.id)||'');
+  const p=productionState(),targetShotId=String((p&&p.targetShotReworkId)||'');
   const onlyTarget=row=>!targetShotId||row.sh.id===targetShotId;
-  const withPrompt = allShots().filter(x=>onlyTarget(x)&&x.sh.prompt && x.sh.prompt.text);
-  const withStill = allShots().filter(x=>onlyTarget(x)&&x.sh.board&&String(x.sh.board.desc||'').trim());
+  const withStill = allShots().filter(x=>onlyTarget(x)&&!boardOf(x.sh).frame&&String(boardOf(x.sh).desc||'').trim()
+    &&(!boardOf(x.sh).craft||!crewStillCraftPassed(boardOf(x.sh))));
+  // Storyboard review and motion-prompt review are separate finite phases. Do
+  // not reread every video prompt while a board batch is waiting.
+  const withPrompt = withStill.length?[]:allShots().filter(x=>onlyTarget(x)&&x.sh.prompt&&x.sh.prompt.text
+    &&(!x.sh.prompt.verdict||x.sh.prompt.verdict.verdict!=='pass'));
   if (!withPrompt.length&&!withStill.length) return 'Nothing to check yet. @prompt-writer and @stills-prompt go first.';
   for (const { sc, sh } of withPrompt){
     const v = await critique('prompt', sh.prompt.text, {
@@ -5152,18 +5320,16 @@ async function crewSupervise(role, ask){
     sh.prompt.verdict = v;
     if (!persistNow()) throw new Error('The script-supervisor review for shot '+sh.num+' could not be saved.');
   }
-  for (const {sc,sh} of withStill){
+  const stillReviews=await critiqueStillBatch(withStill,role);
+  for (const {sc,sh,review} of stillReviews){
     const board=boardOf(sh), text=String(board.desc||'');
-    const v=await critique('still',text,{offScript:board.offScript||[],sceneNum:sc.num,shotNum:sh.num,
-      shotDesc:[sh.size,sh.angle,sh.move,sh.lens,sh.desc].filter(Boolean).join(' · '),sceneText:aiSceneFountain(sc),sceneObject:sc},role);
-    if (!v) throw new Error('The script supervisor did not return a valid still review for scene '+sc.num+' shot '+sh.num+'.');
-    board.craft=v; board.review=imageReviewEnvelope(sc,sh,text);
+    board.craft=review; board.review=imageReviewEnvelope(sc,sh,text);
     if (!persistNow()) throw new Error('The still-prompt review for shot '+sh.num+' could not be saved.');
   }
   const videoBad=withPrompt.filter(x=>x.sh.prompt.verdict&&x.sh.prompt.verdict.verdict!=='pass').length;
-  const stillBad=withStill.filter(x=>boardOf(x.sh).craft&&boardOf(x.sh).craft.verdict!=='pass').length;
+  const stillBad=withStill.filter(x=>!crewStillCraftPassed(boardOf(x.sh))).length;
   const bad=videoBad+stillBad, total=withPrompt.length+withStill.length;
-  const canRevise=!!(visualRow&&stillBad&&Number(boardOf(visualRow.sh).revisionPass||0)<2);
+  const canRevise=!!(stillBad&&withStill.some(row=>Number(boardOf(row.sh).revisionPass||0)<3));
   const status=bad?(canRevise?'waiting':'failed'):(crewStoryboardCraftComplete()?'done':'waiting');
   return {status,text:'The script supervisor independently reviewed '+withPrompt.length+' video prompt'+(withPrompt.length===1?'':'s')
       +' and '+withStill.length+' storyboard-photo prompt'+(withStill.length===1?'':'s')+' using the complete continuity and craft rubrics. '
@@ -5249,11 +5415,49 @@ function crewStoryboardCurrentRow(p){
   if (targetShotId) return rows.find(row=>row.sh.id===targetShotId&&!boardOf(row.sh).frame)||null;
   return rows.find(row=>!boardOf(row.sh).frame)||null;
 }
+const CREW_STILL_BATCH_LIMIT=8;
+const CREW_STILL_MATERIAL_CHECKS=new Set(['canon','one_instant','internal_consistency','physical_support','identity','geography','continuity']);
+/** Keep the independent review, but stop stylistic nitpicks and rubric
+ *  contradictions from blocking a real local image. Only a quoted, high-risk
+ *  canon/physics/continuity fault is a spend gate. Everything else remains
+ *  visible as an advisory for human review and future TasteOS evidence. */
+function crewNormalizeStillReview(review,promptText){
+  if (!review||typeof review!=='object') return review||null;
+  const source=Array.isArray(review.rawFailures)?review.rawFailures
+    : (Array.isArray(review.failures)?review.failures:[]).concat(Array.isArray(review.advisories)?review.advisories:[]);
+  const material=[],advisories=[], artifactText=String(promptText||'').toLowerCase().replace(/\s+/g,' ').trim();
+  source.slice(0,16).forEach(row=>{
+    if (!row||!row.check) return;
+    const failure=Object.assign({},row), check=String(failure.check||'').toLowerCase();
+    const evidence=String(failure.evidence||''), fix=String(failure.fix||''), combined=(evidence+' '+fix).toLowerCase();
+    const actualSequence=/\b(?:then|afterward|after that|will|begins? to|continues? to|seconds?|\d+\s*-\s*\d+s|camera\s+(?:moves|pans|tilts|tracks|dollies|zooms))\b/i.test(evidence);
+    const allowedFrozenInstant=check==='one_instant'&&!actualSequence
+      && /\b(?:at (?:the )?(?:exact )?instant|caught as|frozen as|mid[- ](?:splash|turn|step|motion))\b/i.test(evidence);
+    const rubricContradiction=(/\bremove\b.*\bphotograph(?: wording)?\b/i.test(fix)
+      || (/\b(?:aesthetic refusals|avoid)\b/i.test(combined)&&/\b(?:remove|omit|positive fields only|state visible facts only)\b/i.test(fix))
+      || (check==='canon'&&/\bpresent state not an instant\b/i.test(fix)));
+    const normalizedEvidence=String(failure.evidence||'').trim().toLowerCase().replace(/\s+/g,' ');
+    const quoted=normalizedEvidence.length>=8&&artifactText.includes(normalizedEvidence.slice(0,80));
+    const blocking=String(failure.severity||'').toLowerCase()==='high'
+      && CREW_STILL_MATERIAL_CHECKS.has(check) && quoted && !allowedFrozenInstant && !rubricContradiction;
+    (blocking?material:advisories).push(failure);
+  });
+  const next=Object.assign({},review,{rawFailures:source.slice(0,16),failures:material.slice(0,8),advisories:advisories.slice(0,12),
+    reviewPolicy:'studio/material-still-gate@1'});
+  next.verdict=material.length?(material.some(row=>String(row.check||'').toLowerCase()==='canon')?'reject':'revise'):'pass';
+  next.score=material.length?Math.max(0,Math.min(79,Number(review.score)||50)):Math.max(80,Math.min(100,Number(review.score)||90));
+  return next;
+}
+function crewStillCraftPassed(board){
+  const normalized=board&&board.craft?crewNormalizeStillReview(board.craft,board.desc||''):null;
+  if (board&&normalized) board.craft=normalized;
+  return !!(normalized&&normalized.verdict==='pass');
+}
 function crewStoryboardPromptComplete(){
   const rows=allShots(); return !!rows.length&&rows.every(row=>String(boardOf(row.sh).desc||'').trim());
 }
 function crewStoryboardCraftComplete(){
-  const rows=allShots(); return !!rows.length&&rows.every(row=>boardOf(row.sh).craft&&boardOf(row.sh).craft.verdict==='pass');
+  const rows=allShots(); return !!rows.length&&rows.every(row=>crewStillCraftPassed(boardOf(row.sh)));
 }
 function crewStoryboardTasteComplete(){
   const rows=allShots(); return !!rows.length&&rows.every(row=>boardOf(row.sh).taste||boardOf(row.sh).tasteUntrainedAt);
@@ -5262,7 +5466,7 @@ function crewStoryboardNextRole(p){
   const row=crewStoryboardCurrentRow(p);
   if (!row) return '';
   const board=boardOf(row.sh), craft=board.craft, taste=board.taste;
-  if (!String(board.desc||'').trim() || (craft&&craft.verdict!=='pass') || (taste&&taste.verdict==='kill')) return 'stills_prompt';
+  if (!String(board.desc||'').trim() || (craft&&!crewStillCraftPassed(board)) || (taste&&taste.verdict==='kill')) return 'stills_prompt';
   if (!craft) return 'script_supervisor';
   if (!taste&&!board.tasteUntrainedAt) return 'taste';
   return 'stills';
@@ -5294,63 +5498,90 @@ function crewStillRepeatedRejectedEvidence(value,review){
     return !/^(?:keep|confirm|ensure|preserve|maintain|retain)\b/.test(fix);
   });
 }
+function crewStillPromptTargets(p){
+  const targetShotId=String((p&&p.targetShotReworkId)||''), rewrite=!!(p&&(p.reworkRoles||[]).includes('stills_prompt'));
+  const rows=allShots().filter(row=>!boardOf(row.sh).frame);
+  const scoped=targetShotId?rows.filter(row=>String(row.sh.id||'')===targetShotId):rows;
+  return scoped.filter(row=>{
+    const board=boardOf(row.sh), hasPrompt=!!String(board.desc||'').trim();
+    const craftPass=hasPrompt&&board.craft&&crewStillCraftPassed(board);
+    return rewrite||!hasPrompt||(board.craft&&!craftPass)||(board.taste&&board.taste.verdict==='kill');
+  }).slice(0,CREW_STILL_BATCH_LIMIT);
+}
+function crewStillPromptBatchSchema(rows){
+  const properties=JSON.parse(JSON.stringify(CREW_STILL_PROMPT_SCHEMA.properties));
+  properties.shotId={type:'string',enum:rows.map(row=>String(row.sh.id||''))};
+  return {type:'object',additionalProperties:false,required:['prompts'],properties:{prompts:{type:'array',
+    minItems:rows.length,maxItems:rows.length,items:{type:'object',additionalProperties:false,
+      required:['shotId'].concat(CREW_STILL_PROMPT_SCHEMA.required),properties}}}};
+}
+function crewStillPromptAssignment(sc,sh){
+  const board=boardOf(sh),prior=String(board.desc||'').trim();
+  const reviewNote=critiqueStillToNote(board.craft)+tasteToNote(board.taste);
+  return '=== SHOT ASSIGNMENT '+String(sh.id||sh.num)+' ===\n'
+    +'SHOT ID (copy exactly into shotId): '+String(sh.id||'')+'\n'
+    +'SCENE '+sc.num+' CANONICAL BEAT:\n'+[sc.synopsis,sc.text].filter(Boolean).join('\n')+'\n\n'
+    +'PLANNED SHOT '+sh.num+':\n'+[sh.size,sh.angle,sh.move,sh.lens,sh.desc].filter(Boolean).join(' | ')
+    +(sh.prompt&&sh.prompt.text?'\n\nAPPROVED VIDEO PROMPT:\n'+sh.prompt.text
+      :'\n\nNo video prompt exists yet. Build the source photograph directly from the screenplay, shot, Look, and bibles.')
+    +(prior?'\n\nPRIOR STORYBOARD PROMPT:\n'+prior:'')
+    +(reviewNote?'\n\nBINDING REPAIR ORDER FOR THIS SHOT:\n'+reviewNote
+      +'Apply every cited material correction. Preserve clauses that were not faulted.':'');
+}
+function crewStillPromptText(value){
+  const labels=[['SHOT','shot'],['SUBJECT','subject'],['PHYSICAL STATE','physicalState'],['ENVIRONMENT','environment'],['LIGHTING','lighting'],
+    ['CAMERA','camera'],['FILM STOCK','filmStock'],['COLOR GRADE','colorGrade'],['COMPOSITION','composition'],['IMPERFECTION','imperfection']];
+  return labels.map(([label,key])=>label+'\n'+String(value[key]).trim()).join('\n\n')
+    +'\n\nAESTHETIC REFUSALS\n'+(value.aestheticRefusals||[]).map(row=>'- '+row).join('\n')
+    +'\n\nAVOID\n'+((value.avoid||[]).length?(value.avoid||[]).map(row=>'- '+row).join('\n'):'- Nothing beyond the project canon and approved Look.');
+}
 async function crewStillPrompts(role, ask){
-  const p=productionState(), row=crewStoryboardCurrentRow(p), rewrite=!!(p&&(p.reworkRoles||[]).includes('stills_prompt'));
-  const shots=row?[row]:allShots().filter(x=>rewrite||!String(boardOf(x.sh).desc||'').trim());
+  const p=productionState(), shots=crewStillPromptTargets(p);
   const total=allShots().length;
   if (!shots.length) return total ? 'Every planned shot already has authored board direction.' : 'No shots yet. @first-ad goes first.';
-  let n = 0;
-  for (const { sc,sh } of shots){
-    const board=boardOf(sh), prior=String(board.desc||'').trim(), reviewNote=critiqueStillToNote(board.craft)+tasteToNote(board.taste);
-    const repairDirective=prior&&reviewNote
-      ? '=== BINDING REPAIR ORDER — READ THIS BEFORE ALL OTHER CONTEXT ===\n'+reviewNote
-        +'\nThe prior prompt is rejected. Apply every cited correction to this new JSON artifact; do not repeat a contradicted prior state.\n\n'
-      : '';
-    const user = repairDirective+crewContext(role,{scenes:[sc],budget:22000,taskFirst:true,collaborationCap:7000,
-      extra:'SCENE '+sc.num+' CANONICAL BEAT:\n'+[sc.synopsis,sc.text].filter(Boolean).join('\n')+'\n\nSHOT '+sh.num+' SPECIFICATION:\n'
-      +[sh.size,sh.angle,sh.move,sh.lens,sh.desc].filter(Boolean).join(' | ')})
-      +(sh.prompt&&sh.prompt.text?'\n\n=== APPROVED VIDEO PROMPT FOR THIS SHOT ===\n'+sh.prompt.text
-        :'\n\nNo video prompt exists yet. Author the source photograph directly from the screenplay, planned shot, approved Look, and bibles; do not invent the later motion timeline.')
-      +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
-      +(prior&&!reviewNote?'\n\n=== PRIOR STORYBOARD PROMPT TO REWORK ===\n'+prior:'')
-      + '\n\nAuthor ONE showcase-quality source photograph at the strongest exact instant in this shot. It must be usable as the first frame/reference image for the video model. '
-      + 'Freeze one physical moment: no timeline, no seconds, no camera movement instruction, no audio, and no screenplay dialogue. '
-      + 'State every labeled photographic block with concrete, canon-bound visual information; repeat identity anchors that continuity depends on. '
-      + 'SHOT is a full descriptive sentence naming the framing and frozen instant, never a stable ID or slug. SUBJECT includes physical identity, surface/state, and position. '
-      + 'PHYSICAL STATE explicitly states mass, gravity, supporting surface, contact points, and deformation at this one instant. Nothing hovers or floats unless canon says it does. '
-      + 'ENVIRONMENT, LIGHTING, and CAMERA repeat only approved facts. COMPOSITION gives reproducible spatial relationships. IMPERFECTION names physical texture, not fake damage.';
-    const value=await crewJsonAgentCall(role,user,{temperature:0.35,schema:CREW_STILL_PROMPT_SCHEMA,
-      schemaName:'storyboard_photo_prompt',roleId:role.id,workloadId:'department.'+role.id,
-      artifactType:'still_prompt',maxTokens:2600},parsed=>{
-        const checked=crewParseStillPrompt(parsed,sh.num,
-          [sc.text,sh.desc,sh.prompt&&sh.prompt.text].filter(Boolean).join('\n'));
-        const repeated=crewStillRepeatedRejectedEvidence(checked,board.craft);
-        if (repeated.length) throw new Error('Still prompt for shot '+sh.num
-          +' repeated supervisor-rejected evidence instead of applying the correction: '
-          +repeated.slice(0,4).map(item=>'"'+String(item.evidence||'').trim()+'" -> '+String(item.fix||'').trim()).join('; ')+'.');
-        return checked;
+  const sceneMap=new Map(); shots.forEach(row=>sceneMap.set(String(row.sc.id||row.sc.num),row.sc));
+  const assignments=shots.map(row=>crewStillPromptAssignment(row.sc,row.sh)).join('\n\n');
+  const user=crewContext(role,{scenes:[...sceneMap.values()],budget:26000,taskFirst:true,collaborationCap:4000,
+      extra:'BATCH OF '+shots.length+' STORYBOARD PHOTOGRAPHS. Finish every listed shot in this single department pass.\n\n'+assignments})
+    +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
+    +'\n\nReturn one prompts array with exactly one object for every assigned shotId. Author one showcase-quality source photograph per shot. '
+    +'Each object describes one frozen physical instant: no timeline, seconds, camera travel, audio, dialogue, process narration, or filenames. '
+    +'Use concrete canon-bound information in every block. SHOT is a descriptive sentence, never an ID. PHYSICAL STATE names mass, gravity, support, contact, and deformation. '
+    +'ENVIRONMENT, LIGHTING, CAMERA, and COMPOSITION repeat approved facts and reproducible geography. A frozen phrase such as “at the instant” is allowed; a sequence of states is not.';
+  const schema=crewStillPromptBatchSchema(shots);
+  const values=await crewJsonAgentCall(role,user,{temperature:0.3,schema,
+    schemaName:'storyboard_photo_prompt_batch',roleId:role.id,workloadId:'department.'+role.id+'.batch',
+    artifactType:'still_prompt_batch',maxTokens:Math.min(8192,1800+shots.length*1300),maxRepairAttempts:2},parsed=>{
+      const list=parsed&&Array.isArray(parsed.prompts)?parsed.prompts:[];
+      if (list.length!==shots.length) throw new Error('Expected '+shots.length+' storyboard prompts; received '+list.length+'.');
+      const byId=new Map();
+      list.forEach(value=>{
+        const id=String(value&&value.shotId||'');
+        if (!id||byId.has(id)) throw new Error('Every batch row needs one unique assigned shotId.');
+        byId.set(id,value);
       });
-    const labels=[['SHOT','shot'],['SUBJECT','subject'],['PHYSICAL STATE','physicalState'],['ENVIRONMENT','environment'],['LIGHTING','lighting'],
-      ['CAMERA','camera'],['FILM STOCK','filmStock'],['COLOR GRADE','colorGrade'],['COMPOSITION','composition'],['IMPERFECTION','imperfection']];
-    const t=labels.map(([label,key])=>label+'\n'+String(value[key]).trim()).join('\n\n')
-      +'\n\nAESTHETIC REFUSALS\n'+(value.aestheticRefusals||[]).map(row=>'- '+row).join('\n')
-      +'\n\nAVOID\n'+((value.avoid||[]).length?(value.avoid||[]).map(row=>'- '+row).join('\n'):'- Nothing beyond the project canon and approved Look.');
-    if (t){
-      sh.board = sh.board || {}; sh.board.desc = t;
-      sh.board.offScript=plCanonAudit(t,plCanonVocab(sc,sh));
-      sh.board.craft=null; sh.board.taste=null; sh.board.tasteUntrainedAt='';
-      sh.board.revisionPass=Number(sh.board.revisionPass||0)+(prior?1:0);
-      sh.board.review=imageReviewEnvelope(sc,sh,t);
-      n++;
-      if (!persistNow()) throw new Error('The storyboard photo prompt for shot '+sh.num+' could not be saved.');
-    }
+      return shots.map(({sc,sh})=>{
+        const value=byId.get(String(sh.id||''));
+        if (!value) throw new Error('The batch omitted shot '+sh.num+' ('+sh.id+').');
+        const checked=crewParseStillPrompt(value,sh.num,[sc.text,sh.desc,sh.prompt&&sh.prompt.text].filter(Boolean).join('\n'));
+        const repeated=crewStillRepeatedRejectedEvidence(checked,boardOf(sh).craft);
+        if (repeated.length) throw new Error('Still prompt for shot '+sh.num+' repeated rejected evidence: '
+          +repeated.slice(0,4).map(item=>'"'+String(item.evidence||'').trim()+'" -> '+String(item.fix||'').trim()).join('; ')+'.');
+        return {sc,sh,value:checked};
+      });
+    });
+  for (const {sc,sh,value} of values){
+    const board=boardOf(sh),prior=String(board.desc||'').trim(),text=crewStillPromptText(value);
+    board.desc=text; board.offScript=plCanonAudit(text,plCanonVocab(sc,sh)); board.craft=null; board.taste=null; board.tasteUntrainedAt='';
+    board.revisionPass=Number(board.revisionPass||0)+(prior?1:0); board.review=imageReviewEnvelope(sc,sh,text);
+    if (!persistNow()) throw new Error('The storyboard photo prompt for shot '+sh.num+' could not be saved.');
   }
   const written=allShots().filter(x=>String(boardOf(x.sh).desc||'').trim()).length;
   if (p){ crewEnsureStoryboardVisualState(p); if (productionCheckpoint()===false) throw new Error('The progressive storyboard manifest could not be saved.'); }
-  return {status:crewStoryboardPromptComplete()?'done':'waiting',text:'Authored the complete showcase photo prompt for scene '+shots[0].sc.num+' shot '+shots[0].sh.num
-    +'. '+written+' of '+total+' storyboard-photo prompts are now durable; the script supervisor reviews this exact frame next.',
+  return {status:crewStoryboardPromptComplete()?'done':'waiting',text:'Authored '+shots.length+' complete showcase storyboard-photo prompt'+(shots.length===1?'':'s')
+    +' in one bounded department pass. '+written+' of '+total+' prompts are durable; the script supervisor reviews this exact batch next.',
     artifact:crewArtifactRef('still_prompts','Progressive storyboard photo prompts','boards',
-      written+' of '+total+' canon-bound source photographs specified',{count:total,written,latestShotId:shots[0].sh.id})};
+      written+' of '+total+' canon-bound source photographs specified',{count:total,written,latestShotIds:shots.map(row=>row.sh.id)})};
 }
 const CREW_BIBLE_SCHEMA={type:'object',additionalProperties:false,
   required:['name','canonicalDescription','supportedFacts','continuityProposals','unknowns','evidenceScenes'],properties:{
@@ -5869,7 +6100,11 @@ function crewRunOwnerMatches(owner){
   return !!(owner && ACTIVE.p===owner.projectId && ACTIVE.d===owner.draftId
     && String((current&&current.id)||'')===owner.runId);
 }
-const CREW_DIRECT_EXECUTION_ROLES=new Set(['producer','story_review','script_supervisor','taste','stills_prompt','stills','second_unit','editor']);
+// Media-critical departments already receive the producer's durable Greenroom
+// handoff and the full canonical context. Do not add a second model seminar in
+// front of the work itself; on a 30B local model that duplicate conversation
+// used to cost several minutes per handoff without changing an artifact.
+const CREW_DIRECT_EXECUTION_ROLES=new Set(['producer','story_review','script_supervisor','taste','stills_prompt','stills','key_grip','composer','prompt_writer','second_unit','editor']);
 const CREW_TOOL_ONLY_ROLES=new Set(['stills','second_unit','editor']);
 function crewUsesAgentSeminar(role,action){
   return !!(role&&action&&action!=='none'&&!CREW_DIRECT_EXECUTION_ROLES.has(role.id));
