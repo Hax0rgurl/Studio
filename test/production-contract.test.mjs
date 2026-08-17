@@ -265,8 +265,9 @@ test('whole-film pipeline reaches taste, stills, video, and editor', () => {
   assert.ok(pipeline.indexOf("'taste'") < pipeline.indexOf("'stills'"));
 });
 
-test('storyboard photos are reviewed and rendered one shot at a time before motion work', () => {
+test('storyboard prompts and reviews are bounded batches while real frames remain sequential before motion work', () => {
   const routing=bodyBetween('function crewStoryboardCurrentRow','async function crewStillPrompts');
+  const batching=bodyBetween('const CREW_STILL_BATCH_LIMIT','async function crewStillPrompts');
   const prompts=bodyBetween('async function crewStillPrompts','const CREW_BIBLE_SCHEMA');
   const images=bodyBetween('async function crewImages','function crewJobId');
   const readiness=bodyBetween('function crewReadyRoles','const CREW_PRODUCER_DECISION_BASE');
@@ -275,8 +276,15 @@ test('storyboard photos are reviewed and rendered one shot at a time before moti
   assert.match(routing,/return 'script_supervisor'/);
   assert.match(routing,/return 'taste'/);
   assert.match(routing,/return 'stills'/);
-  assert.match(prompts,/No video prompt exists yet/);
+  assert.match(batching,/CREW_STILL_BATCH_LIMIT=8/);
+  assert.match(batching,/crewStillPromptBatchSchema/);
+  assert.match(batching,/crewStillPromptTargets/);
+  assert.match(prompts,/BATCH OF.*STORYBOARD PHOTOGRAPHS/);
+  assert.match(prompts,/storyboard_photo_prompt_batch/);
+  assert.match(prompts,/maxRepairAttempts:2/);
+  assert.match(batching,/No video prompt exists yet/);
   assert.doesNotMatch(prompts,/No prompts yet\. @prompt-writer goes first/);
+  assert.doesNotMatch(prompts,/slice\(0,1\)/);
   assert.match(images,/\.slice\(0,1\)/);
   assert.match(images,/await crewEnsureServices\(\)/);
   assert.match(images,/media gateway did not start/);
@@ -367,9 +375,13 @@ test('the script supervisor independently reviews storyboard-photo prompts', () 
   assert.match(source, /STILL-PROMPT RUBRIC/);
   const supervisor = bodyBetween('async function crewSupervise', 'async function crewTaste');
   assert.match(supervisor, /withStill/);
-  assert.match(supervisor, /critique\('still'/);
-  assert.match(supervisor, /board\.craft=v/);
+  assert.match(supervisor, /critiqueStillBatch\(withStill,role\)/);
+  assert.match(supervisor, /board\.craft=review/);
   assert.match(supervisor, /stillBad/);
+  const batchReview=bodyBetween('const CREW_REVIEW_FAILURE_SCHEMA','async function crewSupervise');
+  assert.match(batchReview,/storyboard_photo_review_batch/);
+  assert.match(batchReview,/Return exactly one review for every assigned shotId/);
+  assert.match(batchReview,/crewNormalizeStillReview/);
   const rework = bodyBetween('async function crewProcessShotReworks', 'function crewTranscriptEntries');
   assert.match(rework, /await crewSupervise\(crewFind\('script_supervisor'\)/);
   assert.match(rework, /await crewTaste\(crewFind\('taste'\)/);
@@ -384,8 +396,29 @@ test('the still critic cannot delete fields required by the storyboard photo con
   const note=bodyBetween('function critiqueStillToNote','/* ============================================================\n   ⚡⚡ STYLE THE BIBLES');
   assert.match(note,/film stock\|imperfection\|aesthetic refusals\|avoid/);
   assert.match(note,/photograph wording\|time reference/);
-  const stills=bodyBetween('async function crewStillPrompts','const CREW_BIBLE_SCHEMA');
+  const stills=bodyBetween('function crewStillPromptAssignment','const CREW_BIBLE_SCHEMA');
   assert.match(stills,/critiqueStillToNote\(board\.craft\)/);
+});
+
+test('false-positive still criticism becomes advisory while an exact material fault remains blocking', () => {
+  const context={String,Number,Math,Object,Array,Set,Date,AI:{model:'test-model'}};
+  vm.createContext(context);
+  vm.runInContext(`${bodyBetween('const CREW_STILL_BATCH_LIMIT','function crewStillCraftPassed')}
+    globalThis.normalize=crewNormalizeStillReview;`,context);
+  const prompt='SHOT\nA photograph caught as the red ball touches the chair.\n\nPHYSICAL STATE\nThe ball rests on the floor at the exact instant of contact.\n\nAESTHETIC REFUSALS\n- No showroom gloss.\n\nAVOID\n- No extra ball.';
+  const noisy=context.normalize({verdict:'revise',score:62,failures:[
+    {check:'one_instant',severity:'high',evidence:'at the exact instant',fix:'Use only a present state, not an instant.'},
+    {check:'clarity',severity:'medium',evidence:'A photograph',fix:'Remove photograph wording.'},
+    {check:'canon',severity:'high',evidence:'AESTHETIC REFUSALS',fix:'Remove negative instructions and state visible facts only.'}
+  ]},prompt);
+  assert.equal(noisy.verdict,'pass');
+  assert.equal(noisy.failures.length,0);
+  assert.equal(noisy.advisories.length,3);
+  const material=context.normalize({verdict:'revise',score:40,failures:[
+    {check:'physical_support',severity:'high',evidence:'The ball rests on the floor',fix:'The screenplay establishes that the ball is suspended in water.'}
+  ]},prompt);
+  assert.equal(material.verdict,'revise');
+  assert.equal(material.failures.length,1);
 });
 
 test('a binding one-shot-per-scene direction is executable coverage validation', () => {
@@ -464,11 +497,14 @@ test('render queue is checkpointed per stable shot and incomplete films cannot a
   assert.doesNotMatch(edit, /filter\(Boolean\)/);
 });
 
-test('automated prompt writing ignores stale UI scope and refuses partial output', () => {
+test('automated video prompts use bounded batches, independent review, and refuse partial output', () => {
   const prompts = bodyBetween('async function crewWritePrompts', 'async function crewSupervise');
-  assert.match(prompts, /scope:'all'/);
-  assert.match(prompts, /range:''/);
-  assert.match(prompts, /redo:false/);
+  assert.match(prompts, /CREW_VIDEO_PROMPT_BATCH_LIMIT/);
+  assert.match(prompts, /crewGenerateVideoPromptBatch/);
+  assert.match(prompts, /crewReviewVideoPromptBatch/);
+  assert.match(prompts, /for \(let pass=0;pass<2&&pending\.length;pass\+\+\)/);
+  assert.match(prompts, /video-prompt batch checkpoint could not be saved/);
+  assert.doesNotMatch(prompts, /plRun\(/);
   assert.match(prompts, /Prompt generation is incomplete/);
 });
 

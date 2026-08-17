@@ -69,10 +69,13 @@ test('every formal prompt and review agent receives its full skill book and curr
   const taste = bodyBetween('async function crewTaste', 'async function crewStillPrompts');
   const promptEngine = bodyBetween('async function plRun', 'function plRenderProgress');
   assert.match(run, /await tasteLoadSnapshot\(\)/);
-  assert.match(prompts, /plRun\(targets,role\)/);
+  assert.match(prompts, /crewGenerateVideoPromptBatch\(pending,role,ask,target,seconds,provider\)/);
+  assert.match(prompts, /crewReviewVideoPromptBatch/);
+  assert.match(prompts, /crewJsonAgentCall\(role,user/);
+  assert.match(prompts, /crewContext\(role/);
   assert.match(promptEngine, /crewSystem\(crewRole\)/);
   assert.match(promptEngine, /crewContext\(crewRole/);
-  assert.match(supervisor, /critique\([\s\S]*,role\)/);
+  assert.match(supervisor, /critiqueStillBatch\(withStill,role\)/);
   assert.match(supervisor, /canRevise\?'waiting':'failed'/);
   assert.match(supervisor, /crewStoryboardCraftComplete\(\)\?'done':'waiting'/);
   assert.match(taste, /critiqueTaste\([\s\S]*,role\)/);
@@ -128,7 +131,7 @@ test('Look departments reject agentic file claims and fake evidence instead of m
 });
 
 test('photo and video agents are required to return full showcase artifacts', () => {
-  const stills = bodyBetween('async function crewStillPrompts', 'const CREW_BIBLE_SCHEMA');
+  const stills = bodyBetween('function crewStillPromptAssignment', 'const CREW_BIBLE_SCHEMA');
   for (const label of ['SHOT', 'SUBJECT', 'PHYSICAL STATE', 'ENVIRONMENT', 'LIGHTING', 'CAMERA', 'FILM STOCK',
     'COLOR GRADE', 'COMPOSITION', 'IMPERFECTION', 'AESTHETIC REFUSALS', 'AVOID']) {
     assert.match(stills, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
