@@ -84,7 +84,15 @@ test('Look departments reject agentic file claims and fake evidence instead of m
   const functions = bodyBetween('function crewLookSchema', '/** A Look department makes one coherent, validated department handoff. */');
   const context = {};
   vm.createContext(context);
-  vm.runInContext(`${functions}\nglobalThis.__parse=crewParseLook;`, context);
+  vm.runInContext(`${functions}\nglobalThis.__parse=crewParseLook; globalThis.__schema=crewLookSchema;`, context);
+  assert.deepEqual(Array.from(context.__schema(['tone','refs']).properties.decisions.items.properties.field.enum),['tone','refs']);
+  const labelled=context.__parse({
+    decisions:[
+      {field:'Tone / themes',value:'Memory is presented through precise changes in domestic ritual, repeated family gestures, and discrepancies between what the rooms preserve and what the returning daughter remembers.',evidence:['The filmmaker asks for nostalgia, memory, and dreams instead of grime or decay.'],constraints:['Keep every emotional turn attached to observable family behavior and recurring domestic objects.']},
+      {field:'Reference films / looks',value:'Use the intimate temporal dislocation of Aftersun and the domestic memory architecture of The Eternal Daughter as behavioral references, without copying either film\'s plot or palette.',evidence:['The film concerns a returned daughter, an absent brother, photographs, and a preserved room.'],constraints:['References guide duration, withholding, and domestic observation only; this film keeps its own story and locations.']}
+    ],clientUpdate:'The film now has a grounded memory logic and two usable formal references.',handoffChecks:['story editor']
+  },['tone','refs']);
+  assert.deepEqual(Array.from(labelled.decisions,row=>row.field),['tone','refs']);
   const fake = {
     decisions: [{
       field: 'design',

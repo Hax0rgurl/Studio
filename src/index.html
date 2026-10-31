@@ -405,15 +405,16 @@
     .look-grid{grid-template-columns:1fr}
   }
 </style>
+<link rel="stylesheet" href="./cinematic-polish.css">
 </head>
 <body>
 <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="sbGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2f7bf6"/><stop offset="1" stop-color="#2fc4f0"/>
+      <stop offset="0" stop-color="#a65370"/><stop offset="1" stop-color="#765f9b"/>
     </linearGradient>
     <linearGradient id="sbGrad2" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#3f8bff"/><stop offset="1" stop-color="#7c5cf0"/>
+      <stop offset="0" stop-color="#8f557c"/><stop offset="1" stop-color="#587aa1"/>
     </linearGradient>
   </defs>
   <symbol id="sbLogoMark" viewBox="0 0 100 100">
@@ -431,12 +432,12 @@
     <rect x="20" y="70" width="21" height="2.6" rx="1.3" fill="#8b93a3"/>
     <rect x="20" y="76" width="23" height="2.2" rx="1.1" fill="#c2c9d4"/>
     <!-- dissolve pixels -->
-    <rect x="52" y="26" width="4" height="4" rx="1" fill="#2f7bf6" opacity=".85"/>
-    <rect x="57" y="34" width="3" height="3" rx="1" fill="#2fc4f0" opacity=".7"/>
-    <rect x="53" y="44" width="3.5" height="3.5" rx="1" fill="#3f8bff" opacity=".8"/>
-    <rect x="58" y="55" width="3" height="3" rx="1" fill="#7c5cf0" opacity=".7"/>
-    <rect x="53" y="63" width="4" height="4" rx="1" fill="#2f7bf6" opacity=".85"/>
-    <rect x="58" y="73" width="3" height="3" rx="1" fill="#2fc4f0" opacity=".7"/>
+    <rect x="52" y="26" width="4" height="4" rx="1" fill="#a65370" opacity=".85"/>
+    <rect x="57" y="34" width="3" height="3" rx="1" fill="#8a5e95" opacity=".7"/>
+    <rect x="53" y="44" width="3.5" height="3.5" rx="1" fill="#ba718c" opacity=".8"/>
+    <rect x="58" y="55" width="3" height="3" rx="1" fill="#6577a1" opacity=".7"/>
+    <rect x="53" y="63" width="4" height="4" rx="1" fill="#a65370" opacity=".85"/>
+    <rect x="58" y="73" width="3" height="3" rx="1" fill="#765f9b" opacity=".7"/>
     <!-- breakdown chips -->
     <g>
       <rect x="64" y="22" width="24" height="11" rx="3.5" fill="url(#sbGrad)"/>
@@ -457,29 +458,29 @@
       <div><h1>AGENTIC <span class="b">MOVIE</span><br>STUDIO</h1><div class="sub">Make the whole movie</div></div>
     </div>
     <div class="nav-sec">Library</div>
-    <button class="nav-btn" data-view="projects"><span class="ic">⌂</span><span class="lbl">Projects</span></button>
+    <button class="nav-btn" data-view="projects" title="Projects"><span class="ic">⌂</span><span class="lbl">Projects</span></button>
     <div class="nav-sec">Production</div>
-<button class="nav-btn" data-view="crew"><span class="ic">◉</span><span class="lbl">Make a Film</span></button>
+<button class="nav-btn" data-view="crew" title="Make a Film"><span class="ic">◉</span><span class="lbl">Make a Film</span></button>
 <div class="nav-sec">Develop</div>
-    <button class="nav-btn" data-view="cards"><span class="ic">▥</span><span class="lbl">Cards</span></button>
-    <button class="nav-btn active" data-view="scenes"><span class="ic">▤</span><span class="lbl">Script</span></button>
-    <button class="nav-btn" data-view="doctor"><span class="ic">✎</span><span class="lbl">Script Doctor</span></button>
+    <button class="nav-btn" data-view="cards" title="Cards"><span class="ic">▥</span><span class="lbl">Cards</span></button>
+    <button class="nav-btn active" data-view="scenes" title="Script"><span class="ic">▤</span><span class="lbl">Script</span></button>
+    <button class="nav-btn" data-view="doctor" title="Script Doctor"><span class="ic">✎</span><span class="lbl">Script Doctor</span></button>
     <div class="nav-sec">Break down</div>
-    <button class="nav-btn" data-view="elements"><span class="ic">⬡</span><span class="lbl">Elements</span></button>
-    <button class="nav-btn" data-view="bibles"><span class="ic">◉</span><span class="lbl">Bibles</span></button>
-    <button class="nav-btn" data-view="look"><span class="ic">◐</span><span class="lbl">Look</span></button>
-    <button class="nav-btn" data-view="tasteos"><span class="ic">◇</span><span class="lbl">TasteOS</span></button>
-    <button class="nav-btn" data-view="timeline"><span class="ic">≡</span><span class="lbl">Timeline</span></button>
+    <button class="nav-btn" data-view="elements" title="Elements"><span class="ic">⬡</span><span class="lbl">Elements</span></button>
+    <button class="nav-btn" data-view="bibles" title="Bibles"><span class="ic">◉</span><span class="lbl">Bibles</span></button>
+    <button class="nav-btn" data-view="look" title="Look"><span class="ic">◐</span><span class="lbl">Look</span></button>
+    <button class="nav-btn" data-view="tasteos" title="TasteOS"><span class="ic">◇</span><span class="lbl">TasteOS</span></button>
+    <button class="nav-btn" data-view="timeline" title="Timeline"><span class="ic">≡</span><span class="lbl">Timeline</span></button>
     <div class="nav-sec">Shoot</div>
-    <button class="nav-btn" data-view="boards"><span class="ic">▦</span><span class="lbl">Boards</span></button>
-    <button class="nav-btn" data-view="shots"><span class="ic">▣</span><span class="lbl">Shot List</span></button>
-    <button class="nav-btn" data-view="prompts"><span class="ic">✦</span><span class="lbl">Prompts</span></button>
-    <button class="nav-btn" data-view="slate"><span class="ic">◧</span><span class="lbl">Slate</span></button>
-    <button class="nav-btn" data-view="takes"><span class="ic">◎</span><span class="lbl">Takes</span></button>
+    <button class="nav-btn" data-view="boards" title="Boards"><span class="ic">▦</span><span class="lbl">Boards</span></button>
+    <button class="nav-btn" data-view="shots" title="Shot List"><span class="ic">▣</span><span class="lbl">Shot List</span></button>
+    <button class="nav-btn" data-view="prompts" title="Prompts"><span class="ic">✦</span><span class="lbl">Prompts</span></button>
+    <button class="nav-btn" data-view="slate" title="Slate"><span class="ic">◧</span><span class="lbl">Slate</span></button>
+    <button class="nav-btn" data-view="takes" title="Takes"><span class="ic">◎</span><span class="lbl">Takes</span></button>
     <div class="nav-sec">Output</div>
-    <button class="nav-btn" data-view="export"><span class="ic">⇪</span><span class="lbl">Export</span></button>
+    <button class="nav-btn" data-view="export" title="Export"><span class="ic">⇪</span><span class="lbl">Export</span></button>
     <div class="nav-sec">Info</div>
-    <button class="nav-btn" data-view="help"><span class="ic">?</span><span class="lbl">Help &amp; About</span></button>
+    <button class="nav-btn" data-view="help" title="Help &amp; About"><span class="ic">?</span><span class="lbl">Help &amp; About</span></button>
     <div class="foot">Agentic Movie Studio<br>Built and expanded by Abandoned Muse<br>Open source · Apache 2.0</div>
   </div>
 
@@ -644,7 +645,9 @@
         </select>
         <select id="boardStyleSel" style="min-width:150px" title="The style every card inherits unless it sets its own"></select>
         <button class="btn small" id="btnBoardRefresh">Refresh videos</button>
-        <button class="btn small primary" id="btnBoardRenderAll">Render all ready shots</button>
+        <button class="btn small" id="btnBoardAgentPhotos">Agents make missing photos</button>
+        <button class="btn small primary" id="btnBoardAgentMovie">Agents render &amp; assemble</button>
+        <button class="btn small" id="btnBoardRenderAll">Render ready videos manually</button>
       </div>
       <div id="boardsWrap"></div>
     </div>
@@ -2114,6 +2117,7 @@ function setLook(k, v, src){
 }
 function renderLook(){
   const sg = S.styleGuide;
+  const missingLook=LOOK_FIELDS.filter(field=>!String(S.look[field.k]||'').trim() || ['auto','guide'].includes(lookSrcOf(field.k)));
   const sgHtml = `<div class="look-field wide" style="background:var(--bg2);border:1px solid ${sg?'var(--amber)':'var(--line)'};border-radius:10px;padding:14px 16px">
     <label>Style reference ${sg? '· '+esc(sg.name):''}</label>
     ${sg? `<div class="auto-note" style="margin-bottom:8px">Loaded — this text is injected into every AI export as a binding STYLE GUIDE. Edit it down to what matters.</div>
@@ -2130,10 +2134,11 @@ function renderLook(){
     return '';
   };
   el('lookWrap').innerHTML = sgHtml + `<div class="look-field wide" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <button class="btn small primary" id="btnCrewLook"${missingLook.length?'':' disabled'}>Crew fill ${missingLook.length} missing field${missingLook.length===1?'':'s'}</button>
     <button class="btn small" id="btnAutoLook">⚡ Suggest from script</button>
     ${sg? `<button class="btn small" id="btnGuideLook">📓 Suggest from style guide</button>
            <button class="btn small primary" id="btnBothLook">✨ Suggest from script + deck</button>`:''}
-    <span class="auto-note">⚡ = from script analysis · 📓 = from your style guide. Type in a field and it becomes yours — suggestions never overwrite your own text (clear a field to open it up again).</span>
+    <span class="auto-note">Crew fill uses the assigned director, DP, camera, grip, lighting, design, costume, colour, and sound skill books. ⚡ is a quick placeholder only. Your own text is never overwritten.</span>
   </div>` + LOOK_FIELDS.map(f=>`
     <div class="look-field wide">
       <label>${f.label}${srcChip(f.k)}</label>
@@ -2146,6 +2151,8 @@ function renderLook(){
     ta.addEventListener('input', ()=>{ setLook(ta.dataset.k, ta.value, 'user'); grow(ta); persist(); });
   });
   el('btnAutoLook').addEventListener('click', ()=>{ const n = autoLook(); persist(); renderLook(); toast(n? `Suggested ${n} look fields from script analysis — edit freely`:'No empty fields to fill — clear a field to re-suggest into it', !!n); });
+  const crewLook=el('btnCrewLook');
+  if (crewLook) crewLook.addEventListener('click',crewFillMissingLook);
   const bg = el('btnGuideLook');
   if (bg) bg.addEventListener('click', ()=>{
     const n = applyGuideLook(); persist(); renderLook();
@@ -2696,6 +2703,10 @@ function screenplayFromPDF(pages){
   }
   return parsed;
 }
+function documentTextFromPDF(pages){
+  return (pages||[]).map((page,index)=>'--- PAGE '+(index+1)+' ---\n'
+    +(page.lines||[]).map(line=>String(line.text||'').trim()).filter(Boolean).join('\n')).join('\n\n');
+}
 async function handlePDF(file,owner){
   owner=owner||fileLoadOwner();
   toast('Reading PDF…', true);
@@ -2711,8 +2722,9 @@ async function handlePDF(file,owner){
     const parsed = screenplayFromPDF(pages);
     if (parsed.scenes.length){ importParsed(parsed, file.name); return; }
   }
-  // not a screenplay → treat as style guide / mood book
-  importStyleGuide(pages, file.name, owner);
+  // A prose PDF may be research to adapt or a visual lookbook. Never guess
+  // that a paper is already screenplay prose and silently reformat it.
+  offerAdaptation(documentTextFromPDF(pages),file.name,()=>importStyleGuide(pages,file.name,owner));
 }
 
 /* ---------- style guide / mood book ingestion ---------- */
@@ -2832,10 +2844,12 @@ let CREW = { gr: localStorage.getItem('studio.crew.gr') || CREW_GR_DEFAULT,
              pollTimer:null, pollOwner:'', refreshPromise:null, assemblyPromise:null,
              resumePromise:null, resumeOwner:'', startPromise:null,
              reconcileCtrl:null, calling:false,
+             roleLeaseTimer:null, roleLease:null,
+             live:null, departmentsOpen:false,
              providers:[], providerLoadErrors:[], providerError:'',providerDirectory:'',
              videoProviderId:localStorage.getItem(VIDEO_PROVIDER_KEY)||'phosphene',
              videoModel:'',imageProviderId:localStorage.getItem(IMAGE_PROVIDER_KEY)||'pitchdeck-stills',
-             imageModel:'', billingApproved:false };
+             imageModel:'', billingApproved:false, sourceDraft:null };
 
 function videoProviderFallback(){
   return {id:'phosphene',name:'Phosphene',kind:'local',configured:true,requiresBillingApproval:false,
@@ -3071,6 +3085,9 @@ function crewApplyMutationLock(){
          none           nobody has wired an engine to this yet */
 const CREW_ROSTER = [
  { dept:'Above the line', roles:[
+   { id:'producer', at:'producer', title:'Producer', mod:'Client Room',
+     job:'Routes the production between departments using only jobs whose canonical prerequisites are safely checkpointed. Explains the next handoff and cannot waive review, taste, billing, or completion gates.',
+     owns:'production.orchestration.decisions', act:'run:crewPlanNext' },
    { id:'director', at:'director', title:'Director', mod:'Look',
      job:'Holds the intent. Says what the film is trying to do and what it refuses to be. Owns tone and the reference films.',
      owns:'look.tone, look.refs', act:'look:tone,refs' },
@@ -3161,9 +3178,17 @@ const CREW_ROSTER = [
 ];
 
 const CREW_ALL = CREW_ROSTER.reduce((a,d)=>a.concat(d.roles.map(r=>Object.assign({dept:d.dept}, r))), []);
-function crewFind(id){ return CREW_ALL.find(r=>r.id===id || r.at===id); }
+function crewFind(id){
+  if (id==='story_review'){
+    const base=CREW_ALL.find(role=>role.id==='story_editor');
+    return Object.assign({},base,{id:'story_review',title:'Story editor · screenplay review',
+      job:'Independently reviews a newly written screenplay against the approved story treatment, filmability, source guardrails, and filmmaker direction. Returns scene-specific revision orders, never replacement prose.',
+      owns:'production.writerWork.review',act:'run:crewReviewScreenplay',skillRoleId:'story_editor',greenroomRoleId:'story_editor'});
+  }
+  return CREW_ALL.find(r=>r.id===id || r.at===id);
+}
 const CREW_SKILLS = globalThis.CREW_SKILL_REGISTRY || { version:'missing', constitution:'', roles:{} };
-function crewSkillBook(role){ return (CREW_SKILLS.roles||{})[role&&role.id] || null; }
+function crewSkillBook(role){ return (CREW_SKILLS.roles||{})[role&&(role.skillRoleId||role.id)] || null; }
 
 const CREW_RULES = [
   '=== HOUSE RULES, BINDING ===',
@@ -3212,8 +3237,16 @@ function crewContext(role, options){
     'Film: '+(S.title||'Untitled'),
     p&&p.mode ? 'Mode: '+p.mode : '',
     p&&p.brief ? 'Filmmaker brief: '+p.brief : '',
-    p&&p.targetMinutes ? 'Idea-film target: approximately '+p.targetMinutes+' minute(s)' : ''
+    p&&p.targetMinutes ? 'Film target: approximately '+p.targetMinutes+' minute(s)' : '',
+    p&&p.mode==='adaptation' ? 'Binding mode: develop a new visual adaptation. The source document is evidence, not screenplay prose.' : ''
   ].filter(Boolean).join('\n'),6000);
+  if (p&&p.mode==='adaptation'){
+    if (roleId==='story_editor' && p.sourceMaterial && !p.sourceDigest){
+      add('SOURCE DOCUMENT — READ AS RESEARCH, NEVER AS DRAFT SCREENPLAY',p.sourceMaterial,Math.max(40000,Math.min(420000,budget*12)));
+    }else if (p.sourceDigest){
+      add('SOURCE DEVELOPMENT DIGEST',p.sourceDigest,60000);
+    }
+  }
   add('STORY BIBLE',S.bible,12000);
 
   const lookLines=LOOK_FIELDS.map(field=>{
@@ -3285,10 +3318,18 @@ async function crewFetchJson(path, opts){
   }, opts||{}));
   const text = await r.text();
   let body = {};
-  try { body = text ? JSON.parse(text) : {}; } catch(e){ body = { error:text }; }
+  let parsed=true;
+  try { body = text ? JSON.parse(text) : {}; } catch(e){ parsed=false; body = { error:text }; }
   if (!r.ok){
     const error=new Error(body.error || (path + ' -> ' + r.status));
     error.code=body.code||''; error.marker=body.marker||''; error.body=body;
+    throw error;
+  }
+  if (!parsed){
+    const error=new Error(/<html|<!doctype/i.test(text)
+      ? 'The media gateway is running an older incompatible build. Restart local services, then check connections again.'
+      : 'The media gateway returned a non-JSON response for '+path+'.');
+    error.code='MEDIA_GATEWAY_INCOMPATIBLE'; error.body={raw:String(text||'').slice(0,500)};
     throw error;
   }
   return body;
@@ -3335,6 +3376,16 @@ async function crewConnect(){
   }
   CREW.online = !!(CREW.services.greenroom && CREW.services.greenroom.ok);
   return CREW.services;
+}
+async function crewRequireGreenroom(){
+  if (CREW.online) return true;
+  let services=await crewConnect();
+  if (!(services.greenroom&&services.greenroom.ok)) services=await crewEnsureServices();
+  CREW.online=!!(services.greenroom&&services.greenroom.ok);
+  if (CREW.online) return true;
+  const result=(CREW.startResults||[]).find(row=>row&&row.id==='greenroom');
+  const detail=String((result&&result.detail)||'').trim();
+  throw new Error('Greenroom is required for agent work and is not connected.'+(detail?' '+detail:''));
 }
 async function crewEnsureServices(){
   if (CREW.startPromise) return CREW.startPromise;
@@ -3699,7 +3750,8 @@ function crewMergeRecord(detail){
 }
 async function crewOpenRecord(){
   const p = productionState();
-  if (!p || !CREW.online) return p && p.greenroomThreadId;
+  if (!p) return '';
+  await crewRequireGreenroom();
   if (p.greenroomThreadId){
     try{
       const detail=await crewInvoke('greenroom_fetch_production_thread', {request:{projectId:p.id,threadId:p.greenroomThreadId}});
@@ -3734,19 +3786,142 @@ async function crewOpenRecord(){
  *  credentials stay in the Tauri backend and are never exposed to this webview. */
 async function crewRecord(role, ask, out, status){
   const p = productionState();
-  if (!p || !CREW.online) return;
+  if (!p || !CREW.online) return false;
   try{
     const threadId = p.greenroomThreadId || await crewOpenRecord();
-    if (!threadId) return;
+    if (!threadId) return false;
     await crewInvoke('greenroom_post_role_step', { request:{
       projectId:p.id, threadId,
-      roleId:role.id==='stills_prompt' ? 'prompt_writer' : role.id,
+      roleId:crewGreenroomRoleId(role),
       stepId:(role.id+'-'+(status||'done')).slice(0,80),
       summary:(role.title+' — '+(status||'done')).slice(0,400),
       details:('ASKED:\n'+ask+'\n\nWROTE TO '+role.owns+':\n'+String(out)).slice(0,20000),
       artifacts:[]
     }});
-  }catch(e){ p.greenroomError=String((e&&e.message)||e); productionCheckpoint(); }
+    return true;
+  }catch(e){
+    p.greenroomError=String((e&&e.message)||e); productionCheckpoint();
+    return false;
+  }
+}
+
+function crewGreenroomRoleId(role){
+  return role.greenroomRoleId || (role.id==='stills_prompt' ? 'prompt_writer' : role.id);
+}
+function crewGreenroomWorkPacket(role, ask){
+  const p=productionState();
+  return [
+    '=== DURABLE GREENROOM AGENT JOB ===',
+    'Production: '+String((p&&p.id)||''),
+    'Canonical project: '+String(ACTIVE.p||''),
+    'Canonical draft: '+String(ACTIVE.d||''),
+    'Role: @'+role.at+' ('+role.title+')',
+    'Allowed write: '+role.owns,
+    'The job is complete only after Agentic Movie Studio validates and checkpoints that canonical artifact.',
+    '',
+    crewSystem(role),
+    '',
+    '=== FILMMAKER ASSIGNMENT ===',
+    String(ask||'(continue the approved production)'),
+    '',
+    crewContext(role)
+  ].join('\n').slice(0,480000);
+}
+async function crewFinalizeRoleWork(role){
+  const p=productionState(), step=p&&p.steps&&p.steps[role.id], work=step&&step.greenroomWork;
+  if (!p || !work || work.acknowledgedAt) return true;
+  if (!work.deliveryId) return false;
+  if (!work.recordedAt){
+    const recorded=await crewRecord(role,work.ask||'(saved Greenroom job)',step.out||'',step.status||'done');
+    if (!recorded) return false;
+    work.recordedAt=new Date().toISOString();
+    if (productionCheckpoint()===false) return false;
+  }
+  try{
+    await crewInvoke('greenroom_ack_role_work',{request:{
+      projectId:p.id,threadId:p.greenroomThreadId,roleId:crewGreenroomRoleId(role),
+      workId:work.id,deliveryId:work.deliveryId
+    }});
+    work.acknowledgedAt=new Date().toISOString(); work.status='acknowledged';
+    return productionCheckpoint()!==false;
+  }catch(error){
+    p.greenroomError='Could not acknowledge @'+role.at+' Greenroom job: '+String((error&&error.message)||error);
+    productionCheckpoint(); return false;
+  }
+}
+async function crewClaimRoleWork(role,ask,needsAI){
+  const p=productionState();
+  if (!p) throw new Error('No production exists for this agent job.');
+  await crewRequireGreenroom();
+  const threadId=p.greenroomThreadId||await crewOpenRecord();
+  if (!threadId) throw new Error('Greenroom could not open this production record.');
+  p.steps=p.steps||{};
+  let step=p.steps[role.id]||{};
+  if (step.greenroomWork && step.greenroomWork.deliveryId && !step.greenroomWork.acknowledgedAt
+      && ['done','failed','skipped'].includes(step.status||'')){
+    if (!await crewFinalizeRoleWork(role)) throw new Error('The prior @'+role.at+' Greenroom job could not be finalized.');
+    step=p.steps[role.id]||step;
+  }
+  let work=step.greenroomWork;
+  if (!work || work.acknowledgedAt){
+    work={id:'work_'+uid(),attempt:Number((work&&work.attempt)||0)+1,ask:String(ask||''),createdAt:new Date().toISOString(),status:'prepared'};
+    p.steps[role.id]=Object.assign({},step,{greenroomWork:work});
+    if (productionCheckpoint()===false) throw new Error('The @'+role.at+' Greenroom work intent could not be saved.');
+  }
+  const claimed=await crewInvoke('greenroom_claim_role_work',{request:{
+    projectId:p.id,threadId,roleId:crewGreenroomRoleId(role),workId:work.id,
+    summary:('@'+role.at+' · '+role.title+' · '+String(S.title||'Untitled')).slice(0,500),
+    details:crewGreenroomWorkPacket(role,ask),
+    actionRequested:('Use your complete skill book and the supplied canonical evidence. Return and commit only '+role.owns+'.').slice(0,420),
+    model:String(AI.model||'selected Ollama model'),toolWorker:!needsAI
+  }});
+  const delivery=(claimed&&claimed.delivery)||{};
+  if (!delivery.id) throw new Error('Greenroom did not return a claimed delivery for @'+role.at+'.');
+  work.deliveryId=delivery.id; work.hostId=claimed.hostId||delivery.host_id||'';
+  work.claimedAt=new Date().toISOString(); work.status=String(delivery.status||'claimed');
+  if (productionCheckpoint()===false){
+    try{
+      await crewInvoke('greenroom_release_role_work',{request:{
+        projectId:p.id,threadId,roleId:crewGreenroomRoleId(role),workId:work.id,deliveryId:work.deliveryId
+      }});
+    }catch(error){}
+    throw new Error('The claimed @'+role.at+' delivery could not be checkpointed, so it was not executed.');
+  }
+  return work;
+}
+function crewStopRoleLease(){
+  if (CREW.roleLeaseTimer) clearInterval(CREW.roleLeaseTimer);
+  CREW.roleLeaseTimer=null; CREW.roleLease=null;
+}
+function crewStartRoleLease(role,work){
+  crewStopRoleLease();
+  const p=productionState();
+  if (!p||!work||!work.deliveryId) return;
+  const lease={projectId:ACTIVE.p,draftId:ACTIVE.d,runId:p.id,roleId:role.id,workId:work.id,
+    deliveryId:work.deliveryId,failures:0,lost:false,renewing:false};
+  CREW.roleLease=lease;
+  const renew=async()=>{
+    if (lease.renewing||CREW.roleLease!==lease||lease.lost) return;
+    lease.renewing=true;
+    try{
+      const current=productionState();
+      if (ACTIVE.p!==lease.projectId||ACTIVE.d!==lease.draftId||!current||current.id!==lease.runId){ lease.lost=true; return; }
+      await crewInvoke('greenroom_renew_role_work',{request:{
+        projectId:current.id,threadId:current.greenroomThreadId,roleId:crewGreenroomRoleId(role),
+        workId:lease.workId,deliveryId:lease.deliveryId
+      }});
+      lease.failures=0; lease.renewedAt=new Date().toISOString();
+    }catch(error){
+      lease.failures++;
+      if (lease.failures>=2){
+        lease.lost=true; lease.error=String((error&&error.message)||error);
+        if (AI&&AI.ctrl) try{ AI.ctrl.abort(); }catch(abortError){}
+      }
+    }finally{ lease.renewing=false; }
+  };
+  // Greenroom's dead-claim lease is 60 seconds. Renew well before half-life;
+  // two consecutive failures stop model work before another host can own it.
+  CREW.roleLeaseTimer=setInterval(renew,15000);
 }
 
 /* ---------- the actual jobs ---------- */
@@ -3758,14 +3933,33 @@ function crewJsonRepairSystem(role){
 function crewLookSchema(fields){
   return {type:'object',additionalProperties:false,required:['decisions','clientUpdate','handoffChecks'],properties:{
     decisions:{type:'array',minItems:fields.length,maxItems:fields.length,items:{type:'object',additionalProperties:false,
-      required:['field','value','evidence','constraints'],properties:{field:{type:'string'},value:{type:'string',minLength:80},
+      required:['field','value','evidence','constraints'],properties:{field:{type:'string',enum:fields.slice()},value:{type:'string',minLength:80},
         evidence:{type:'array',minItems:1,items:{type:'string',minLength:8}},constraints:{type:'array',minItems:1,items:{type:'string',minLength:8}}}}},
     clientUpdate:{type:'string',minLength:30},handoffChecks:{type:'array',minItems:1,items:{type:'string',minLength:2}}
   }};
 }
+const CREW_LOOK_FIELD_ALIASES={
+  aspect:['aspect ratio'],format:['format / stock','format stock'],lensing:['lens','lenses'],
+  framing:['framing & composition','framing and composition','composition'],camera:['camera movement'],
+  lighting:['lighting style','light'],palette:['color palette','colour palette','color'],
+  design:['production design & locations','production design and locations','production design'],
+  wardrobe:['wardrobe language','costume'],music:['music & sound','music and sound','sound'],
+  tone:['tone / themes','tone and themes','themes'],refs:['reference films / looks','reference films and looks','references','reference looks'],
+  negative:['avoid (negative guidance)','negative guidance','avoid']
+};
+function crewLookFieldKey(value,fields){
+  const token=String(value||'').toLowerCase().replace(/[^a-z0-9]+/g,'');
+  if (!token) return '';
+  return fields.find(field=>[field].concat(CREW_LOOK_FIELD_ALIASES[field]||[])
+    .some(name=>String(name).toLowerCase().replace(/[^a-z0-9]+/g,'')===token))||'';
+}
 function crewParseLook(value,fields){
   const decisions=Array.isArray(value&&value.decisions)?value.decisions:[];
-  const byField=new Map(decisions.map(row=>[String(row&&row.field||'').trim(),row]));
+  const byField=new Map();
+  decisions.forEach(row=>{
+    const field=crewLookFieldKey(row&&row.field,fields);
+    if (field&&!byField.has(field)){ row.field=field; byField.set(field,row); }
+  });
   const missing=fields.filter(k=>!byField.has(k)||String((byField.get(k)||{}).value||'').trim().length<80);
   if (missing.length) throw new Error('Missing substantive Look decisions for: '+missing.join(', ')+'.');
   const rows=fields.map(k=>byField.get(k));
@@ -3795,8 +3989,13 @@ function crewParseLook(value,fields){
 
 /** A Look department makes one coherent, validated department handoff. */
 async function crewLookJob(role, fields, ask){
-  const owned=fields.filter(k=>LOOK_FIELDS.some(field=>field.k===k));
-  if (!owned.length) throw new Error('@'+role.at+' has no valid Look fields assigned.');
+  const p=productionState(), explicitRework=!!(p&&(p.reworkRoles||[]).includes(role.id));
+  // A department may replace deterministic/script-guide placeholders, but it
+  // never silently overwrites a filmmaker-authored decision. An explicit
+  // rework run is the only exception.
+  const owned=fields.filter(k=>LOOK_FIELDS.some(field=>field.k===k)
+    && (explicitRework || lookSrcOf(k)!=='user'));
+  if (!owned.length) return {status:'done',text:'All '+role.title+' Look fields are already owned by the filmmaker; nothing was overwritten.'};
   const descriptions=owned.map(k=>{
     const f=LOOK_FIELDS.find(row=>row.k===k);
     return '- field "'+k+'" ('+f.label+'): '+(f.hint||f.ph||'Write an executable department bible.');
@@ -3843,7 +4042,103 @@ function crewStoryText(value){
     +lines('THEMES',value.themes)+'\n\n'+lines('WORLD RULES',value.worldRules)+'\n\n'
     +lines('MUST NOT BECOME',value.mustNotBecome);
 }
+const CREW_SOURCE_PASS_SCHEMA={type:'object',additionalProperties:false,
+  required:['claims','evidence','visualPossibilities','humanConsequences','tensions','doNotInvent'],properties:{
+    claims:{type:'array',minItems:1,maxItems:8,items:{type:'string'}},
+    evidence:{type:'array',minItems:1,maxItems:8,items:{type:'string'}},
+    visualPossibilities:{type:'array',minItems:1,maxItems:8,items:{type:'string'}},
+    humanConsequences:{type:'array',maxItems:6,items:{type:'string'}},
+    tensions:{type:'array',maxItems:6,items:{type:'string'}},
+    doNotInvent:{type:'array',maxItems:8,items:{type:'string'}}
+  }};
+const CREW_ADAPTATION_SCHEMA={type:'object',additionalProperties:false,
+  required:['sourceThesis','filmForm','filmFormReason','audienceJourney','visualSequences','narrationStrategy','factualGuardrails','mustNotBecome'],properties:{
+    sourceThesis:{type:'string',minLength:30},filmForm:{type:'string',minLength:8},filmFormReason:{type:'string',minLength:30},
+    audienceJourney:{type:'array',minItems:4,maxItems:12,items:{type:'string'}},
+    visualSequences:{type:'array',minItems:4,maxItems:16,items:{type:'object',additionalProperties:false,
+      required:['title','screenEvent','sourceBasis','dramaticTurn'],properties:{
+        title:{type:'string',minLength:3},screenEvent:{type:'string',minLength:30},
+        sourceBasis:{type:'string',minLength:20},dramaticTurn:{type:'string',minLength:20}
+      }}},
+    narrationStrategy:{type:'string',minLength:30},
+    factualGuardrails:{type:'array',minItems:2,maxItems:16,items:{type:'string'}},
+    mustNotBecome:{type:'array',minItems:2,maxItems:12,items:{type:'string'}}
+  }};
+function crewSourceChunks(text){
+  const source=String(text||'').replace(/\r/g,'').trim();
+  if (!source) return [];
+  const ctx=Math.max(4096,Number(AI.numCtx)||8192);
+  let target=Math.max(14000,Math.min(36000,Math.floor(ctx*2.2)));
+  target=Math.max(target,Math.ceil(source.length/12));
+  const paras=source.split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean), chunks=[];
+  let current='';
+  const pushLong=value=>{ for(let i=0;i<value.length;i+=target) chunks.push(value.slice(i,i+target)); };
+  paras.forEach(paragraph=>{
+    if (paragraph.length>target){ if(current){chunks.push(current);current='';} pushLong(paragraph); return; }
+    if (current && current.length+paragraph.length+2>target){ chunks.push(current); current=paragraph; }
+    else current=current?current+'\n\n'+paragraph:paragraph;
+  });
+  if(current) chunks.push(current);
+  return chunks.slice(0,12);
+}
+function crewSourcePassText(value,index){
+  const lines=[`SOURCE PASS ${index+1}`];
+  [['Claims','claims'],['Evidence / cases','evidence'],['Filmable material','visualPossibilities'],
+    ['Human consequences','humanConsequences'],['Tensions','tensions'],['Do not invent','doNotInvent']]
+    .forEach(([label,key])=>{ if((value[key]||[]).length) lines.push(label+':\n'+value[key].map(x=>'- '+String(x).trim()).join('\n')); });
+  return lines.join('\n');
+}
+async function crewAnalyzeSource(role,ask){
+  const p=productionState(), chunks=crewSourceChunks(p&&p.sourceMaterial);
+  if (!chunks.length) throw new Error('No source document is attached to this adaptation.');
+  const passes=[];
+  for(let i=0;i<chunks.length;i++){
+    const user='You are performing source development before any screenplay is written. Read source passage '+(i+1)+' of '+chunks.length+'. '
+      +'Extract only what this passage supports. Identify claims, evidence/cases, physical or archival material that could be filmed, human consequences, productive tensions, and facts a later writer must not invent. '
+      +'Do not propose scenes yet. Do not preserve the paper\'s prose or section structure.\n\nFILMMAKER DIRECTION:\n'+String(ask||p.brief||'')
+      +'\n\n=== SOURCE PASSAGE '+(i+1)+' ===\n'+chunks[i];
+    const raw=await aiStream(crewSystem(role),user,null,null,{temperature:0.2,json:true,schema:CREW_SOURCE_PASS_SCHEMA,
+      schemaName:'source_development_pass',roleId:role.id,workloadId:'department.story_editor.source.'+(i+1),artifactType:'source_analysis'});
+    passes.push(crewSourcePassText(aiParseJson(raw),i));
+  }
+  p.sourceDigest=passes.join('\n\n').slice(0,90000);
+  if (productionCheckpoint()===false) throw new Error('The source-development digest could not be saved.');
+  return p.sourceDigest;
+}
+function crewAdaptationText(value){
+  const lines=(label,rows)=>label+'\n'+(rows||[]).map(row=>'- '+String(row).trim()).join('\n');
+  const sequences=(value.visualSequences||[]).map((row,index)=>(index+1)+'. '+row.title
+    +'\n   Screen event: '+row.screenEvent+'\n   Source basis: '+row.sourceBasis+'\n   Dramatic turn: '+row.dramaticTurn).join('\n');
+  return 'SOURCE THESIS\n'+String(value.sourceThesis).trim()+'\n\nCHOSEN FILM FORM\n'+String(value.filmForm).trim()
+    +'\nWhy this form: '+String(value.filmFormReason).trim()+'\n\n'+lines('AUDIENCE JOURNEY',value.audienceJourney)
+    +'\n\nVISUAL SEQUENCES\n'+sequences+'\n\nNARRATION STRATEGY\n'+String(value.narrationStrategy).trim()
+    +'\n\n'+lines('FACTUAL GUARDRAILS',value.factualGuardrails)+'\n\n'+lines('MUST NOT BECOME',value.mustNotBecome);
+}
 async function crewStoryBible(role, ask){
+  const p=productionState();
+  if (p&&p.mode==='adaptation'){
+    const digest=p.sourceDigest||await crewAnalyzeSource(role,ask);
+    const user=crewContext(role)+(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
+      +'\n\nDevelop a genuinely cinematic adaptation treatment. Consider multiple possible film forms, choose one, and build an audience journey that is structurally independent of the paper. '
+      +'Every sequence needs a concrete screen event, exact source basis, and dramatic turn. The source is evidence, not draft narration. Do not turn its headings into scenes or its paragraphs into voice-over. Return only the JSON schema.';
+    let raw='',value;
+    try{
+      raw=await aiStream(crewJsonRepairSystem(role),user,null,null,{temperature:0.55,json:true,schema:CREW_ADAPTATION_SCHEMA,
+        schemaName:'source_adaptation_treatment',roleId:role.id,workloadId:'department.story_editor.adaptation',artifactType:'adaptation_treatment'});
+      value=aiParseJson(raw);
+    }catch(firstError){
+      const repair=user+'\n\nVALIDATION FAILURE: '+String((firstError&&firstError.message)||firstError)
+        +'\nReturn the complete corrected treatment. Previous response:\n'+String(raw||'').slice(0,18000);
+      value=aiParseJson(await aiStream(crewJsonRepairSystem(role),repair,null,null,{temperature:0.15,json:true,
+        schema:CREW_ADAPTATION_SCHEMA,schemaName:'source_adaptation_treatment',roleId:role.id,
+        workloadId:'department.story_editor.adaptation.repair',artifactType:'adaptation_treatment'}));
+    }
+    S.bible=crewAdaptationText(value);
+    if (!Array.isArray(value.visualSequences)||value.visualSequences.length<4) throw new Error('The adaptation treatment did not produce enough visual sequences.');
+    if (!persistNow()) throw new Error('The adaptation treatment could not be saved.');
+    return {status:'done',text:S.bible,artifact:crewArtifactRef('adaptation_treatment','Source adaptation treatment','scenes',
+      String(value.sourceThesis||'').trim(),{filmForm:value.filmForm,sequenceCount:value.visualSequences.length})};
+  }
   const user=crewContext(role)+(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
     +'\n\nCreate the story department handoff required by your skill book. The progression must describe a beginning condition, escalating turns, and an ending condition. '
     +'Do not invent screenplay beats when a script is already loaded; diagnose its actual structure. Return the labeled content through the JSON schema.';
@@ -3943,29 +4238,163 @@ function crewStructuredScreenplay(value){
   if (!scenes.some(scene=>String(scene.text||'').trim())) throw new Error('The screenplay contains no playable action or dialogue.');
   return {title:String(value.title||S.title||'Untitled').trim()||'Untitled',scenes};
 }
+function crewAdaptationOverlap(value,source){
+  const normal=value=>String(value||'').toLowerCase().replace(/[^a-z0-9' ]+/g,' ').replace(/\s+/g,' ').trim();
+  const sourceText=' '+normal(source)+' ';
+  const written=[];
+  (value&&value.scenes||[]).forEach(scene=>(scene.blocks||[]).forEach(block=>written.push(block.text||'')));
+  const words=normal(written.join(' ')).split(' ').filter(Boolean);
+  if (words.length<80 || sourceText.length<500) return 0;
+  let checked=0,matched=0;
+  for(let i=0;i+11<words.length;i+=6){
+    const phrase=words.slice(i,i+12).join(' ');
+    checked++; if(sourceText.includes(' '+phrase+' ')) matched++;
+  }
+  return checked?matched/checked:0;
+}
+function crewValidateAdaptationScreenplay(value,source){
+  const scenes=Array.isArray(value&&value.scenes)?value.scenes:[];
+  if (!scenes.length) throw new Error('The adaptation returned no scenes.');
+  scenes.forEach((scene,index)=>{
+    const action=(scene.blocks||[]).filter(block=>block&&block.type==='action').map(block=>String(block.text||'')).join(' ');
+    if (action.length<30) throw new Error('Adaptation scene '+(index+1)+' has no substantial visible action. Every scene needs a screen event, not just narration.');
+  });
+  const overlap=crewAdaptationOverlap(value,source);
+  if (overlap>0.12) throw new Error('The draft copies too much consecutive source prose ('+Math.round(overlap*100)+'% long-phrase overlap). Rebuild it from the visual treatment instead of reformatting the paper.');
+  return value;
+}
+const CREW_SCREENPLAY_SCENE_SCHEMA=CREW_SCREENPLAY_SCHEMA.properties.scenes.items;
+const CREW_SCREENPLAY_PLAN_SCHEMA={type:'object',additionalProperties:false,
+  required:['title','logline','dramaticQuestion','visualStrategy','endingCondition','scenePlan'],properties:{
+    title:{type:'string',minLength:1},logline:{type:'string',minLength:20},dramaticQuestion:{type:'string',minLength:12},
+    visualStrategy:{type:'string',minLength:30},endingCondition:{type:'string',minLength:20},
+    scenePlan:{type:'array',minItems:1,maxItems:240,items:{type:'object',additionalProperties:false,
+      required:['sceneNumber','heading','objective','screenEvent','turn','durationSeconds','sourceBasis','continuity'],properties:{
+        sceneNumber:{type:'integer',minimum:1},heading:{type:'string',minLength:5},objective:{type:'string',minLength:15},
+        screenEvent:{type:'string',minLength:30},turn:{type:'string',minLength:15},durationSeconds:{type:'integer',minimum:5,maximum:900},
+        sourceBasis:{type:'string'},continuity:{type:'string',minLength:10}
+      }}}
+  }};
+const CREW_SCREENPLAY_REVIEW_SCHEMA={type:'object',additionalProperties:false,
+  required:['verdict','strengths','problems','globalNotes','clientUpdate'],properties:{
+    verdict:{type:'string',enum:['pass','revise']},strengths:{type:'array',maxItems:8,items:{type:'string'}},
+    problems:{type:'array',maxItems:40,items:{type:'object',additionalProperties:false,
+      required:['sceneNumber','severity','issue','evidence','requiredChange'],properties:{
+        sceneNumber:{type:'integer',minimum:0},severity:{type:'string',enum:['blocking','major','minor']},
+        issue:{type:'string',minLength:12},evidence:{type:'string',minLength:8},requiredChange:{type:'string',minLength:12}
+      }}},
+    globalNotes:{type:'array',maxItems:12,items:{type:'string'}},clientUpdate:{type:'string',minLength:30}
+  }};
+function crewValidateScreenplayPlan(plan,targetMinutes,adapting){
+  const rows=Array.isArray(plan&&plan.scenePlan)?plan.scenePlan:[];
+  if (!rows.length) throw new Error('The writer returned no scene plan.');
+  rows.forEach((row,index)=>{
+    if (Number(row.sceneNumber)!==index+1) throw new Error('The scene plan must use contiguous story-order scene numbers.');
+    if (adapting&&!String(row.sourceBasis||'').trim()) throw new Error('Adaptation scene '+(index+1)+' has no source basis.');
+  });
+  const seconds=rows.reduce((sum,row)=>sum+Number(row.durationSeconds||0),0),target=Math.max(60,targetMinutes*60);
+  if (seconds<target*0.55 || seconds>target*1.75)
+    throw new Error('The scene plan estimates '+seconds+' seconds, outside the usable range for the '+targetMinutes+'-minute target.');
+  return plan;
+}
+function crewWriterWork(p){
+  p.writerWork=p.writerWork||{schema:'studio/screenplay-development@1',plan:null,sceneDrafts:{},reviews:[],revisionPass:0};
+  p.writerWork.sceneDrafts=p.writerWork.sceneDrafts||{}; p.writerWork.reviews=p.writerWork.reviews||[];
+  return p.writerWork;
+}
+async function crewPlanScreenplay(role,ask,targetMinutes,adapting,work){
+  if (work.plan) return work.plan;
+  const user=crewContext(role)+(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
+    +'\n\nBefore writing any screenplay pages, design the whole film as a causal scene plan for approximately '+targetMinutes+' minute(s). '
+    +'Each scene must have a filmable screen event, a turn that changes the audience\'s understanding or the character\'s situation, a realistic duration, and a continuity handoff. '
+    +(adapting?'Every scene must cite the approved source-development digest or treatment in sourceBasis. Do not follow the paper\'s section order and do not plan an illustrated lecture. '
+      :'For an original idea, sourceBasis may say "original premise". ')
+    +'Use the duration target as a container, not padding. Return the plan schema only.';
+  let raw='',plan;
+  try{
+    raw=await aiStream(crewJsonRepairSystem(role),user,null,null,{temperature:0.55,json:true,schema:CREW_SCREENPLAY_PLAN_SCHEMA,
+      schemaName:'screenplay_development_plan',roleId:role.id,workloadId:'department.writer.plan',artifactType:'screenplay_plan'});
+    plan=crewValidateScreenplayPlan(aiParseJson(raw),targetMinutes,adapting);
+  }catch(error){
+    const repair=user+'\n\nPLAN VALIDATION FAILURE: '+String((error&&error.message)||error)
+      +'\nReturn the complete corrected plan. Failed response:\n'+String(raw||'').slice(0,18000);
+    plan=crewValidateScreenplayPlan(aiParseJson(await aiStream(crewJsonRepairSystem(role),repair,null,null,{temperature:0.15,json:true,
+      schema:CREW_SCREENPLAY_PLAN_SCHEMA,schemaName:'screenplay_development_plan',roleId:role.id,
+      workloadId:'department.writer.plan.repair',artifactType:'screenplay_plan'})),targetMinutes,adapting);
+  }
+  work.plan=plan; work.planSavedAt=new Date().toISOString();
+  if (productionCheckpoint()===false) throw new Error('The screenplay development plan could not be saved.');
+  return plan;
+}
+async function crewWritePlannedScene(role,ask,plan,row,index,work,adapting){
+  const key=String(index+1);
+  if (work.sceneDrafts[key]) return work.sceneDrafts[key];
+  const prior=index?work.sceneDrafts[String(index)]:null;
+  const user=crewContext(role,{extra:'APPROVED WHOLE-FILM PLAN:\n'+JSON.stringify(plan)+'\n\nSCENE ASSIGNMENT:\n'+JSON.stringify(row)
+      +'\n\nPREVIOUS SCENE FOR CONTINUITY:\n'+(prior?JSON.stringify(prior):'This is the opening scene.')})
+    +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
+    +'\n\nWrite only scene '+(index+1)+' as structured screenplay data. Fulfill its exact objective, screen event, turn, duration, and continuity handoff. '
+    +'Use visible action, playable dialogue, and specific sound. Do not summarize the scene, write camera coverage, or mention the plan. '
+    +(adapting?'Use only supported facts. Do not paste source prose or convert it into voice-over. ':'')
+    +'Return one scene object matching the schema.';
+  let raw='',scene;
+  try{
+    raw=await aiStream(crewJsonRepairSystem(role),user,null,null,{temperature:0.68,json:true,schema:CREW_SCREENPLAY_SCENE_SCHEMA,
+      schemaName:'screenplay_scene',roleId:role.id,workloadId:'department.writer.scene.'+(index+1),artifactType:'screenplay_scene'});
+    scene=aiParseJson(raw); crewStructuredScene(scene,index);
+  }catch(error){
+    const repair=user+'\n\nSCENE VALIDATION FAILURE: '+String((error&&error.message)||error)
+      +'\nReturn the complete corrected scene object. Failed response:\n'+String(raw||'').slice(0,16000);
+    scene=aiParseJson(await aiStream(crewJsonRepairSystem(role),repair,null,null,{temperature:0.15,json:true,
+      schema:CREW_SCREENPLAY_SCENE_SCHEMA,schemaName:'screenplay_scene',roleId:role.id,
+      workloadId:'department.writer.scene.'+(index+1)+'.repair',artifactType:'screenplay_scene'}));
+    crewStructuredScene(scene,index);
+  }
+  work.sceneDrafts[key]=scene; work.lastSceneSaved=index+1;
+  if (productionCheckpoint()===false) throw new Error('Scene '+(index+1)+' could not be saved.');
+  return scene;
+}
+async function crewReviseReviewedScenes(role,ask,work,adapting){
+  const review=work.review, problems=Array.isArray(review&&review.problems)?review.problems:[];
+  const sceneNumbers=[...new Set(problems.filter(problem=>problem.sceneNumber>0&&problem.severity!=='minor').map(problem=>problem.sceneNumber))];
+  if (!sceneNumbers.length) throw new Error('The story editor requested revision without identifying a blocking or major scene.');
+  work.revisionHistory=work.revisionHistory||[];
+  for (const sceneNumber of sceneNumbers){
+    const key=String(sceneNumber),current=work.sceneDrafts[key],row=(work.plan.scenePlan||[])[sceneNumber-1];
+    if (!current||!row) throw new Error('Revision target scene '+sceneNumber+' is missing from the saved writer work.');
+    const notes=problems.filter(problem=>problem.sceneNumber===sceneNumber);
+    const user=crewContext(role,{extra:'APPROVED WHOLE-FILM PLAN:\n'+JSON.stringify(work.plan)
+      +'\n\nCURRENT SCENE '+sceneNumber+':\n'+JSON.stringify(current)+'\n\nINDEPENDENT STORY-EDITOR NOTES:\n'+JSON.stringify(notes)})
+      +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
+      +'\n\nRevise only this scene. Satisfy every cited problem while preserving facts, approved intention, neighboring continuity, and everything the review did not challenge. '
+      +(adapting?'Do not add unsupported facts or copy source prose. ':'')+'Return one complete scene object only.';
+    const revised=aiParseJson(await aiStream(crewJsonRepairSystem(role),user,null,null,{temperature:0.45,json:true,
+      schema:CREW_SCREENPLAY_SCENE_SCHEMA,schemaName:'screenplay_scene_revision',roleId:role.id,
+      workloadId:'department.writer.revision.'+work.revisionPass+'.'+sceneNumber,artifactType:'screenplay_scene'}));
+    crewStructuredScene(revised,sceneNumber-1);
+    work.revisionHistory.push({sceneNumber,at:new Date().toISOString(),review,prior:current});
+    work.sceneDrafts[key]=revised;
+    if (productionCheckpoint()===false) throw new Error('Revised scene '+sceneNumber+' could not be saved.');
+  }
+  work.lastReview=review; work.review=null; work.revisionPass=Number(work.revisionPass||0)+1;
+}
 async function crewWriteScript(role, ask){
-  const p=productionState(), rewriting=!!(p&&p.mode==='idea'&&(p.reworkRoles||[]).includes('writer'));
+  const p=productionState(), work=p&&crewWriterWork(p);
+  const reviewRevision=!!(work&&work.review&&work.review.verdict==='revise');
+  const rewriting=!!(p&&['idea','adaptation'].includes(p.mode)&&((p.reworkRoles||[]).includes('writer')||reviewRevision));
   if (S.scenes.length&&!rewriting) return {status:'skipped',text:'A script is already loaded (' + S.scenes.length
     + ' scenes). The writer preserved it exactly; screenplay revisions belong in Script Doctor.',
     artifact:crewArtifactRef('screenplay','Existing screenplay','scenes','The imported screenplay remains canon.',{sceneCount:S.scenes.length})};
-  const targetMinutes=Math.max(1,Number((productionState()||{}).targetMinutes||1));
-  const user = crewContext(role) + (ask ? '\n\nFILMMAKER REQUEST FOR THIS RUN:\n' + ask : '')
-    + '\n\nThis is a bare-idea production. Write an approximately ' + targetMinutes + '-minute screenplay as structured scene data. '
-    + 'Use the target as the story container, while still giving every essential beat enough space. '
-    + 'Use only visible action and playable dialogue. Return only the supplied JSON schema; do not return Fountain, Markdown, or commentary.';
-  let raw='', parsed;
-  try{
-    raw=await aiStream(crewSystem(role), user, null, null,
-      {temperature:0.7,json:true,schema:CREW_SCREENPLAY_SCHEMA,schemaName:'agentic_studio_screenplay',roleId:role.id,workloadId:'department.'+role.id,artifactType:'screenplay'});
-    parsed=crewStructuredScreenplay(aiParseJson(raw));
-  }catch(firstError){
-    const repair=user+'\n\nYour first response failed validation: '+String((firstError&&firstError.message)||firstError)
-      +'\nRepair only the invalid structure. Return one complete JSON object matching the schema. Failed response:\n'
-      +String(raw||'').slice(0,20000);
-    const repaired=await aiStream(crewSystem(role), repair, null, null,
-      {temperature:0.2,json:true,schema:CREW_SCREENPLAY_SCHEMA,schemaName:'agentic_studio_screenplay',roleId:role.id,workloadId:'department.'+role.id+'.repair',artifactType:'screenplay'});
-    parsed=crewStructuredScreenplay(aiParseJson(repaired));
-  }
+  if (!p||!work) throw new Error('The writer has no durable production workspace.');
+  const targetMinutes=Math.max(1,Number(p.targetMinutes||1));
+  const adapting=!!(p&&p.mode==='adaptation');
+  const plan=await crewPlanScreenplay(role,ask,targetMinutes,adapting,work);
+  if (reviewRevision) await crewReviseReviewedScenes(role,ask,work,adapting);
+  else for(let index=0;index<plan.scenePlan.length;index++)
+    await crewWritePlannedScene(role,ask,plan,plan.scenePlan[index],index,work,adapting);
+  const value={title:plan.title,scenes:plan.scenePlan.map((row,index)=>work.sceneDrafts[String(index+1)])};
+  if (adapting) crewValidateAdaptationScreenplay(value,p.sourceMaterial||'');
+  const parsed=crewStructuredScreenplay(value);
   // Install the validated scene graph into this same project only after the
   // entire response passes. Fountain remains an import/export adapter.
   S.scriptName = 'agentic-draft.ams';
@@ -3977,8 +4406,32 @@ async function crewWriteScript(role, ask){
   renderAll();
   const sceneList=S.scenes.map(sc=>'Scene '+sc.num+' — '+sc.slug+': '+(sc.synopsis||String(sc.text||'').slice(0,180))).join('\n');
   return {status:'done',text:'Completed screenplay artifact\n\n'+sceneList+'\n\nBreakdown seed: '
-    +auto.tags+' elements · '+auto.bibles+' bibles · '+auto.shots+' provisional shots.',
-    artifact:crewArtifactRef('screenplay','Screenplay','scenes',S.scenes.length+' validated structured scenes',{sceneCount:S.scenes.length,format:'Agentic Movie Studio structured screenplay'})};
+    +auto.tags+' elements · '+auto.bibles+' bibles · '+auto.shots+' provisional shots. Story-editor review is next.',
+    artifact:crewArtifactRef('screenplay','Screenplay','scenes',S.scenes.length+' planned, checkpointed structured scenes',
+      {sceneCount:S.scenes.length,format:'Agentic Movie Studio structured screenplay',planSaved:true,revisionPass:work.revisionPass||0})};
+}
+async function crewReviewScreenplay(role,ask){
+  const p=productionState();
+  if (!p||!['idea','adaptation'].includes(p.mode)) return {status:'skipped',text:'The existing imported screenplay remains canon; automatic story review cannot rewrite it.'};
+  const work=crewWriterWork(p);
+  if (!S.scenes.length||!work.plan) return {status:'failed',text:'No planned screenplay is available for independent story review.'};
+  const user=crewContext(role,{extra:'APPROVED WRITER PLAN:\n'+JSON.stringify(work.plan)
+    +'\n\nDURABLE WRITER WORK:\n'+JSON.stringify({revisionPass:work.revisionPass||0,sceneCount:S.scenes.length})})
+    +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
+    +'\n\nIndependently review the completed screenplay. Do not rewrite it. Check the causal progression, distinct scene turns, visual behavior, ending, duration, continuity, filmmaker direction, and approved treatment. '
+    +(p.mode==='adaptation'?'Reject paper-section mimicry, copied prose, illustrated-lecture structure, unsupported facts, and narration that substitutes for filmable evidence. ':'')
+    +'Every revise verdict must identify at least one blocking or major scene-specific problem with quoted or precisely paraphrased evidence and an executable required change. Return the review schema only.';
+  const value=aiParseJson(await aiStream(crewJsonRepairSystem(role),user,null,null,{temperature:0.2,json:true,
+    schema:CREW_SCREENPLAY_REVIEW_SCHEMA,schemaName:'screenplay_independent_review',roleId:role.id,
+    workloadId:'department.story_editor.screenplay_review.'+(work.revisionPass||0),artifactType:'screenplay_review'}));
+  if (value.verdict==='revise' && !(value.problems||[]).some(problem=>problem.sceneNumber>0&&['blocking','major'].includes(problem.severity)))
+    throw new Error('The story editor requested revision without a blocking or major scene-specific finding.');
+  value.reviewedAt=new Date().toISOString(); value.revisionPass=work.revisionPass||0;
+  work.review=value; work.reviews.push(value);
+  if (productionCheckpoint()===false) throw new Error('The independent screenplay review could not be saved.');
+  return {status:'done',text:value.clientUpdate+'\n\nVerdict: '+value.verdict+' · '+(value.problems||[]).length+' findings.',
+    artifact:crewArtifactRef('screenplay_review','Independent story review','scenes',value.clientUpdate,
+      {verdict:value.verdict,findings:(value.problems||[]).length,revisionPass:value.revisionPass})};
 }
 const CREW_COVERAGE_SCHEMA={type:'object',additionalProperties:false,required:['sceneNumber','shots','coverageCheck'],properties:{
   sceneNumber:{type:'string'},shots:{type:'array',minItems:1,maxItems:16,items:{type:'object',additionalProperties:false,
@@ -4751,7 +5204,7 @@ async function crewRun(roleId, ask){
     }
     if (!crewRunOwnerMatches(owner)) return {ok:false,status:'cancelled',out:'The active project changed before @'+role.at+' loaded TasteOS.'};
     const needsAI = a.startsWith('look:') || a.startsWith('bible:') || ['run:crewStoryBible','run:crewWriteScript','run:crewCoverage','run:crewWritePrompts',
-      'run:crewSupervise','run:crewTaste','run:crewStillPrompts'].includes(a);
+      'run:crewSupervise','run:crewTaste','run:crewStillPrompts','run:crewPlanNext','run:crewReviewScreenplay'].includes(a);
     if (needsAI && AI.status !== 'on'){
       const connected=await aiConnect();
       if (!crewRunOwnerMatches(owner)) return {ok:false,status:'cancelled',out:'The active project changed before @'+role.at+' began.'};
@@ -4765,6 +5218,21 @@ async function crewRun(roleId, ask){
     }
     if (!crewRunOwnerMatches(owner)) return {ok:false,status:'cancelled',out:'The active project changed before @'+role.at+' began.'};
     if (CREW.cancel) return {ok:false,status:'cancelled',out:'Stopped before @'+role.at+' began.'};
+
+    // Greenroom owns the durable assignment and exclusive execution lease.
+    // No model or media tool runs until this exact role job is claimed.
+    if (a!=='none'){
+      try{
+        const roleWork=await crewClaimRoleWork(role,ask||('Continue '+String(S.title||'this film')+'.'),needsAI);
+        if (typeof crewStartRoleLease==='function') crewStartRoleLease(role,roleWork);
+      }catch(error){
+        const out='Greenroom agent assignment failed: '+String((error&&error.message)||error);
+        if (productionStep(role.id,'failed','',out)===false){
+          return {ok:false,status:'failed',out:'The Greenroom failure could not be saved. Free local storage before continuing.'};
+        }
+        return {ok:false,status:'failed',out};
+      }
+    }
 
     if (productionStep(role.id,'running','','')===false){
       return {ok:false,status:'failed',out:'Agentic Movie Studio could not save the department checkpoint. Free local storage before continuing.'};
@@ -4784,6 +5252,9 @@ async function crewRun(roleId, ask){
     } catch(e){
       status='failed'; out = 'Failed: ' + ((e && e.message) || e);
     }
+    if (CREW.roleLease&&CREW.roleLease.lost){
+      status='failed'; out='Failed: Greenroom could not renew this agent\'s exclusive work lease. Partial checkpointed work is preserved for Resume; no downstream department was started.';
+    }
     if (!crewRunOwnerMatches(owner)) return {ok:false,status:'cancelled',out:'The active project changed while @'+role.at+' was working.'};
     CREW.last[role.id] = { at: new Date().toISOString(), ask: ask || '', out };
     artifact=artifact||crewArtifactForRole(role,null);
@@ -4795,9 +5266,14 @@ async function crewRun(roleId, ask){
       }
       return {ok:false,status:'failed',out:'Agentic Movie Studio could not save @'+role.at+'\'s result. No later department or Greenroom post was started.'};
     }
-    await crewRecord(role, ask || '(no brief)', out, status);
+    if (!await crewFinalizeRoleWork(role)){
+      const pending='@'+role.at+' saved its canonical '+role.owns+' result, but Greenroom could not record and acknowledge the agent handoff. Resume will finalize this same job without rerunning the department.';
+      return {ok:false,status:'waiting',out:pending,artifact};
+    }
     return {ok:status!=='failed',status,out,artifact};
   }finally{
+    if (typeof crewStopRoleLease==='function') crewStopRoleLease();
+    if (CREW.live&&CREW.live.roleId===role.id) CREW.live=null;
     if (!pipelineOwned && createdDirectProduction && owner && crewRunOwnerMatches(owner)){
       const direct=productionState();
       if (direct && ['starting','running'].includes(direct.status)){
@@ -4814,8 +5290,123 @@ async function crewRun(roleId, ask){
   }
 }
 
+async function crewFillMissingLook(){
+  if (CREW.busy || CREW.calling || canonicalWorkerLocked()){
+    toast('Another department is working.'); return;
+  }
+  const roles=CREW_ALL.filter(role=>String(role.act||'').startsWith('look:')).filter(role=>{
+    const keys=String(role.act).slice(5).split(',');
+    return keys.some(key=>!String(S.look[key]||'').trim() || ['auto','guide'].includes(lookSrcOf(key)));
+  });
+  if (!roles.length){ toast('Every Look field is already filled by you.',true); return; }
+  const button=el('btnCrewLook'); if (button){ button.disabled=true; button.textContent='Look crew working…'; }
+  try{
+    for (const role of roles){
+      const result=await crewRun(role.id,'Complete every Project Look field owned by your department. Use the screenplay, bibles, filmmaker direction, and TasteOS skill book. Return executable decisions, evidence, and continuity constraints—not a description of your job. Preserve every filmmaker-authored field.');
+      if (!result || result.ok===false) throw new Error((result&&result.out)||('@'+role.at+' failed.'));
+    }
+    renderLook(); toast('The Look crew completed every missing department handoff.',true);
+  }catch(error){ renderLook(); toast('Look crew stopped: '+String((error&&error.message)||error)); }
+}
+
+async function crewStoryboardPhotoPass(){
+  const shots=allShots();
+  if (!shots.length) throw new Error('No shots exist yet. Run the 1st AD coverage department first.');
+  const jobs=[];
+  if (shots.some(row=>!(row.sh.prompt&&String(row.sh.prompt.text||'').trim()))) jobs.push('prompt_writer');
+  if (shots.some(row=>!(row.sh.board&&String(row.sh.board.desc||'').trim()))) jobs.push('stills_prompt');
+  if (shots.some(row=>row.sh.board&&row.sh.board.desc&&!(row.sh.board.craft&&row.sh.board.craft.verdict==='pass'))) jobs.push('script_supervisor');
+  if (shots.some(row=>row.sh.board&&row.sh.board.desc&&!row.sh.board.taste)) jobs.push('taste');
+  if (shots.some(row=>!boardOf(row.sh).frame)) jobs.push('stills');
+  for (const roleId of jobs){
+    const result=await crewRun(roleId,'Finish every missing storyboard-photo artifact for the entire film. Follow the role skill book, script canon, approved Look, bibles, human direction, and TasteOS. Do not stop after a sample.');
+    if (!result || result.ok===false) throw new Error((result&&result.out)||('@'+roleId+' failed.'));
+  }
+  return jobs.length;
+}
+async function boardRunAgentPipeline(finishMovie){
+  if (BOARD.agentPromise) return BOARD.agentPromise;
+  const owner=boardDraftOwner();
+  BOARD.agentPromise=(async()=>{
+    try{
+      const prior=productionState();
+      if (prior&&['complete','cancelled'].includes(prior.status)){
+        S.productionHistory=Array.isArray(S.productionHistory)?S.productionHistory:[];
+        S.productionHistory.unshift(JSON.parse(JSON.stringify(Object.assign({},prior,{archivedAt:new Date().toISOString(),archiveReason:'new_storyboard_agent_pass'}))));
+        S.productionHistory=S.productionHistory.slice(0,12); S.production=null;
+        if (!persistNow()) throw new Error('The previous production could not be archived before this new storyboard pass.');
+      }
+      const n=await crewStoryboardPhotoPass();
+      if (!boardDraftOwnerMatches(owner)) return;
+      if (finishMovie){
+        const result=await crewRun('second_unit','Render every approved storyboard frame into its matching video shot, preserve the production manifest, and hand completed clips to the editor for ordered assembly.');
+        if (!result || result.ok===false) throw new Error((result&&result.out)||'Second unit failed.');
+        toast('Agents submitted the approved storyboard movie. Progress will update on these cards.',true);
+      }else toast(n?'Agents completed the missing storyboard-photo pass.':'Every storyboard photo is already complete.',true);
+    }catch(error){ toast('Storyboard agents stopped: '+String((error&&error.message)||error)); }
+  })().finally(()=>{
+    BOARD.agentPromise=null;
+    if (boardDraftOwnerMatches(owner)){ renderBoards(); crewApplyMutationLock(); }
+  });
+  renderBoards();
+  return BOARD.agentPromise;
+}
+
+const CREW_BIBLE_PHASE=['casting_director','location_scout','prop_master'];
+const CREW_PREP_PHASE=['production_designer','costume_designer','first_ad','dp','camera_operator','key_grip','gaffer','colorist','composer'];
+const CREW_PROMPT_PHASE=['prompt_writer','stills_prompt'];
+function crewRoleFinished(p,roleId){
+  const step=p&&p.steps&&p.steps[roleId];
+  return !!(step&&['done','skipped'].includes(step.status));
+}
+function crewReadyRoles(p){
+  if (!p) return [];
+  const development=p.mode==='adaptation'
+    ? ['story_editor','director','writer','story_review']
+    : ['director','story_editor','writer','story_review'];
+  for (const roleId of development) if (!crewRoleFinished(p,roleId)) return [roleId];
+  const phases=[CREW_BIBLE_PHASE,CREW_PREP_PHASE,CREW_PROMPT_PHASE,
+    ['script_supervisor'],['taste'],['stills'],['second_unit'],['editor']];
+  for (const phase of phases){
+    const ready=phase.filter(roleId=>!crewRoleFinished(p,roleId));
+    if (ready.length) return ready;
+  }
+  return [];
+}
+const CREW_PRODUCER_DECISION_BASE={type:'object',additionalProperties:false,
+  required:['nextRole','reason','prerequisitesChecked','clientUpdate'],properties:{
+    nextRole:{type:'string'},reason:{type:'string',minLength:20},
+    prerequisitesChecked:{type:'array',minItems:1,maxItems:12,items:{type:'string',minLength:5}},
+    clientUpdate:{type:'string',minLength:20}
+  }};
+async function crewPlanNext(role,ask){
+  const p=productionState(), candidates=[...new Set((CREW.orchestratorCandidates||[]).map(String))];
+  if (!p||!candidates.length) return {status:'failed',text:'The producer received no legally ready departments.'};
+  const schema=JSON.parse(JSON.stringify(CREW_PRODUCER_DECISION_BASE));
+  schema.properties.nextRole.enum=candidates;
+  const statuses=Object.fromEntries(Object.entries(p.steps||{}).map(([id,step])=>[id,{status:step.status,
+    artifact:step.artifact&&{kind:step.artifact.kind,summary:step.artifact.summary}}]));
+  const user=crewContext(role,{extra:'LEGALLY READY ROLES (choose exactly one):\n'+candidates.map(id=>{
+      const candidate=crewFind(id)||{}; return '- '+id+' @'+(candidate.at||id)+': '+String(candidate.job||'');
+    }).join('\n')+'\n\nCHECKPOINTED DEPARTMENT STATE:\n'+JSON.stringify(statuses)})
+    +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
+    +'\n\nChoose the single next department that best advances this exact film. You cannot select a role outside the enum, declare work complete, waive a gate, or change any provider/model/billing setting. Return the decision schema only.';
+  const decision=aiParseJson(await aiStream(crewJsonRepairSystem(role),user,null,null,{temperature:0.15,json:true,
+    schema,schemaName:'producer_next_department',roleId:role.id,workloadId:'department.producer.route',artifactType:'orchestration_decision'}));
+  if (!candidates.includes(decision.nextRole)) throw new Error('The producer selected a department that is not ready: '+decision.nextRole);
+  p.orchestration=p.orchestration||{schema:'studio/agentic-orchestration@1',decisions:[]};
+  const record={at:new Date().toISOString(),nextRole:decision.nextRole,reason:String(decision.reason||''),
+    prerequisitesChecked:decision.prerequisitesChecked||[],candidates,clientUpdate:String(decision.clientUpdate||'')};
+  p.orchestration.decisions.push(record); p.orchestration.decisions=p.orchestration.decisions.slice(-200); p.orchestration.last=record;
+  if (productionCheckpoint()===false) throw new Error('The producer decision could not be saved.');
+  return {status:'done',text:record.clientUpdate+'\n\nNext: @'+(crewFind(record.nextRole)||{}).at+'\nReason: '+record.reason,
+    artifact:crewArtifactRef('orchestration_decision','Producer handoff','crew',record.reason,{nextRole:record.nextRole,candidates})};
+}
+
 /** The whole crew, in order, on one idea. */
-const CREW_PIPELINE = ['director','story_editor','writer','casting_director','location_scout',
+// This is the stable progress/reporting order. Execution is chosen from
+// crewReadyRoles by the Greenroom-claimed @producer.
+const CREW_PIPELINE = ['director','story_editor','writer','story_review','casting_director','location_scout',
   'prop_master','production_designer','costume_designer','first_ad','dp','camera_operator','key_grip','gaffer','colorist',
   'composer','prompt_writer','stills_prompt','script_supervisor','taste',
   'stills','second_unit','editor'];
@@ -4837,13 +5428,42 @@ async function crewCall(ask){
       toast(p.error);
       return;
     }
-    for (const id of CREW_PIPELINE){
+    let turns=0;
+    while (turns++<200){
       if (CREW.cancel){
         CREW.cancel=false; p.status='cancelled'; p.currentStep=''; productionCheckpoint();
         toast('Production stopped. You can resume it from this project.'); return;
       }
-      const prior=(p.steps||{})[id];
-      if (prior && ['done','skipped'].includes(prior.status)) continue;
+      // A crash can occur after the canonical artifact save and before the
+      // Greenroom result/ack. Finalize those receipts without rerunning work.
+      for (const roleId of CREW_PIPELINE){
+        const prior=p.steps&&p.steps[roleId], role=crewFind(roleId);
+        if (prior&&['done','skipped'].includes(prior.status)&&prior.greenroomWork&&!prior.greenroomWork.acknowledgedAt
+            && role&&!await crewFinalizeRoleWork(role)){
+          p.status='needs_attention'; p.error='The saved @'+role.at+' artifact is waiting for its durable Greenroom acknowledgment.';
+          productionCheckpoint(); toast(p.error); return;
+        }
+      }
+      const ready=crewReadyRoles(p);
+      if (!ready.length) break;
+      let id=ready[0];
+      if (ready.length>1){
+        CREW.orchestratorCandidates=ready.slice();
+        const routed=await crewRun('producer',ask);
+        if (CREW.cancel){
+          CREW.cancel=false; if (!routed||!routed.ok) productionStep('producer','waiting','Stopped before routing finished.','');
+          p.status='cancelled'; p.currentStep=''; productionCheckpoint(); toast('Production stopped before the next department.'); return;
+        }
+        if (!routed||!routed.ok){
+          p.status='needs_attention'; p.error=(routed&&routed.out)||'The producer could not route the next department.';
+          productionCheckpoint(); toast('Production needs attention at @producer.'); return;
+        }
+        id=String(p.orchestration&&p.orchestration.last&&p.orchestration.last.nextRole||'');
+        if (!ready.includes(id)){
+          p.status='needs_attention'; p.error='The producer returned an invalid or stale department decision.';
+          productionCheckpoint(); toast(p.error); return;
+        }
+      }
       const result=await crewRun(id, ask);
       if (CREW.cancel){
         CREW.cancel=false;
@@ -4860,6 +5480,22 @@ async function crewCall(ask){
         productionCheckpoint(); toast('Production needs attention at @'+(crewFind(id)||{}).at+'.'); return;
       }
       if (Array.isArray(p.reworkRoles)) p.reworkRoles=p.reworkRoles.filter(roleId=>roleId!==id);
+      if (id==='story_review' && p.writerWork&&p.writerWork.review&&p.writerWork.review.verdict==='revise'){
+        if (Number(p.writerWork.revisionPass||0)>=2){
+          p.status='needs_attention';
+          p.error='The screenplay still has blocking story-editor findings after two targeted revision passes. Review the cited scenes in the Client Room before resuming.';
+          productionCheckpoint(); toast(p.error); return;
+        }
+        if (productionStep('writer','waiting','Targeted revision required by the independent story review.','')===false
+            || productionStep('story_review','waiting','A new independent review is required after revision.','')===false){
+          p.status='needs_attention'; p.error='The screenplay revision loop could not be checkpointed.'; return;
+        }
+      }
+    }
+    CREW.orchestratorCandidates=[];
+    if (turns>=200){
+      p.status='needs_attention'; p.error='The guarded agent loop reached its 200-handoff safety limit.';
+      productionCheckpoint(); toast(p.error); return;
     }
     if (p.status==='complete') toast('The finished movie is ready.', true);
     else if (p.status==='rendering' || p.status==='assembling'){
@@ -4871,13 +5507,14 @@ async function crewCall(ask){
       productionCheckpoint(); toast('The crew pass ended before a finished cut was made.');
     }
   }finally{
+    CREW.orchestratorCandidates=[];
     CREW.calling=false;
     crewApplyMutationLock();
     if (activeView()==='crew') renderCrew();
   }
 }
 
-async function crewStart(mode, ask){
+async function crewStart(mode, ask, sourceOptions){
   const current=productionState();
   if (canonicalWorkerLocked()) { toast('Finish or stop the current project worker before starting production.'); return; }
   if (CREW.busy || CREW.calling || CREW.refreshPromise || CREW.assemblyPromise || CREW.resumePromise
@@ -4891,9 +5528,10 @@ async function crewStart(mode, ask){
   if (mode==='script' && current && !['complete','cancelled'].includes(current.status)){
     toast('Resume this script’s existing production instead of replacing its job record.'); return;
   }
+  const source=sourceOptions||{};
   const brief=String(ask||'').trim();
-  const targetMinutes=mode==='idea'
-    ? Math.max(1,Number((el('crewLength')||{}).value||localStorage.getItem('studio.production.minutes')||1))
+  const targetMinutes=['idea','adaptation'].includes(mode)
+    ? Math.max(1,Number(source.targetMinutes||(el('crewLength')||{}).value||localStorage.getItem('studio.production.minutes')||1))
     : null;
   const videoSelection=videoProviderSelection(null), imageSelection=imageProviderSelection(null);
   const selectedVideo=videoProviderDescriptor(videoSelection.id), selectedImage=imageProviderDescriptor(imageSelection.id);
@@ -4906,10 +5544,13 @@ async function crewStart(mode, ask){
   if ((selectedVideo.requiresBillingApproval||selectedImage.requiresBillingApproval)&&!CREW.billingApproved){
     toast('Approve paid API submissions for this run before starting production.'); return;
   }
-  if (mode==='idea') localStorage.setItem('studio.production.minutes',String(targetMinutes));
-  if (mode==='idea'){
-    if (!brief){ toast('Give the crew the idea first.'); return; }
-    if (!crewCreateIdeaProject(brief)){
+  if (['idea','adaptation'].includes(mode)) localStorage.setItem('studio.production.minutes',String(targetMinutes));
+  if (['idea','adaptation'].includes(mode)){
+    const sourceText=String(source.text||(mode==='adaptation'?brief:'')).trim();
+    if (mode==='idea'&&!brief){ toast('Give the crew the idea first.'); return; }
+    if (mode==='adaptation'&&sourceText.length<400){ toast('Attach or paste the paper, research, or source document first.'); return; }
+    const projectSeed=mode==='adaptation'?(source.filename||brief||'Source adaptation'):brief;
+    if (!crewCreateIdeaProject(projectSeed)){
       toast('Agentic Movie Studio could not save the new film project. Free local storage before starting production.');
       return;
     }
@@ -4923,13 +5564,21 @@ async function crewStart(mode, ask){
   const priorProduction=S.production||null;
   const now=new Date().toISOString();
   S.production={
-    id:'prod_'+uid(), mode, brief:brief || ('Make '+(S.title||'this script')+' into a finished film.'),
+    id:'prod_'+uid(), mode,
+    brief:brief || (mode==='adaptation'
+      ? 'Develop this source into the most visually compelling truthful film its material supports.'
+      : ('Make '+(S.title||'this script')+' into a finished film.')),
     status:'starting', startedAt:now, updatedAt:now, currentStep:'', steps:{}, jobs:{},
     greenroomThreadId:'', error:'', pollError:'',
     videoProvider:{id:videoSelection.id,model:videoSelection.model||'',billingApproved:videoSelection.billingApproved===true,frozenAt:now},
     imageProvider:{id:imageSelection.id,model:imageSelection.model||'',billingApproved:imageSelection.billingApproved===true,frozenAt:now}
   };
-  if (mode==='idea') S.production.targetMinutes=targetMinutes;
+  if (['idea','adaptation'].includes(mode)) S.production.targetMinutes=targetMinutes;
+  if (mode==='adaptation'){
+    S.production.sourceMaterial=String(source.text||brief).trim();
+    S.production.sourceFilename=String(source.filename||'Pasted source');
+    S.production.sourceDigest='';
+  }
   if (productionCheckpoint()===false){
     S.production=priorProduction;
     crewApplyMutationLock();
@@ -5083,14 +5732,20 @@ function renderCrew(){
         +((providerRun?videoSelection.billingApproved||imageSelection.billingApproved:CREW.billingApproved)?' checked':'')+(providerLocked?' disabled':'')+'> Allow paid API submissions for this run. Provider: '+esc(paidProvider.name)+'</label>':'')
     + '<div class="auto-note" style="margin-top:8px">Photo and video engines are independent. The chosen providers and model IDs are frozen only after a production starts, for restart/error recovery.</div>'
     + (CREW.providerDirectory?'<div class="auto-note" style="margin-top:5px">Trusted API/MCP adapter folder: <code>'+esc(CREW.providerDirectory)+'</code></div>':'')
-    + '<div style="margin-top:15px"><label class="bd-f"><span>Your idea or direction</span>'
-    + '<textarea id="crewAsk" rows="4" placeholder="A woman discovers that every room in her house is one inch smaller than it was yesterday.">'
-    + esc((p&&p.brief)||'')+'</textarea></label></div>'
+    + '<div style="margin-top:15px"><label class="bd-f"><span>Your idea or adaptation direction</span>'
+    + '<textarea id="crewAsk" rows="4" placeholder="Original idea, or tell the adaptation team what kind of film to find inside the attached source.">'
+    + esc((p&&p.brief)||(CREW.sourceDraft&&CREW.sourceDraft.direction)||'')+'</textarea></label></div>'
+    + '<div class="pl-shot" style="padding:10px;margin-top:9px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    + '<label class="btn small"'+(active?' aria-disabled="true"':'')+'>Attach paper / research / prose<input id="crewSourceFile" type="file" accept=".pdf,.txt,.md,.rtf" style="display:none"'+(active?' disabled':'')+'></label>'
+    + (CREW.sourceDraft?'<span class="ai-badge ok">Source ready · '+esc(CREW.sourceDraft.name)+' · '+Math.round(CREW.sourceDraft.text.length/1000)+'k characters</span><button class="btn small" id="crewSourceClear"'+(active?' disabled':'')+'>Clear</button>'
+      :'<span class="auto-note">A source document is researched and developed into a visual treatment before the Screenwriter begins.</span>')
+    + '</div></div>'
     + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">'
-    + '<label class="ai-stat">New idea target <select id="crewLength"'+(active?' disabled':'')+' style="margin-left:5px">'
+    + '<label class="ai-stat">New-film target <select id="crewLength"'+(active?' disabled':'')+' style="margin-left:5px">'
     + [1,3,5,10].map(n=>'<option value="'+n+'"'+(Number((p&&p.mode==='idea'&&p.targetMinutes)||localStorage.getItem('studio.production.minutes')||1)===n?' selected':'')+'>'+n+' minute'+(n===1?'':'s')+'</option>').join('')
     + '</select></label>'
     + '<button class="btn primary" id="crewIdea"'+(active?' disabled':'')+'>Make a new film from this idea</button>'
+    + '<button class="btn primary" id="crewAdapt"'+(active?' disabled':'')+'>Develop attached source into a film</button>'
     + '<button class="btn" id="crewScript"'+((active||!S.scenes.length||!canRestartScript)?' disabled':'')+'>Make the current script</button>'
     + (p&&p.status!=='complete' ? '<button class="btn" id="crewResume"'+(active?' disabled':'')+'>Resume production</button>' : '')
     + (uncertain.length ? '<button class="btn danger" id="crewRetryUnproven"'+(active?' disabled':'')+'>Authorize fresh render attempt ('+uncertain.length+')</button>' : '')
@@ -5099,7 +5754,7 @@ function renderCrew(){
     + (p&&crewCanonicalLocked()&&['paused','needs_attention','cancelled'].includes(p.status)
         ? '<button class="btn danger" id="crewRevise">Archive render & revise</button>' : '')
     + '</div>'
-    + '<div class="auto-note" style="margin-top:10px">The target applies only when the agents invent a screenplay from an idea. Make the current script ignores it completely; the screenplay stays untouched and its own scene/shot plan determines the movie length.</div>'
+    + '<div class="auto-note" style="margin-top:10px"><b>Idea:</b> agents invent a screenplay. <b>Source:</b> agents research the document, choose a film form, build a visual treatment, then write a new screenplay. <b>Current script:</b> the screenplay body and length stay untouched; only explicit heading repair may normalize scene headings for parsing.</div>'
     + '</div>';
 
   if (p){
@@ -5114,7 +5769,7 @@ function renderCrew(){
       + (rp.total?'<span class="ai-stat">'+rp.done+' / '+rp.total+' clips finished'+(rp.failed?' · '+rp.failed+' failed':'')+'</span>':'')
       + (flaggedShots.length?'<span class="ai-badge err">'+flaggedShots.length+' shot'+(flaggedShots.length===1?'':'s')+' flagged for targeted rework</span>':'')
       + '</div><div class="ai-prog" style="margin-top:11px"><i style="width:'+pct+'%"></i></div>'
-      + (p.currentStep?'<div class="auto-note" style="margin-top:8px">Working now: @'+esc((crewFind(p.currentStep)||{}).at||p.currentStep)+'</div>':'')
+      + (p.currentStep?'<div class="auto-note" id="crewLiveActivity" style="margin-top:8px">'+esc(crewLiveActivityText(p.currentStep))+'</div>':'')
       + (p.error?'<div class="crit bad" style="margin-top:10px"><div class="crit-head">needs attention</div>'+esc(p.error)+'</div>':'')
       + (p.pollError?'<div class="auto-note" style="margin-top:8px">Last render check: '+esc(p.pollError)+'</div>':'')
       + '</div>';
@@ -5161,7 +5816,8 @@ function renderCrew(){
       +'<div class="auto-note" style="margin-top:8px">'+esc(S.cut.outputPath||src)+'</div></div>';
   }
 
-  h+='<details style="max-width:1120px"><summary class="btn" style="display:inline-flex;cursor:pointer">Departments and individual controls</summary>';
+  h+='<details id="crewDepartmentControls"'+(CREW.departmentsOpen?' open':'')+' style="max-width:1120px;scroll-margin-top:82px"><summary class="btn" style="display:inline-flex;cursor:pointer">Departments and individual controls</summary>'
+    +(active?'<div class="auto-note" style="margin:10px 0 2px;max-width:780px">The sequential crew is currently working. Individual departments cannot run concurrently against the same project. Click any “Why unavailable” button for the exact blocker, or use Stop safely and wait for the current checkpoint before running one department yourself.</div>':'');
   CREW_ROSTER.forEach(d=>{
     h += '<div class="nav-sec" style="padding-left:0;margin-top:18px">' + esc(d.dept) + '</div>';
     h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px">';
@@ -5171,7 +5827,7 @@ function renderCrew(){
         +'<b>@'+esc(r.at)+'</b><span class="ai-stat">'+esc(r.title)+'</span><span class="ai-badge">'+esc(r.mod)+'</span>'
         +(busy?'<span class="ai-badge ok">working</span>':'')+'<div class="tb-spacer"></div>'
         +'<button class="btn small" data-crew-skill="'+r.id+'">Skill book</button>'
-        +'<button class="btn small" data-crew="'+r.id+'"'+(active?' disabled':'')+'>Run</button></div>'
+        +'<button class="btn small" data-crew="'+r.id+'"'+(active?' data-crew-blocked="1" title="The sequential crew is working; click for details."':'')+'>'+(active?'Why unavailable':'Run')+'</button></div>'
         +'<div class="auto-note" style="margin-top:6px">'+esc(r.job)+'</div>'
         +(st&&st.out?'<div style="font-size:11px;color:var(--tx3);margin-top:6px">'+esc(String(st.out).slice(0,220))+'</div>':'')+'</div>';
     });
@@ -5181,9 +5837,37 @@ function renderCrew(){
   w.innerHTML = h;
 
   const on = (id, ev, fn)=>{ const n = el(id); if (n) n.addEventListener(ev, fn); };
+  const departmentControls=el('crewDepartmentControls');
+  if (departmentControls) departmentControls.addEventListener('toggle',()=>{
+    CREW.departmentsOpen=departmentControls.open;
+    if (departmentControls.open) requestAnimationFrame(()=>departmentControls.scrollIntoView({block:'start',behavior:'smooth'}));
+  });
   on('crewPing','click', async ()=>{ await crewConnect(); if (AI.status!=='on') await aiConnect(); renderCrew(); });
   on('crewServices','click', async ()=>{ toast('Starting the local production services…',true); await crewEnsureServices(); renderCrew(); });
   on('crewIdea','click', ()=>crewStart('idea',(el('crewAsk')||{}).value||''));
+  on('crewAdapt','click', async ()=>{
+    const entered=String((el('crewAsk')||{}).value||'').trim(), draft=CREW.sourceDraft;
+    if (!draft && entered.length<400){ toast('Attach a paper/research file, or paste the source text into the direction box.'); return; }
+    const source=draft?draft.text:entered;
+    const direction=draft?(entered||'Find the strongest truthful visual film inside this source. Do not reproduce the paper as illustrated narration.')
+      :'Find the strongest truthful visual film inside this source. Do not reproduce the paper as illustrated narration.';
+    await crewStart('adaptation',direction,{text:source,filename:(draft&&draft.name)||'Pasted source',targetMinutes:Number((el('crewLength')||{}).value||10)});
+    if (productionState()&&productionState().mode==='adaptation') CREW.sourceDraft=null;
+  });
+  on('crewSourceClear','click',()=>{ if(!crewMutationLocked()){CREW.sourceDraft=null;renderCrew();} });
+  on('crewSourceFile','change',async event=>{
+    const file=event.target.files&&event.target.files[0]; if(!file) return;
+    const direction=String((el('crewAsk')||{}).value||'').trim();
+    toast('Reading source document…',true);
+    try{
+      let text='';
+      if(/\.pdf$/i.test(file.name)) text=documentTextFromPDF(await pdfExtract(file));
+      else text=await file.text();
+      if(String(text).trim().length<400) throw new Error('The source contains too little readable text.');
+      CREW.sourceDraft={name:file.name,text:String(text),direction};
+      renderCrew(); toast('Source attached for adaptation development.',true);
+    }catch(error){ toast('Could not read source: '+String((error&&error.message)||error)); }
+  });
   on('crewScript','click', ()=>crewStart('script',(el('crewAsk')||{}).value||''));
   on('crewResume','click', ()=>crewResume());
   on('crewSendDirection','click', ()=>{
@@ -5274,6 +5958,12 @@ function renderCrew(){
     toast('Stopping after the current safe checkpoint.');
   });
   w.querySelectorAll('[data-crew]').forEach(b=>b.addEventListener('click', ()=>{
+    if (crewMutationLocked()){
+      const current=productionState(), role=crewFind((current&&current.currentStep)||'');
+      const worker=(role&&role.at)||CREW.busy||'', label=worker?'@'+worker:'another project worker';
+      toast('Individual departments cannot start while '+label+' is working. Use Stop safely, wait for its checkpoint, then run the department you want.');
+      return;
+    }
     crewRun(b.dataset.crew, (el('crewAsk')||{}).value ? el('crewAsk').value.trim() : '');
   }));
   w.querySelectorAll('[data-crew-skill]').forEach(b=>b.addEventListener('click', ()=>{
@@ -5304,9 +5994,12 @@ function renderAll(){
   if (v==='shots') renderShots();
   if (v==='boards'){
     const ss=el('boardStyleSel'), all=el('btnBoardRenderAll'), refresh=el('btnBoardRefresh');
+    const agentPhotos=el('btnBoardAgentPhotos'), agentMovie=el('btnBoardAgentMovie');
     if (ss){ ss.value=S.boardStyle||''; ss.disabled=boardEditingLocked(); }
     if (all) all.disabled=boardEditingLocked()||!!BOARD.batchPromise||!boardRenderCandidates().length;
     if (refresh) refresh.disabled=!!BOARD.pollPromise;
+    if (agentPhotos) agentPhotos.disabled=boardEditingLocked()||!!BOARD.agentPromise;
+    if (agentMovie) agentMovie.disabled=boardEditingLocked()||!!BOARD.agentPromise;
     renderBoards();
   }
   if (v==='elements') renderElements();
@@ -5446,7 +6139,7 @@ function sceneHeaderMd(sc){
   return `### Scene ${sc.num} — ${sc.slug}  (${eighthsFmt(sc.eighths)} pg)`;
 }
 function sceneContextMd(sc, includeText){
-  let out = '';
+  let out = '', thought=0;
   if (sc.characters.length) out += `Characters present: ${sc.characters.join(', ')}\n`;
   const els = [];
   for (const c of cats()){ if (c.auto) continue; const items = sc.elements[c.k]||[]; if (items.length) els.push(`${c.label}: ${items.join(', ')}`); }
@@ -5899,6 +6592,51 @@ function openDoodSheet(){
 /* ---------- export UI ---------- */
 function fileStub(){ return (S.title||'script').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'_') || 'script'; }
 
+function buildScreenplayFountain(){
+  const project=activeProject()||{}, draft=activeDraft()||{};
+  const title=String(S.title||project.name||'Untitled Screenplay').trim();
+  const titlePage=['Title: '+title,'Draft date: '+new Date().toLocaleDateString()];
+  if (draft.name) titlePage.push('Notes: '+draft.name);
+  const body=exportScenes().map(scene=>{
+    const number=String(scene.num||'').trim();
+    const heading=String(scene.slug||'INT. UNTITLED - DAY').trim().toUpperCase();
+    return heading+(number?' #'+number+'#':'')+'\n\n'+String(scene.text||'').trim();
+  }).join('\n\n');
+  return titlePage.join('\n')+'\n\n\n'+body+'\n';
+}
+function screenplaySceneHtml(scene){
+  const lines=String(scene.text||'').replace(/\r/g,'').split('\n');
+  let dialogue=false;
+  const out=['<div class="scene-heading">'+esc(String(scene.slug||'INT. UNTITLED - DAY').toUpperCase())
+    +(scene.num?' <span class="scene-number">#'+esc(scene.num)+'#</span>':'')+'</div>'];
+  for (const original of lines){
+    const text=String(original||'').trim();
+    if (!text){ dialogue=false; out.push('<div class="blank"></div>'); continue; }
+    if (CHARACTER_RE.test(text) && text.length<45){ dialogue=true; out.push('<div class="character">'+esc(text)+'</div>'); continue; }
+    if (dialogue && /^\(.*\)$/.test(text)){ out.push('<div class="parenthetical">'+esc(text)+'</div>'); continue; }
+    if (dialogue){ out.push('<div class="dialogue">'+esc(text)+'</div>'); continue; }
+    if (TRANSITION_RE.test(text)){ out.push('<div class="transition">'+esc(text)+'</div>'); continue; }
+    out.push('<div class="action">'+esc(text)+'</div>');
+  }
+  return '<section class="screenplay-scene">'+out.join('')+'</section>';
+}
+function screenplayPrintDocument(){
+  const draft=activeDraft()||{};
+  return '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(S.title||'Screenplay')+'</title><style>'
+    +'@page{size:Letter;margin:.75in 1in .75in 1.5in}*{box-sizing:border-box}body{margin:0;background:#fff;color:#000;font:12pt/1.02 Courier,\"Courier New\",monospace}'
+    +'.title-page{height:9in;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;page-break-after:always}.title-page h1{font-size:14pt;text-decoration:underline;text-transform:uppercase;margin:0 0 18px}.title-page p{margin:4px}'
+    +'.screenplay-scene{break-inside:auto}.scene-heading{font-weight:bold;text-transform:uppercase;margin:18px 0 10px}.scene-number{float:right}.action{margin:0 0 10px;white-space:pre-wrap}.character{margin:12px 0 0 2.2in;text-transform:uppercase}.parenthetical{width:2.4in;margin:0 0 0 1.7in}.dialogue{width:3.5in;margin:0 0 8px 1.1in}.transition{text-align:right;text-transform:uppercase;margin:10px 0}.blank{height:6px}'
+    +'@media screen{body{max-width:8.5in;margin:24px auto;padding:.75in 1in .75in 1.5in;box-shadow:0 2px 20px #bbb}.title-page{height:8.5in}}'
+    +'</style></head><body><section class="title-page"><h1>'+esc(S.title||'Untitled Screenplay')+'</h1><p>Written screenplay</p>'
+    +(draft.name?'<p>'+esc(draft.name)+'</p>':'')+'<p>'+esc(new Date().toLocaleDateString())+'</p></section>'
+    +exportScenes().map(screenplaySceneHtml).join('')+'<script>window.addEventListener(\'load\',()=>window.print())<\/script></body></html>';
+}
+function openScreenplayPrint(){
+  const win=window.open('','_blank');
+  if (!win){ toast('Popup blocked — allow popups to print the screenplay.'); return; }
+  win.document.write(screenplayPrintDocument()); win.document.close();
+}
+
 function previewExport(title, filename, content){
   openModal(title,
     `<div style="font-size:12px;color:var(--tx2);margin-bottom:10px">${esc(filename)} · ${(content.length/1024).toFixed(1)} KB — copy it straight into your LLM, or download the file.</div>
@@ -5949,6 +6687,7 @@ Scope: ${scopeLabel()}
 Generated ${new Date().toLocaleString()}
 
 WHAT'S IN HERE
+- screenplay.fountain: the editable industry-compatible written screenplay.
 - video_prompts_*.md / frame_prompts_*.md / coverage_consult.md / script_companion.md:
   self-executing AI documents. Paste any of them, whole, into any LLM (Claude, ChatGPT,
   Gemini...) and it will follow the instructions inside. No API keys needed.
@@ -5958,6 +6697,7 @@ WHAT'S IN HERE
   cast are not detected) — a starting point to hand your 1st AD, not a locked schedule.
 - ${stub}.ams: the full project file. Open it with Agentic Movie Studio.
 ` },
+    { name: stub+'/'+stub+'.fountain', content: buildScreenplayFountain() },
     { name: stub+'/video_prompts_'+vp+'.md', content: buildVideoPack(vp, 'all') },
     { name: stub+'/frame_prompts_'+ip+'.md', content: buildImagePack(ip) },
     { name: stub+'/coverage_consult.md', content: buildCoverageConsult() },
@@ -5992,6 +6732,10 @@ function renderExport(){
     <span class="auto-note" id="expScopeNote">Exporting ${scopeLabel()}. Applies to every export on this page.</span>
   </div>`;
   el('expGrid').innerHTML = scopeBar + `
+    <div class="exp-card" style="border-color:var(--amber)"><h3><span class="ic">✍</span> Written Screenplay <span class="badge util">.fountain · Print / PDF</span></h3>
+      <p>The actual written script, not a prompt pack. Download editable Fountain text, or open the properly spaced Courier screenplay and save it as PDF from the print dialog.</p>
+      <div class="opts"><button class="btn primary" id="expScriptFountain">Download .fountain</button><button class="btn" id="expScriptPrint">Formatted print / PDF</button></div></div>
+
     <div class="exp-card"><h3><span class="ic">🎥</span> Video Prompt Pack <span class="badge">AI · .md</span></h3>
       <p>A self-executing brief: paste into any LLM and get one production-ready prompt per shot — look, bibles, and shot specs woven in. ${shotCount? shotCount+' shots planned.' : 'No shots planned yet — it will design one master per scene.'}</p>
       <div class="opts"><select id="vpPlat">${Object.entries(PLATFORMS).map(([k,p])=>`<option value="${k}">${p.name}</option>`).join('')}</select>
@@ -6049,6 +6793,8 @@ function renderExport(){
     const p = el('vpPlat').value, sc = el('vpScope').value;
     previewExport('Video Prompt Pack — '+PLATFORMS[p].name, fileStub()+'_video_prompts_'+p+'.md', buildVideoPack(p, sc));
   });
+  el('expScriptFountain').addEventListener('click',()=>{ download(fileStub()+'.fountain',buildScreenplayFountain(),'text/plain'); toast('Written screenplay downloaded.',true); });
+  el('expScriptPrint').addEventListener('click',openScreenplayPrint);
   el('expImage').addEventListener('click', ()=>{
     const p = el('ipPlat').value;
     previewExport('Storyboard Frame Pack — '+IMG_PLATFORMS[p].name, fileStub()+'_frame_prompts_'+p+'.md', buildImagePack(p));
@@ -6180,6 +6926,27 @@ function aiController(next){
 }
 function aiCancel(){ DOC.cancel = true; if (AI.ctrl){ try{ AI.ctrl.abort(); }catch(e){} } }
 
+function crewLiveActivityText(roleId){
+  const role=crewFind(roleId)||{}, live=CREW.live&&CREW.live.roleId===roleId?CREW.live:null;
+  if (!live) return 'Working now: @'+(role.at||roleId)+' · preparing the department handoff.';
+  const count=Math.max(0,Number(live.characters)||0);
+  if (live.phase==='thinking') return '@'+(role.at||roleId)+' is reasoning locally'+(count?' · '+count.toLocaleString()+' reasoning characters processed':'')+'.';
+  if (live.phase==='drafting') return '@'+(role.at||roleId)+' is drafting the handoff · '+count.toLocaleString()+' model characters received. The artifact appears after validation and its safe checkpoint.';
+  if (live.phase==='validating') return '@'+(role.at||roleId)+' finished drafting · validating and checkpointing '+count.toLocaleString()+' characters before the next agent starts.';
+  return '@'+(role.at||roleId)+' is contacting the selected local model.';
+}
+function crewLiveActivity(opts,phase,characters,force){
+  const roleId=String((opts&&opts.roleId)||'');
+  const production=typeof productionState==='function'?productionState():null;
+  if (!roleId||typeof CREW==='undefined'||!production||production.currentStep!==roleId) return;
+  const now=Date.now(), prior=CREW.live||{};
+  CREW.live={roleId,phase:String(phase||'connecting'),characters:Math.max(0,Number(characters)||0),updatedAt:now,lastPaintAt:prior.lastPaintAt||0};
+  if (!force&&now-CREW.live.lastPaintAt<250) return;
+  CREW.live.lastPaintAt=now;
+  const node=el('crewLiveActivity');
+  if (node) node.textContent=crewLiveActivityText(roleId);
+}
+
 /** Stream one completion. Resolves with the full raw text. */
 async function aiStream(system, user, onDelta, onThink, opts){
   if (!AI.base) throw new Error('Not connected to a local model server.');
@@ -6200,18 +6967,25 @@ async function aiStream(system, user, onDelta, onThink, opts){
   const isOllama = AI.kind === 'ollama';
   const ctrl = new AbortController();
   aiController(ctrl);
+  crewLiveActivity(opts,'connecting',0,true);
   const messages = [{role:'system', content:system}, {role:'user', content:user}];
   const body = isOllama
     ? { model:AI.model, messages, stream:true, options:{ temperature:AI.temperature, num_ctx:AI.numCtx } }
     : { model:AI.model, messages, stream:true, temperature:AI.temperature };
   if (isOllama && AI.noThink) body.think = false;
   if (opts && opts.schema){
-    if (isOllama) body.format = opts.schema;
+    if (isOllama){
+      body.format = opts.schema;
+      // Some reasoning-model templates (including Muse Glimmer) print their
+      // end-of-turn marker as literal text and may start a second object unless
+      // the server is told where structured output ends.
+      body.options.stop = ['<|eot|>','<|im_end|>'];
+    }
     else body.response_format = {type:'json_schema',json_schema:{
       name:opts.schemaName||'structured_response',strict:true,schema:opts.schema
     }};
   }else if (opts && opts.json){
-    if (isOllama) body.format = 'json';
+    if (isOllama){ body.format = 'json'; body.options.stop = ['<|eot|>','<|im_end|>']; }
     else body.response_format = { type:'json_object' };
   }
   if (opts && opts.temperature != null){
@@ -6252,13 +7026,13 @@ async function aiStream(system, user, onDelta, onThink, opts){
     if (obj && obj.error) throw new Error(String(obj.error.message || obj.error));
     if (isOllama){
       const m = (obj && obj.message) || {};
-      if (typeof m.thinking === 'string' && m.thinking && onThink) onThink(m.thinking);
-      if (typeof m.content === 'string' && m.content){ out += m.content; if (onDelta) onDelta(out); }
+      if (typeof m.thinking === 'string' && m.thinking){ thought+=m.thinking.length; crewLiveActivity(opts,'thinking',thought); if (onThink) onThink(m.thinking); }
+      if (typeof m.content === 'string' && m.content){ out += m.content; crewLiveActivity(opts,'drafting',out.length); if (onDelta) onDelta(out); }
     } else {
       const d = (obj && obj.choices && obj.choices[0] && obj.choices[0].delta) || {};
       const th = d.reasoning_content || d.reasoning;
-      if (typeof th === 'string' && th && onThink) onThink(th);
-      if (typeof d.content === 'string' && d.content){ out += d.content; if (onDelta) onDelta(out); }
+      if (typeof th === 'string' && th){ thought+=th.length; crewLiveActivity(opts,'thinking',thought); if (onThink) onThink(th); }
+      if (typeof d.content === 'string' && d.content){ out += d.content; crewLiveActivity(opts,'drafting',out.length); if (onDelta) onDelta(out); }
     }
   };
   const feed = raw => {
@@ -6297,6 +7071,7 @@ async function aiStream(system, user, onDelta, onThink, opts){
     const reason='The model returned nothing. Try a smaller scene, a larger context window, or another model.';
     await settle('failed','',reason); throw new Error(reason);
   }
+  crewLiveActivity(opts,'validating',out.length,true);
   await settle('completed',out,'');
   return out;
 }
@@ -7231,11 +8006,30 @@ function settingsProviderListHtml(){
     const kinds=(provider.mediaKinds||[]).map(x=>x==='image'?'photos':'video').join(' + ')||'media';
     const fields=[...((provider.credentials||{}).fields||[]),...((provider.configuration||{}).fields||[])]
       .map(field=>field.label||field.id).filter(Boolean);
+    const models=(provider.models||[]).map(model=>model.name||model.id||model).filter(Boolean);
+    const health=provider.health||{};
     return '<div class="settings-provider"><div class="name">'+esc(provider.name)
-      +'<div class="auto-note">'+esc(provider.kind||'adapter')+' · '+esc(kinds)+(fields.length?' · setup: '+esc(fields.join(', ')):'')+'</div></div>'
+      +'<div class="auto-note">'+esc(provider.kind||'adapter')+' · '+esc(kinds)
+      +(models.length?' · models: '+esc(models.join(', ')):' · model supplied by provider')
+      +(health.backend?' · active backend: '+esc(health.backend):'')+(health.reason?' · '+esc(health.reason):'')
+      +(fields.length?' · setup: '+esc(fields.join(', ')):'')+'</div></div>'
       +'<span class="ai-badge '+(provider.configured===false?'err':'ok')+'">'+(provider.configured===false?'setup needed':'configured')+'</span>'
       +(fields.length?'<button class="btn small" data-provider-config="'+esc(provider.id)+'">Configure</button>':'')+'</div>';
   }).join('')||'<div class="auto-note">No media providers were discovered.</div>';
+}
+function settingsProjectFilesHtml(){
+  const drafts=DB.projects.reduce((sum,project)=>sum+(project.drafts||[]).length,0);
+  if (!DB.projects.length) return '<div class="auto-note">No projects are saved on this device yet.</div>';
+  return '<div class="auto-note" style="margin-bottom:9px"><b>'+DB.projects.length+' project'+(DB.projects.length===1?'':'s')
+    +' · '+drafts+' draft'+(drafts===1?'':'s')+'</b> are saved inside this app. Portable <b>.ams</b> files appear only when you choose Save project.</div>'
+    +'<div style="max-height:270px;overflow:auto;border:1px solid var(--line);border-radius:8px">'
+    +DB.projects.map(project=>'<div style="padding:9px 10px;border-bottom:1px solid var(--line)"><b>'+esc(project.name||'Untitled project')+'</b>'
+      +(project.drafts||[]).map(draft=>'<div style="display:flex;gap:8px;align-items:center;padding-top:7px"><span style="min-width:0;flex:1">'+esc(draft.name||'Draft')
+        +' <span class="auto-note">· '+esc(draftStats(draft.state||{}))+' · '+esc(fmtDate(draft.imported||project.created||''))+'</span></span>'
+        +'<button class="btn small" data-settings-open-project="'+esc(project.id)+'|'+esc(draft.id)+'">'
+        +(project.id===ACTIVE.p&&draft.id===ACTIVE.d?'Current':'Open')+'</button></div>').join('')+'</div>').join('')+'</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px"><button class="btn small" id="settingsProjectLibrary">Open full project library</button>'
+    +'<button class="btn small" id="settingsSaveProject">Save current .ams</button><button class="btn small" id="settingsImportProject">Import .ams</button></div>';
 }
 function settingsPanelHtml(initialTab){
   const runtimeLocked=crewMutationLocked()||canonicalWorkerLocked();
@@ -7261,7 +8055,7 @@ function settingsPanelHtml(initialTab){
           +'<label class="settings-field"><span>Default target</span><select id="settingsIdeaMinutes"'+dis+'>'
             +[1,3,5,10].map(n=>'<option value="'+n+'"'+(Number(localStorage.getItem('studio.production.minutes')||1)===n?' selected':'')+'>'+n+' minute'+(n===1?'':'s')+'</option>').join('')
           +'</select></label></div>'
-        +'<div class="settings-card"><h5>Project files</h5><div class="auto-note">Canonical project format: <b>.ams</b>. Legacy .studio and .scriptbreak projects remain readable. Projects and media stay on this device unless an explicitly configured API provider is used.</div></div>'
+        +'<div class="settings-card"><h5>Project files</h5>'+settingsProjectFilesHtml()+'<div class="auto-note" style="margin-top:9px">Canonical portable format: <b>.ams</b>. Legacy .studio and .scriptbreak files remain readable. Projects and media stay on this device unless an explicitly configured remote provider is used.</div></div>'
       +'</section>'
       +'<section class="settings-panel'+on('ai')+'" data-settings-panel="ai"><h4>AI &amp; agents</h4>'
         +'<div class="settings-intro">Choose the text-model server and model used by the crew. Model names are discovered, never hard-coded.</div>'
@@ -7273,7 +8067,7 @@ function settingsPanelHtml(initialTab){
         +'</div><label style="display:flex;gap:9px;align-items:flex-start;margin-top:12px"><input type="checkbox" id="settingsNoThink"'+(AI.noThink?' checked':'')+dis+' style="margin-top:3px;width:auto"><span><b>Skip the separate thinking step</b><br><span class="auto-note">Faster for routine production work. Models that cannot disable thinking ignore this setting.</span></span></label></div>'
       +'</section>'
       +'<section class="settings-panel'+on('media')+'" data-settings-panel="media"><h4>Media APIs</h4>'
-        +'<div class="settings-intro">These are the exact same choices shown in Make a Film. Save here and both dropdowns update together. Photo and video providers remain independent.</div>'
+        +'<div class="settings-intro">These are the exact same choices shown in Make a Film. Save here and both dropdowns update together. Photo and video providers remain independent. The list is discovered from installed adapters—it is not restricted to local models.</div>'
         +(mediaLocked?'<div class="crit bad" style="margin-bottom:12px">This production has already frozen its provider choices. Finish, cancel, or archive the render manifest before changing them.</div>':'')
         +'<div class="settings-card"><h5>Storyboard photos</h5><div class="settings-grid" style="margin-top:10px">'
           +'<label class="settings-field"><span>Provider</span><select id="settingsImageProvider"'+mediaDis+'>'+settingsProviderOptions(imageProviders(),imageSelection.id)+'</select></label>'
@@ -7297,7 +8091,7 @@ function settingsPanelHtml(initialTab){
           +'<div id="settingsProviderConfig" style="margin-top:10px"></div>'
           +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px">'
           +(CREW.providerDirectory?'<button class="btn small" id="settingsCopyAdapterPath">Copy adapter folder path</button>':'')+'</div>'
-          +'<div class="auto-note" style="margin-top:8px">REST, SDK, local-engine, and MCP adapters all enter through this catalogue. Put a trusted .mjs adapter in this folder, restart the media gateway, then configure its declared endpoint and credential fields here. It appears in the photo dropdown, video dropdown, or both according to its real capabilities.</div></div>'
+          +'<div class="auto-note" style="margin-top:8px"><b>MCP is supported through a media adapter, not treated as a model.</b> REST, SDK, local-engine, and MCP adapters all enter through this catalogue. A trusted adapter declares the MCP server address, credentials, and image/video tools; after restart those fields appear here and the provider appears in the correct dropdown. Arbitrary MCP tools cannot safely be guessed—the adapter is the explicit translation into Studio’s durable image/video job contract.</div></div>'
       +'</section>'
     +'</div></div>';
 }
@@ -7321,6 +8115,13 @@ function settingsWire(initialTab){
   const check=el('settingsCheck'); if (check) check.addEventListener('click',()=>settingsCheckConnections(false));
   const start=el('settingsStartServices'); if (start) start.addEventListener('click',()=>settingsCheckConnections(true));
   settingsWireProviderButtons();
+  document.querySelectorAll('[data-settings-open-project]').forEach(button=>button.addEventListener('click',()=>{
+    const [projectId,draftId]=button.dataset.settingsOpenProject.split('|');
+    closeModal(); openDraft(projectId,draftId); nav('scenes');
+  }));
+  const library=el('settingsProjectLibrary'); if (library) library.addEventListener('click',()=>{ closeModal(); nav('projects'); });
+  const saveProject=el('settingsSaveProject'); if (saveProject) saveProject.addEventListener('click',()=>el('btnSaveProj').click());
+  const importProject=el('settingsImportProject'); if (importProject) importProject.addEventListener('click',()=>el('btnOpen').click());
   const copyPath=el('settingsCopyAdapterPath'); if (copyPath) copyPath.addEventListener('click',async()=>{
     try{ await copyText(CREW.providerDirectory); toast('Adapter folder path copied.',true); }
     catch(e){ toast('Adapter folder: '+CREW.providerDirectory); }
@@ -8108,7 +8909,7 @@ function allShotsB(){
   return out;
 }
 
-let BOARD = { expanded:'', filter:'', pollTimer:null, pollPromise:null, pollOwner:'', batchPromise:null, queueing:new Set() };
+let BOARD = { expanded:'', filter:'', pollTimer:null, pollPromise:null, pollOwner:'', batchPromise:null, agentPromise:null, queueing:new Set() };
 
 function boardDraftOwner(){ return String(ACTIVE.p||'')+'|'+String(ACTIVE.d||''); }
 function boardDraftOwnerMatches(owner){ return boardDraftOwner()===owner; }
@@ -8152,9 +8953,12 @@ async function renderBoards(){
   const w = el('boardsWrap');
   if (!w) return;
   const styleSelect=el('boardStyleSel'), renderAll=el('btnBoardRenderAll'), refresh=el('btnBoardRefresh');
+  const agentPhotos=el('btnBoardAgentPhotos'), agentMovie=el('btnBoardAgentMovie');
   if (styleSelect) styleSelect.disabled=boardEditingLocked();
   if (renderAll) renderAll.disabled=boardEditingLocked()||!!BOARD.batchPromise||!boardRenderCandidates().length;
   if (refresh) refresh.disabled=!!BOARD.pollPromise;
+  if (agentPhotos) agentPhotos.disabled=boardEditingLocked()||!!BOARD.agentPromise;
+  if (agentMovie) agentMovie.disabled=boardEditingLocked()||!!BOARD.agentPromise;
   releaseFrameUrls();
   const list = allShotsB();
   if (!list.length){
@@ -9301,6 +10105,26 @@ function tasteWorkloadHtml(run){
     +'<input data-candidate-model list="tasteModelIds" placeholder="model-name:tag" value="'+esc(AI.model&&AI.model!==model?AI.model:'')+'"></label>'
     +'<button class="btn primary small" data-experiment-run'+(!completed||TASTE_OS.experimentRunning?' disabled':'')+'>'+(busy?'Comparing…':'Run offline comparison')+'</button></div></div>';
 }
+function tasteRubricRowHtml(criterion,index){
+  const item=criterion||{}, id=item.id||('human_criterion_'+Date.now().toString(36)+'_'+index);
+  return '<div class="pl-shot" data-rubric-row="'+index+'" style="padding:10px;margin-bottom:8px;display:grid;grid-template-columns:minmax(150px,.65fr) minmax(300px,2fr) 90px 90px 34px;gap:8px;align-items:center">'
+    +'<input data-rubric-label value="'+esc(item.label||'')+'" aria-label="Criterion label" placeholder="Criterion name">'
+    +'<input data-rubric-question value="'+esc(item.question||'')+'" aria-label="Criterion question" placeholder="What should you judge?">'
+    +'<label class="ai-stat">Weight <input data-rubric-weight type="number" min="0" max="5" value="'+esc(item.weight==null?3:item.weight)+'" style="width:52px"></label>'
+    +'<label class="ai-stat"><input data-rubric-locked type="checkbox"'+(item.locked?' checked':'')+'> locked</label>'
+    +'<button class="icon-btn danger" type="button" data-rubric-remove title="Remove criterion">×</button>'
+    +'<input data-rubric-id type="hidden" value="'+esc(id)+'"></div>';
+}
+function tasteComparableWorkloads(workloads){
+  const seen=new Set(), rows=[];
+  for (const run of workloads){
+    if (!['completed','reviewed'].includes(run.phase)||!String(run.outputExcerpt||'').trim()) continue;
+    const key=String(run.workloadId||run.role||run.id);
+    if (seen.has(key)) continue;
+    seen.add(key); rows.push(run);
+  }
+  return rows;
+}
 function tasteExperimentHtml(experiment,rubric){
   const reviewed=experiment.status==='reviewed';
   const baselineModel=(experiment.baselineConfig&&experiment.baselineConfig.modelId)||'baseline';
@@ -9340,6 +10164,7 @@ function renderTasteOs(){
   }
   const snapshot=TASTE_OS.snapshot, profile=snapshot.profile||{}, rules=profile.rules||[], rubric=profile.rubric||[], events=snapshot.recentEvents||[];
   const workloads=(snapshot.recentWorkloads||[]).slice().reverse(), experiments=(snapshot.recentExperiments||[]).slice().reverse();
+  const comparable=tasteComparableWorkloads(workloads);
   const processed=new Set(profile.processedEventIds||[]);
   const analyzable=events.filter(event=>String(event.note||'').trim()&&!processed.has(event.id));
   const activeRules=rules.filter(rule=>rule.active!==false);
@@ -9356,14 +10181,9 @@ function renderTasteOs(){
     +'<textarea id="tasteFoundation" rows="6" style="width:100%" placeholder="Write what you consistently want, refuse, and protect. Be concrete.">'+esc(profile.foundation||'')+'</textarea>'
     +'<button class="btn primary" id="tasteFoundationSave" style="margin-top:9px">Save explicit foundation</button></div>'
     +'<div class="ai-panel" style="max-width:1160px;margin-bottom:14px"><div style="display:flex;align-items:center;gap:9px"><h4 style="margin:0">Your judgment rubric</h4>'
-    +'<div class="tb-spacer"></div><button class="btn primary" id="tasteRubricSave">Save rubric</button></div>'
+    +'<div class="tb-spacer"></div><button class="btn small" id="tasteRubricAdd">＋ Add your own criterion</button><button class="btn primary" id="tasteRubricSave">Save rubric</button></div>'
     +'<div class="auto-note" style="margin:8px 0 10px">Weights are 0–5. The rubric tells every department how its artifact will be judged; it does not silently rewrite operational settings.</div>'
-    +'<div id="tasteRubricRows">'+rubric.map((criterion,index)=>'<div class="pl-shot" data-rubric-row="'+index+'" style="padding:10px;margin-bottom:8px;display:grid;grid-template-columns:minmax(150px,.65fr) minmax(300px,2fr) 90px 90px;gap:8px;align-items:center">'
-      +'<input data-rubric-label value="'+esc(criterion.label||'')+'" aria-label="Criterion label">'
-      +'<input data-rubric-question value="'+esc(criterion.question||'')+'" aria-label="Criterion question">'
-      +'<label class="ai-stat">Weight <input data-rubric-weight type="number" min="0" max="5" value="'+esc(criterion.weight||0)+'" style="width:52px"></label>'
-      +'<label class="ai-stat"><input data-rubric-locked type="checkbox"'+(criterion.locked?' checked':'')+'> locked</label>'
-      +'<input data-rubric-id type="hidden" value="'+esc(criterion.id||('criterion_'+index))+'"></div>').join('')+'</div></div>'
+    +'<div id="tasteRubricRows">'+rubric.map(tasteRubricRowHtml).join('')+'</div></div>'
     +'<div class="ai-panel" style="max-width:1160px;margin-bottom:14px"><h4>Learned rules</h4>'
     +'<div class="auto-note" style="margin-bottom:10px">Confidence changes are capped. New evidence starts inside one project; repeated evidence across projects is required before the backend may promote it globally.</div>'
     +(rules.length?rules.map(rule=>'<div class="pl-shot" data-taste-rule="'+esc(rule.id)+'" style="padding:11px;margin-bottom:8px">'
@@ -9382,9 +10202,14 @@ function renderTasteOs(){
       +'<div class="auto-note" style="margin-bottom:9px">Nothing in this section can become an explicit or global rule until you approve its exact wording, scope, and departments.</div>'
       +(profile.pending||[]).map(tasteProposalHtml).join('')+'</div>':'')
     +'<div class="ai-panel" style="max-width:1160px;margin-bottom:14px"><h4>Evaluation Lab</h4>'
-    +'<div class="auto-note" style="margin-bottom:10px">Replay a saved department workload against any model installed on your connected local server. This is offline evidence only: it does not change the current model, provider, API, or a film already in progress. Only you can review and recommend a candidate for future work.</div>'
+    +'<div class="auto-note" style="margin-bottom:10px"><b>There are '+comparable.length+' saved department test cases—not '+comparable.length+' model testers.</b> Choose one workload and one candidate model below. This is offline evidence only: it does not change the current model, provider, API, or a film already in progress.</div>'
     +'<datalist id="tasteModelIds">'+(AI.models||[]).map(model=>'<option value="'+esc(model)+'"></option>').join('')+'</datalist>'
-    +(workloads.length?workloads.slice(0,20).map(tasteWorkloadHtml).join(''):'<div class="auto-note">No model-work receipts yet. Run a crew department in the packaged app; its exact configuration and private prompt/output record will appear here.</div>')+'</div>'
+    +(comparable.length?'<div style="display:grid;grid-template-columns:minmax(260px,1.2fr) minmax(260px,1fr) auto;gap:9px;align-items:end">'
+      +'<label class="bd-f"><span>Saved department workload</span><select id="tasteWorkloadSelect">'+comparable.map(run=>'<option value="'+esc(run.id)+'">'
+        +esc((run.role?'@'+run.role+' · ':'')+(run.workloadId||'model workload')+' · '+((run.config&&run.config.modelId)||'unknown model'))+'</option>').join('')+'</select></label>'
+      +'<label class="bd-f"><span>Candidate model ID</span><input id="tasteCandidateModel" list="tasteModelIds" placeholder="Choose or type any installed model" value="'+esc(AI.model||'')+'"></label>'
+      +'<button class="btn primary" id="tasteExperimentRun"'+(TASTE_OS.experimentRunning?' disabled':'')+'>'+(TASTE_OS.experimentRunning?'Comparing…':'Run comparison')+'</button></div>'
+      :'<div class="auto-note">No completed model-work receipts yet. Run a crew department in the packaged app; its exact configuration and private prompt/output record will appear here.</div>')+'</div>'
     +'<div class="ai-panel" style="max-width:1160px;margin-bottom:14px"><h4>Model comparison reviews</h4>'
     +(experiments.length?experiments.slice(0,20).map(row=>tasteExperimentHtml(row,rubric)).join(''):'<div class="auto-note">No comparisons yet. Evaluation Lab never trains or switches a model by itself.</div>')+'</div>'
     +'<div class="ai-panel" style="max-width:1160px"><h4>Evidence log</h4>'
@@ -9408,6 +10233,17 @@ function renderTasteOs(){
     try{ await tasteSetRubricNow(rows); renderTasteOs(); toast('TasteOS rubric saved.',true); }
     catch(error){ TASTE_OS.error=String((error&&error.message)||error); renderTasteOs(); }
   });
+  bind('tasteRubricAdd',()=>{
+    const rows=el('tasteRubricRows'); if (!rows) return;
+    if (rows.querySelectorAll('[data-rubric-row]').length>=12){ toast('TasteOS supports up to 12 human rubric criteria.'); return; }
+    rows.insertAdjacentHTML('beforeend',tasteRubricRowHtml({},rows.children.length));
+    const added=rows.lastElementChild; if (added){ added.querySelector('[data-rubric-label]').focus(); wireRubricRemove(added); }
+  });
+  const wireRubricRemove=row=>{ const button=row.querySelector('[data-rubric-remove]'); if (button) button.addEventListener('click',()=>{
+    if (wrap.querySelectorAll('[data-rubric-row]').length<=1){ toast('Keep at least one judgment criterion.'); return; }
+    row.remove();
+  }); };
+  wrap.querySelectorAll('[data-rubric-row]').forEach(wireRubricRemove);
   wrap.querySelectorAll('[data-rule-save]').forEach(button=>button.addEventListener('click',async()=>{
     const row=button.closest('[data-taste-rule]'), existing=rules.find(rule=>rule.id===row.dataset.tasteRule); if (!existing) return;
     const next=Object.assign({},existing,{polarity:row.querySelector('[data-rule-polarity]').value,
@@ -9436,6 +10272,10 @@ function renderTasteOs(){
       try{ await tasteRunExperiment(row.dataset.tasteWorkload,row.querySelector('[data-candidate-model]').value); renderTasteOs(); toast('Comparison saved. It now needs your rubric review.',true); }
       catch(error){ TASTE_OS.error=String((error&&error.message)||error); renderTasteOs(); }
     });
+  });
+  bind('tasteExperimentRun',async()=>{
+    try{ await tasteRunExperiment((el('tasteWorkloadSelect')||{}).value,(el('tasteCandidateModel')||{}).value); renderTasteOs(); toast('Comparison saved. It now needs your rubric review.',true); }
+    catch(error){ TASTE_OS.error=String((error&&error.message)||error); renderTasteOs(); }
   });
   wrap.querySelectorAll('[data-taste-experiment]').forEach(row=>{
     const detailButton=row.querySelector('[data-experiment-detail]');
@@ -10230,25 +11070,61 @@ const CARD_STATUS = [
 ];
 const cardStatus = k => CARD_STATUS.find(s=>s.k===k) || CARD_STATUS[0];
 function makeCard(over){
-  return Object.assign({ id:uid(), title:'', synopsis:'', status:'idea', sceneNum:'', cast:[] }, over||{});
+  return Object.assign({ id:uid(), title:'', synopsis:'', status:'idea', sceneNum:'', beatIndex:0, beatCount:0, cast:[] }, over||{});
 }
 function sceneForCard(c){
   return c.sceneNum ? S.scenes.find(sc=>String(sc.num) === String(c.sceneNum)) : null;
 }
-/** One card per scene, for scenes that don't have one yet. Existing cards keep their column. */
+function sceneCardTarget(sc){
+  // A card is a workable story beat/page unit, not merely a scene heading.
+  // This prevents a feature containing a few long continuous scenes from
+  // collapsing into three useless cards.
+  return Math.max(1,Math.ceil(Math.max(1,Number(sc.eighths)||1)/8));
+}
+function sceneCardChunks(sc,count){
+  const paragraphs=String(sc.text||'').replace(/\r/g,'').split(/\n\s*\n+/).map(text=>text.trim()).filter(Boolean);
+  if (!paragraphs.length) return Array.from({length:count},()=>String(sc.synopsis||''));
+  const total=paragraphs.reduce((sum,text)=>sum+Math.max(1,text.length),0), target=total/count;
+  const chunks=[]; let chunk=[],size=0;
+  for (const paragraph of paragraphs){
+    const remaining=paragraphs.length-(chunks.reduce((n,row)=>n+row.length,0)+chunk.length);
+    if (chunk.length&&size>=target&&chunks.length<count-1&&remaining>=count-chunks.length-1){ chunks.push(chunk); chunk=[]; size=0; }
+    chunk.push(paragraph); size+=Math.max(1,paragraph.length);
+  }
+  if (chunk.length) chunks.push(chunk);
+  while (chunks.length<count){
+    let at=chunks.reduce((best,row,index)=>row.length>(chunks[best]||[]).length?index:best,0);
+    if ((chunks[at]||[]).length<2){ chunks.push([]); continue; }
+    const row=chunks[at],cut=Math.ceil(row.length/2); chunks.splice(at,1,row.slice(0,cut),row.slice(cut));
+  }
+  return chunks.slice(0,count).map(rows=>rows.join('\n\n').trim());
+}
+function cardBeatSynopsis(text,fallback){
+  const clean=String(text||fallback||'').replace(/\s+/g,' ').trim();
+  return clean.length>360?clean.slice(0,357).replace(/\s+\S*$/,'')+'…':clean;
+}
+/** Make enough ordered beat cards to represent the pages inside every scene.
+ *  Existing cards and their board columns survive; only missing page/beat
+ *  coverage is added. */
 function cardsFromScenes(){
-  const have = new Set(S.cards.map(c=>String(c.sceneNum)).filter(Boolean));
   let made = 0;
   S.scenes.forEach(sc=>{
-    if (have.has(String(sc.num))) return;
-    S.cards.push(makeCard({
-      title: sc.slug,
-      synopsis: sc.synopsis || '',
-      status: 'drafted',       // it exists in the script, so it is at least drafted
-      sceneNum: sc.num,
-      cast: sc.characters.slice(),
-    }));
-    made++;
+    const target=sceneCardTarget(sc), chunks=sceneCardChunks(sc,target);
+    const existing=S.cards.filter(card=>String(card.sceneNum)===String(sc.num));
+    existing.forEach((card,index)=>{
+      if (!Number(card.beatIndex)) card.beatIndex=index+1;
+      card.beatCount=Math.max(target,existing.length);
+    });
+    for (let index=existing.length;index<target;index++){
+      const beat=index+1;
+      S.cards.push(makeCard({
+        title:target===1?sc.slug:(sc.slug+' · beat '+beat+'/'+target),
+        synopsis:cardBeatSynopsis(chunks[index],sc.synopsis),
+        status:'drafted', sceneNum:sc.num, beatIndex:beat, beatCount:target,
+        cast:sc.characters.slice(),
+      }));
+      made++;
+    }
   });
   return made;
 }
@@ -10359,6 +11235,8 @@ const StudioModuleBridge = (()=>{
         id:card.id, title:card.title||'', synopsis:card.synopsis||'',
         status:CARD_STATUS.some(x=>x.k===card.status)?card.status:'idea',
         studioSceneNum:card.sceneNum==null?'':String(card.sceneNum),
+        studioBeatIndex:Number(card.beatIndex)||0,
+        studioBeatCount:Number(card.beatCount)||0,
         characterIds:(card.cast||[]).map(characterId).filter(Boolean),
         locationId:scene ? locationId(scene.master||scene.location||'') : (prior.locationId||''),
         intExt:scene ? (scene.intExt||'') : (prior.intExt||''),
@@ -10407,11 +11285,15 @@ const StudioModuleBridge = (()=>{
           const canonical=makeCard(Object.assign({},old,{
             id:card.id, title:card.title||'', synopsis:card.synopsis||'',
             status:CARD_STATUS.some(x=>x.k===card.status)?card.status:'idea',
-            sceneNum,
+            sceneNum,beatIndex:Number(card.studioBeatIndex)||Number(old.beatIndex)||0,
+            beatCount:Number(card.studioBeatCount)||Number(old.beatCount)||0,
             cast:(card.characterIds||[]).map(id=>chars.get(id)).filter(Boolean)
           }));
           next.push(canonical);
-          if (sceneNum){
+          // Multiple beat cards may link to one long screenplay scene. Only
+          // the primary card may update the scene-level synopsis/cast; later
+          // beat edits remain card-level and cannot overwrite the whole scene.
+          if (sceneNum && (!canonical.beatIndex || canonical.beatIndex===1)){
             const scene=S.scenes.find(x=>String(x.num)===sceneNum);
             if (scene){
               scene.synopsis=canonical.synopsis;
@@ -10978,37 +11860,6 @@ function importSuiteFile(text, filename){
    is carried explicitly — the open slugline and the cast so far —
    because the model has no memory of the previous call.
    ============================================================ */
-const STORY_SPINE = `You are a screenwriter adapting prose into a screenplay. You are given a passage of a story and you return that passage as correctly formatted screenplay text, in Fountain.
-
-=== OUTPUT CONTRACT — ABSOLUTE ===
-Return the screenplay pages and nothing else. No preamble, no explanation, no notes, no markdown, no code fences. Your first line is either a slugline, or a continuation of the scene you were told is already open.
-
-=== FORMAT ===
-SLUGLINE       ALL CAPS on its own line: INT. or EXT., the place, a dash, the time of day. INT. KITCHEN - NIGHT
-ACTION         Sentence case, present tense, third person. Only what a camera can photograph or a microphone can record.
-CHARACTER CUE  ALL CAPS on its own line, directly above the dialogue. (V.O.) and (O.S.) where the story calls for them.
-PARENTHETICAL  Lowercase in brackets on its own line between cue and dialogue. Rare.
-DIALOGUE       Plain lines beneath the cue.
-TRANSITION     ALL CAPS ending in "TO:" on its own line. Rare.
-Exactly one blank line between elements. Never indent — margins are the application's job.
-
-=== HOW TO ADAPT ===
-- START A NEW SCENE whenever the place changes, the time changes, or the story cuts away. Every scene gets a slugline. If the prose never names a place, infer the plainest one the passage supports — INT. CAR - NIGHT — and never invent a location the passage does not imply.
-- DIALOGUE: prose writes "Get out," she said. A screenplay writes the cue and the line, and the said-bookkeeping disappears:
-
-MARGARET
-Get out.
-
-  Keep the spoken words exactly as written. Attribution carrying an action ("she said, backing away") becomes an action line or a parenthetical — never part of the spoken line.
-- NARRATION becomes visible action. "He had always hated the house" cannot be photographed: cut it, or externalise it into something the camera sees.
-- INTERIORITY — thoughts, memories, feelings — is not filmable. Turn it into behaviour or drop it. Never write "she remembers" or "he knows".
-- BACKSTORY delivered by a narrator either becomes a line somebody says, or it goes.
-- Keep the writer's voice, the order of events, and every plot fact. This is a translation between forms, not a rewrite.
-- Do not invent characters, places, objects or events the passage does not contain. Do not add scenes. Do not resolve anything the passage leaves open.
-- NAMES: same spelling, same form, every time. If the story says "the old woman" until she is named, the cue is OLD WOMAN until then.
-- TENSE: prose is usually past tense, screenplays are present. Convert it.
-- If a passage is entirely interior with nothing filmable, write the one action line that puts the character somewhere a camera can see them, and stop.`;
-
 /** Split prose into passages on paragraph boundaries, near a target size. */
 function storyChunks(text, target){
   const paras = String(text||'').replace(/\r/g,'').split(/\n\s*\n/).map(p=>p.trim()).filter(Boolean);
@@ -11034,110 +11885,81 @@ function looksLikeScript(text){
 let STORY = { running:false, cancel:false };
 
 async function storyToScript(text, filename){
-  if (STORY.running) return;
-  if (canonicalWorkerLocked()){ toast('Another project worker is still running.'); return; }
-  if (AI.status !== 'on'){
-    const ok = await aiConnect();
-    if (!ok){ toast('Adapting needs a local model — start Ollama, then try again.'); return; }
-  }
-  const chunks = storyChunks(text, 5000);
-  STORY.running = true; STORY.cancel = false;
-  crewApplyMutationLock();
-
-  openModal('Adapting “' + esc(String(filename||'story').replace(/\.[^.]+$/,'')) + '”',
-    '<div class="ai-prog"><i id="stProg"></i></div>'
-    + '<div class="ai-stat" id="stStat">passage 1 of ' + chunks.length + '</div>'
-    + '<div class="ai-mono" id="stStream" style="margin-top:10px;max-height:34vh">…</div>'
-    + '<div class="auto-note" style="margin-top:10px">Working through the story a passage at a time. Nothing reaches your library until it finishes.</div>',
-    [{ label:'Stop', onClick:()=>{ STORY.cancel = true; if (AI.ctrl){ try{ AI.ctrl.abort(); }catch(e){} } } }]);
-
-  const pages = [];
-  const cast = new Set();
-  let lastSlug = '';
-
-  for (let i = 0; i < chunks.length; i++){
-    if (STORY.cancel) break;
-    const st = el('stStat'), bar = el('stProg'), stream = el('stStream');
-    if (st) st.textContent = 'passage ' + (i+1) + ' of ' + chunks.length;
-    if (bar) bar.style.width = Math.round(i / chunks.length * 100) + '%';
-
-    let user = 'STORY: ' + (filename || 'Untitled') + '\n';
-    user += 'This is passage ' + (i+1) + ' of ' + chunks.length + '.\n';
-    if (lastSlug){
-      user += '\nThe previous passage ended inside this scene:\n' + lastSlug + '\n'
-            + 'If this passage continues in the same place at the same time, do NOT repeat that slugline — carry on writing the scene. Write a new slugline only when the place or the time actually changes.\n';
-    }
-    if (cast.size) user += '\nCharacters already established, spelled exactly like this: ' + [...cast].join(', ') + '\n';
-    user += '\n=== BEGIN PASSAGE ===\n\n' + chunks[i] + '\n\n=== END PASSAGE ===\n\nReturn this passage as screenplay pages now.\n';
-
-    try{
-      const raw = await aiStream(STORY_SPINE, user,
-        full => { if (stream){ stream.textContent = full.slice(-3000); stream.scrollTop = stream.scrollHeight; } },
-        null, { temperature: 0.25 });
-      const page = aiStripChatter(aiStripFence(aiStripThink(raw)));
-      if (page){
-        pages.push(page);
-        page.split('\n').forEach(l=>{
-          const t = l.trim();
-          if (!t) return;
-          if (SLUG_RE.test(t) && t === t.toUpperCase()){ lastSlug = t; return; }
-          if (TRANSITION_RE.test(t)) return;
-          const cm = t.match(CHARACTER_RE);
-          if (cm && t === t.toUpperCase() && t.length < 40){
-            const n = stripCharExt(cm[2]);
-            if (n.length > 1) cast.add(n);
-          }
-        });
-      }
-    }catch(e){
-      const msg = (e && e.message) || String(e);
-      if (msg === 'Cancelled'){ STORY.cancel = true; break; }
-      toast('Passage ' + (i+1) + ' failed: ' + msg.slice(0,80));
-    }
-  }
-
-  STORY.running = false;
-  crewApplyMutationLock();
+  const direction=(el('adaptDirection')&&el('adaptDirection').value.trim())
+    ||'Find the strongest truthful visual film inside this source. Do not reproduce the paper as illustrated narration.';
+  const target=Math.max(1,Number((el('adaptLength')||{}).value||10));
   closeModal();
-  if (!pages.length){ toast('Nothing came back — try a shorter document or another model.'); return; }
+  return crewStart('adaptation',direction,{text:String(text||''),filename:filename||'Source document',targetMinutes:target});
+}
 
-  const script = pages.join('\n\n');
-  const parsed = parseFountain(script);
-  if (!parsed.scenes.length){
-    openModal('Adapted, but no scene headings came back',
-      '<p style="line-height:1.6;margin-bottom:10px">The pages have no usable sluglines, so this cannot be imported as a breakdown yet. The text is here — save it, add the scene headings, and import the .fountain file.</p>'
-      + '<div class="ai-mono">' + esc(script.slice(0,4000)) + '</div>',
-      [
-        { label:'Download .fountain', primary:true, onClick:()=>{
-            download(String(filename||'adapted').replace(/\.[^.]+$/,'') + '.fountain', script, 'text/plain');
-            closeModal();
-          } },
-        { label:'Close' },
-      ]);
-    return;
+const SCRIPT_HEADING_REPAIR_SCHEMA={type:'object',additionalProperties:false,required:['headings'],properties:{
+  headings:{type:'array',items:{type:'object',additionalProperties:false,required:['lineNumber','original','replacement'],properties:{
+    lineNumber:{type:'integer',minimum:1},original:{type:'string'},replacement:{type:'string'}
+  }}}
+}};
+async function repairScriptHeadings(text,filename){
+  if (STORY.running || canonicalWorkerLocked()){ toast('Another project worker is still running.'); return; }
+  if (AI.status!=='on' && !(await aiConnect())){ toast('Heading repair needs a connected text model.'); return; }
+  const lines=String(text||'').replace(/\r\n?/g,'\n').split('\n'), chunkSize=260, changes=new Map();
+  STORY.running=true; STORY.cancel=false; crewApplyMutationLock();
+  openModal('Repairing scene headings only',
+    '<div class="ai-prog"><i id="stProg"></i></div><div class="ai-stat" id="stStat">Reading screenplay…</div>'
+    +'<div class="auto-note" style="margin-top:10px">The model may return line numbers and replacement headings only. Action, dialogue, order, and length are locked.</div>',
+    [{label:'Stop',onClick:()=>{STORY.cancel=true;if(AI.ctrl){try{AI.ctrl.abort();}catch(e){}}}}]);
+  try{
+    for(let start=0;start<lines.length;start+=chunkSize){
+      if(STORY.cancel) break;
+      const end=Math.min(lines.length,start+chunkSize), stat=el('stStat'),bar=el('stProg');
+      if(stat) stat.textContent='lines '+(start+1)+'–'+end+' of '+lines.length;
+      if(bar) bar.style.width=Math.round(end/Math.max(1,lines.length)*100)+'%';
+      const numbered=lines.slice(start,end).map((line,index)=>(start+index+1)+': '+line).join('\n');
+      const user='Identify only lines intended as screenplay scene headings whose syntax prevents parsing. Return their global line number, the exact original line, and a normalized replacement in the form INT. LOCATION - DAY or EXT. LOCATION - NIGHT. '
+        +'Do not return valid headings. Do not rewrite, correct, summarize, join, split, or move any other line. When uncertain, leave the line out.\n\n'+numbered;
+      const raw=await aiStream('You are a screenplay ingest repair tool. You can repair scene-heading lines only. Every other byte of the screenplay is immutable.',user,null,null,
+        {temperature:0,json:true,schema:SCRIPT_HEADING_REPAIR_SCHEMA,schemaName:'scene_heading_repairs',workloadId:'script.heading-repair',artifactType:'screenplay_ingest'});
+      const value=aiParseJson(raw);
+      (value.headings||[]).forEach(row=>{
+        const index=Number(row.lineNumber)-1, original=String(row.original||''), replacement=String(row.replacement||'').trim().toUpperCase();
+        if(index<0||index>=lines.length||lines[index]!==original) return;
+        if(!SLUG_RE.test(replacement)) return;
+        changes.set(index,replacement);
+      });
+    }
+  }catch(error){
+    if(!STORY.cancel) toast('Heading repair stopped: '+String((error&&error.message)||error));
+  }finally{
+    STORY.running=false; crewApplyMutationLock(); closeModal();
   }
-  parsed.title = parsed.title || String(filename||'Adapted story').replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').trim();
-  importParsed(parsed, String(filename||'story').replace(/\.[^.]+$/,'') + '.fountain');
+  if(STORY.cancel) return;
+  const repaired=lines.slice(); changes.forEach((value,index)=>{repaired[index]=value;});
+  const parsed=parseFountain(repaired.join('\n'));
+  if(!parsed.scenes.length){ toast('No reliable scene headings were found. Nothing was imported.'); return; }
+  parsed.title=parsed.title||String(filename||'Screenplay').replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').trim();
+  importParsed(parsed,String(filename||'screenplay').replace(/\.[^.]+$/,'')+'-headings-repaired.fountain');
+  toast('Repaired '+changes.size+' scene heading'+(changes.size===1?'':'s')+'. Script body preserved.',true);
 }
 
 /** Offer adaptation when an imported document turns out to be prose. */
-function offerAdaptation(text, filename){
+function offerAdaptation(text, filename, useAsLook){
   const words = (String(text||'').match(/\S+/g) || []).length;
-  openModal('This does not look like a screenplay',
-    '<p style="line-height:1.6">“' + esc(filename||'That file') + '” reads as prose — about ' + words.toLocaleString() + ' words, with no scene headings.</p>'
-    + '<p style="line-height:1.6;margin-top:10px">A model on this machine can adapt it into one: scene headings wherever the place or time changes, spoken lines moved under character cues, narration turned into action a camera can photograph. It keeps your story, your order of events and the words people say — it does not invent plot.</p>'
-    + '<p class="auto-note" style="margin-top:10px">About ' + Math.max(1, Math.ceil(String(text||'').length / 5000)) + ' passage(s) to work through. You can stop at any point.</p>',
-    [
-      { label:'Cancel' },
-      { label:'Import as-is', onClick:()=>{ closeModal(); importText(text, filename, true); } },
-      { label:'Adapt into a screenplay', primary:true, onClick:()=>{ closeModal(); storyToScript(text, filename); } },
-    ]);
+  const buttons=[{label:'Cancel'}];
+  if(typeof useAsLook==='function') buttons.push({label:'Use as Project Look',onClick:()=>{closeModal();useAsLook();}});
+  buttons.push({label:'Repair screenplay headings only',onClick:()=>{closeModal();repairScriptHeadings(text,filename);}});
+  buttons.push({label:'Develop source into a film',primary:true,onClick:()=>storyToScript(text,filename)});
+  openModal('What kind of document is this?',
+    '<p style="line-height:1.6">“'+esc(filename||'That file')+'” contains about '+words.toLocaleString()+' words but no reliable screenplay scene headings.</p>'
+    +'<div class="crit" style="margin-top:12px"><b>If it is already a screenplay:</b> repair headings only. The app locks every action line, line of dialogue, story beat, and the script length.</div>'
+    +'<div class="crit" style="margin-top:8px"><b>If it is a paper, essay, research, or prose source:</b> develop it first. Agents extract evidence, choose a film form, create a visual treatment, then write a new screenplay. They do not reformat the document.</div>'
+    +'<label class="bd-f" style="margin-top:12px"><span>Direction for the adaptation</span><textarea id="adaptDirection" rows="3" placeholder="Make a visually rigorous documentary that lets physical spaces and human use carry the argument."></textarea></label>'
+    +'<label class="ai-stat" style="display:block;margin-top:9px">Target length <select id="adaptLength" style="margin-left:6px">'
+    +[1,3,5,10,20,30,60,90].map(n=>'<option value="'+n+'"'+(n===10?' selected':'')+'>'+n+' minutes</option>').join('')+'</select></label>',buttons);
 }
 
 
 /* Boards toolbar */
 (function(){
   const f = el('boardFilter'), ss = el('boardStyleSel'), refresh=el('btnBoardRefresh'), renderAll=el('btnBoardRenderAll');
+  const agentPhotos=el('btnBoardAgentPhotos'), agentMovie=el('btnBoardAgentMovie');
   if (f) f.addEventListener('change', ()=>{ BOARD.filter = f.value; renderBoards(); });
   if (ss){
     ss.innerHTML = '<option value="">Project style — none</option>'
@@ -11149,6 +11971,8 @@ function offerAdaptation(text, filename){
   }
   if (refresh) refresh.addEventListener('click', ()=>boardRefreshVideos().catch(e=>toast('Could not refresh videos: '+String((e&&e.message)||e))));
   if (renderAll) renderAll.addEventListener('click', boardRenderAllReady);
+  if (agentPhotos) agentPhotos.addEventListener('click',()=>boardRunAgentPipeline(false));
+  if (agentMovie) agentMovie.addEventListener('click',()=>boardRunAgentPipeline(true));
 })();
 
 /* ============================================================

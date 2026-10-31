@@ -39,30 +39,138 @@ test('all executable inline scripts parse', () => {
 test('idea screenplay stays in the active Studio project', () => {
   const writer = bodyBetween('async function crewWriteScript', 'async function crewCoverage');
   const executable = writer.replace(/\/\/.*$/gm, '');
-  assert.match(writer, /CREW_SCREENPLAY_SCHEMA/);
+  assert.match(writer, /crewPlanScreenplay/);
+  assert.match(writer, /crewWritePlannedScene/);
   assert.match(writer, /crewStructuredScreenplay/);
   assert.match(writer, /S\.scenes\s*=\s*parsed\.scenes/);
   assert.match(writer, /runAutoBreakdown\(\)/);
-  assert.match(writer, /schema:CREW_SCREENPLAY_SCHEMA/);
+  assert.match(writer, /productionCheckpoint/);
   assert.doesNotMatch(executable, /importText\s*\(/);
   assert.doesNotMatch(executable, /importParsed\s*\(/);
   assert.doesNotMatch(executable, /parseScript\s*\(/);
   assert.doesNotMatch(writer, /screenplay in Fountain/);
 });
 
-test('target length applies only to a bare idea and never constrains an existing script', () => {
-  const writer = bodyBetween('async function crewWriteScript', 'async function crewCoverage');
+test('target length applies to newly authored idea/adaptation films and never constrains an existing script', () => {
+  const writer = bodyBetween('const CREW_SCREENPLAY_PLAN_SCHEMA', 'async function crewCoverage');
   const start = bodyBetween('async function crewStart', 'function crewResumeOwnerMatches');
   const room = bodyBetween('function renderCrew', '/* ================= render all + init ================= */');
   assert.match(writer, /if \(S\.scenes\.length&&!rewriting\) return/);
-  assert.match(writer, /p&&p\.mode==='idea'/);
-  assert.match(writer, /This is a bare-idea production/);
+  assert.match(writer, /\['idea','adaptation'\]\.includes\(p\.mode\)/);
+  assert.match(writer, /For an original idea/);
+  assert.match(writer, /source-adaptation|adaptation scene/i);
   assert.match(writer, /targetMinutes/);
-  assert.match(start, /const targetMinutes=mode==='idea'/);
-  assert.match(start, /if \(mode==='idea'\) S\.production\.targetMinutes=targetMinutes/);
+  assert.match(start, /\['idea','adaptation'\]\.includes\(mode\)/);
+  assert.match(start, /S\.production\.targetMinutes=targetMinutes/);
   assert.doesNotMatch(start, /targetMinutes, status/);
-  assert.match(room, /New idea target/);
-  assert.match(room, /Make the current script ignores it completely/);
+  assert.match(room, /New-film target/);
+  assert.match(room, /Current script/);
+});
+
+test('papers are developed as source adaptations instead of being reformatted as screenplay prose', () => {
+  const story = bodyBetween('const CREW_SOURCE_PASS_SCHEMA', 'const CREW_SCREENPLAY_SCHEMA');
+  const writer = bodyBetween('async function crewPlanScreenplay', 'async function crewCoverage');
+  const readiness = bodyBetween('function crewReadyRoles', 'const CREW_PRODUCER_DECISION_BASE');
+  const call = bodyBetween('async function crewCall', 'async function crewStart');
+  const ingest = source.slice(source.indexOf('async function storyToScript'), source.indexOf('/* Boards toolbar */'));
+  assert.match(story, /source-development digest/i);
+  assert.match(story, /Consider multiple possible film forms/);
+  assert.match(story, /screenEvent/);
+  assert.match(story, /sourceBasis/);
+  assert.match(writer, /Do not follow the paper\\'s section order/);
+  assert.match(writer, /crewValidateAdaptationScreenplay/);
+  assert.match(writer, /Do not paste source prose/);
+  assert.match(readiness, /p\.mode==='adaptation'/);
+  assert.match(readiness, /\['story_editor','director','writer','story_review'\]/);
+  assert.match(call, /crewReadyRoles\(p\)/);
+  assert.doesNotMatch(call, /runPipeline/);
+  assert.match(ingest, /crewStart\('adaptation'/);
+  assert.doesNotMatch(ingest, /Return this passage as screenplay pages/);
+});
+
+test('adaptation validation rejects a paper paragraph wearing screenplay headers', () => {
+  const context = {};
+  vm.createContext(context);
+  vm.runInContext(`${bodyBetween('function crewAdaptationOverlap', 'const CREW_SCREENPLAY_SCENE_SCHEMA')}
+    globalThis.validateAdaptation = crewValidateAdaptationScreenplay;`, context);
+  const sourceWords=Array.from({length:140},(_,index)=>'sourceword'+index);
+  const copied={scenes:[{blocks:[{type:'action',text:sourceWords.join(' ')}]}]};
+  assert.throws(()=>context.validateAdaptation(copied,sourceWords.join(' ')),/copies too much consecutive source prose/);
+  const transformed={scenes:[{blocks:[{type:'action',text:Array.from({length:140},(_,index)=>'screenaction'+index).join(' ')}]}]};
+  assert.equal(context.validateAdaptation(transformed,sourceWords.join(' ')),transformed);
+});
+
+test('agentic screenplay development plans, checkpoints each scene, and loops through independent review', () => {
+  const context = { Array, String, Number, Error, Math };
+  vm.createContext(context);
+  vm.runInContext(`${bodyBetween('function crewValidateScreenplayPlan', 'function crewWriterWork')}
+    globalThis.validatePlan=crewValidateScreenplayPlan;`,context);
+  const plan={scenePlan:[
+    {sceneNumber:1,durationSeconds:30,sourceBasis:'original premise'},
+    {sceneNumber:2,durationSeconds:30,sourceBasis:'original premise'}
+  ]};
+  assert.equal(context.validatePlan(plan,1,false),plan);
+  assert.throws(()=>context.validatePlan({scenePlan:[{sceneNumber:2,durationSeconds:60,sourceBasis:'source'}]},1,true),/contiguous/);
+  assert.throws(()=>context.validatePlan({scenePlan:[{sceneNumber:1,durationSeconds:5,sourceBasis:'source'}]},1,true),/outside the usable range/);
+
+  const development=bodyBetween('async function crewPlanScreenplay', 'const CREW_COVERAGE_SCHEMA');
+  assert.match(development,/if \(work\.sceneDrafts\[key\]\) return work\.sceneDrafts\[key\]/);
+  assert.match(development,/work\.sceneDrafts\[key\]=scene/);
+  assert.match(development,/productionCheckpoint\(\)===false/);
+  assert.match(development,/INDEPENDENT STORY-EDITOR NOTES/);
+  assert.match(development,/schema:CREW_SCREENPLAY_REVIEW_SCHEMA/);
+  const call=bodyBetween('async function crewCall','async function crewStart');
+  assert.match(call,/p\.writerWork\.review\.verdict==='revise'/);
+  assert.match(call,/productionStep\('writer','waiting'/);
+  assert.match(call,/productionStep\('story_review','waiting'/);
+  assert.match(call,/after two targeted revision passes/i);
+});
+
+test('a bounded producer agent selects only departments proven ready by the canonical graph', () => {
+  const readiness=bodyBetween('function crewReadyRoles','const CREW_PRODUCER_DECISION_BASE');
+  const producer=bodyBetween('async function crewPlanNext','/** The whole crew');
+  const call=bodyBetween('async function crewCall','async function crewStart');
+  assert.match(readiness,/CREW_BIBLE_PHASE/);
+  assert.match(readiness,/CREW_PREP_PHASE/);
+  assert.match(readiness,/CREW_PROMPT_PHASE/);
+  assert.match(readiness,/\['script_supervisor'\],\['taste'\],\['stills'\],\['second_unit'\],\['editor'\]/);
+  assert.match(producer,/schema\.properties\.nextRole\.enum=candidates/);
+  assert.match(producer,/if \(!candidates\.includes\(decision\.nextRole\)\)/);
+  assert.match(producer,/p\.orchestration\.decisions\.push\(record\)/);
+  assert.match(producer,/productionCheckpoint\(\)===false/);
+  assert.match(call,/crewRun\('producer',ask\)/);
+  assert.match(call,/if \(!ready\.includes\(id\)\)/);
+  assert.doesNotMatch(producer,/providerId\s*=|billingApproved\s*=|model\s*=/);
+});
+
+test('schema-bound Ollama calls stop cleanly for Muse Glimmer and other reasoning templates', () => {
+  const stream=bodyBetween('async function aiStream','/* ---------- scrubbing what the model gives back ---------- */');
+  assert.match(stream,/body\.think = false/);
+  assert.match(stream,/body\.options\.stop = \['<\|eot\|>','<\|im_end\|>'\]/);
+  assert.match(stream,/if \(!out\.trim\(\)\)/);
+});
+
+test('long Greenroom agent work renews its exclusive lease before expiry', () => {
+  const lease=bodyBetween('function crewStopRoleLease','/* ---------- the actual jobs ---------- */');
+  assert.match(lease,/greenroom_renew_role_work/);
+  assert.match(lease,/setInterval\(renew,15000\)/);
+  assert.match(lease,/lease\.failures>=2/);
+  assert.match(lease,/AI\.ctrl\.abort\(\)/);
+  const run=bodyBetween('async function crewRun','/** The whole crew, in order, on one idea. */');
+  assert.match(run,/crewStartRoleLease\(role,roleWork\)/);
+  assert.match(run,/CREW\.roleLease\.lost/);
+  assert.match(run,/crewStopRoleLease\(\)/);
+});
+
+test('screenplay repair can change scene-heading lines only', () => {
+  const repair = bodyBetween('async function repairScriptHeadings', '/** Offer adaptation');
+  assert.match(repair, /lineNumber/);
+  assert.match(repair, /lines\[index\]!==original/);
+  assert.match(repair, /SLUG_RE\.test\(replacement\)/);
+  assert.match(repair, /repaired\[index\]=value/);
+  assert.match(repair, /Do not rewrite, correct, summarize, join, split, or move any other line/);
+  assert.match(repair, /schema:SCRIPT_HEADING_REPAIR_SCHEMA/);
+  assert.doesNotMatch(repair, /storyToScript\s*\(/);
 });
 
 test('the production run is resumable and queues every stable shot id', () => {
@@ -270,6 +378,64 @@ test('service startup is single-flight in the webview and model choice remains u
   assert.match(connect, /if \(!AI\.model \|\| !hit\.models\.includes\(AI\.model\)\)/);
 });
 
+test('manual Greenroom agent work repairs a stale offline connection before it fails', async () => {
+  let checks = 0;
+  let starts = 0;
+  const connected = {
+    console, String,
+    CREW: { online: false, services: {}, startResults: [] },
+    crewConnect: async () => {
+      checks++;
+      connected.CREW.services={greenroom:{ok:true}};
+      connected.CREW.online=true;
+      return connected.CREW.services;
+    },
+    crewEnsureServices: async () => { starts++; return {greenroom:{ok:true}}; }
+  };
+  const requireGreenroom=loadFunction(
+    'async function crewRequireGreenroom',
+    'async function crewEnsureServices',
+    'crewRequireGreenroom',
+    connected
+  );
+  assert.equal(await requireGreenroom(),true);
+  assert.equal(checks,1,'a stale offline flag must trigger a live health check');
+  assert.equal(starts,0,'an already-running Greenroom must not be launched again');
+
+  const claim=bodyBetween('async function crewClaimRoleWork','function crewStopRoleLease');
+  const open=bodyBetween('async function crewOpenRecord','/** File every handoff');
+  assert.match(claim,/await crewRequireGreenroom\(\)/);
+  assert.match(open,/await crewRequireGreenroom\(\)/);
+  assert.doesNotMatch(claim,/if \(!CREW\.online\) throw/);
+});
+
+test('Client Room shows live model activity until the validated agent checkpoint exists', () => {
+  const stream=bodyBetween('/** Stream one completion.', '/* ---------- scrubbing what the model gives back ---------- */');
+  assert.match(stream,/crewLiveActivity\(opts,'connecting',0,true\)/);
+  assert.match(stream,/crewLiveActivity\(opts,'drafting',out\.length\)/);
+  assert.match(stream,/crewLiveActivity\(opts,'validating',out\.length,true\)/);
+  const room=bodyBetween('function renderCrew', '/* ================= render all + init ================= */');
+  assert.match(room,/id="crewLiveActivity"/);
+  assert.match(room,/crewLiveActivityText\(p\.currentStep\)/);
+  const run=bodyBetween('async function crewRun', 'async function crewFillMissingLook');
+  assert.match(run,/CREW\.live&&CREW\.live\.roleId===role\.id/);
+});
+
+test('individual department controls explain an active-pipeline block instead of swallowing clicks', () => {
+  const room=bodyBetween('function renderCrew', '/* ================= render all + init ================= */');
+  assert.match(room,/id="crewDepartmentControls"/);
+  assert.match(room,/CREW\.departmentsOpen\?' open'/);
+  assert.match(room,/addEventListener\('toggle'/);
+  assert.match(room,/scrollIntoView\(\{block:'start',behavior:'smooth'\}\)/);
+  assert.match(room,/Why unavailable/);
+  assert.match(room,/data-crew-blocked="1"/);
+  assert.doesNotMatch(room,/data-crew="'\+r\.id\+'"'\+\(active\?' disabled'/);
+  const handler=room.slice(room.indexOf("w.querySelectorAll('[data-crew]')"));
+  assert.match(handler,/if \(crewMutationLocked\(\)\)/);
+  assert.match(handler,/Individual departments cannot start while/);
+  assert.ok(handler.indexOf('crewMutationLocked()') < handler.indexOf('crewRun(b.dataset.crew'));
+});
+
 test('standalone AI work and delayed style-guide reads cannot cross project ownership', () => {
   const workerLock = bodyBetween('function canonicalWorkerLocked', 'function crewMutationLocked');
   assert.match(workerLock, /AI\.status==='probing' \|\| AI\.ctrl/);
@@ -290,7 +456,18 @@ test('Greenroom thread messages remain provenance-only and posts are ordered', (
   assert.match(merge, /provenanceOnly:true/);
   assert.doesNotMatch(merge, /p\.steps\[roleId\]\s*=/);
   const run = bodyBetween('async function crewRun', '/** The whole crew, in order, on one idea. */');
-  assert.match(run, /await crewRecord/);
+  assert.match(run, /await crewClaimRoleWork/);
+  assert.match(run, /await crewFinalizeRoleWork/);
+  assert.ok(run.indexOf('await crewClaimRoleWork') < run.indexOf("productionStep(role.id,'running'"));
+  assert.ok(run.indexOf('productionStep(role.id,status') < run.indexOf('await crewFinalizeRoleWork'));
+  assert.match(source, /greenroom_claim_role_work/);
+  assert.match(source, /greenroom_ack_role_work/);
+  const record = bodyBetween('async function crewRecord', 'function crewGreenroomRoleId');
+  assert.match(record, /roleId:crewGreenroomRoleId\(role\)/);
+  const roleContext = {};
+  const greenroomRoleId = loadFunction('function crewGreenroomRoleId', 'function crewGreenroomWorkPacket', 'crewGreenroomRoleId', roleContext);
+  assert.equal(greenroomRoleId({id:'story_review',greenroomRoleId:'story_editor'}),'story_editor');
+  assert.equal(greenroomRoleId({id:'stills_prompt'}),'prompt_writer');
 });
 
 test('live resume returns to polling without rerunning departments', async () => {
@@ -518,7 +695,9 @@ test('a department result must be durable before provenance or later work contin
     },
     crewLookJob: async () => 'look written', crewBibleJob: async () => '', crewImages: async () => '', crewVideo: async () => '',
     crewArtifactForRole: () => null,
-    crewRecord: async () => { records++; }, crewEnsureCurrentProject: () => {}, productionCheckpoint: () => true,
+    crewClaimRoleWork: async () => ({ id: 'work-id' }),
+    crewFinalizeRoleWork: async () => { records++; return true; },
+    crewEnsureCurrentProject: () => {}, productionCheckpoint: () => true,
     uid: () => 'id'
   };
   const run = loadFunction('/** Run one department. */', '/** The whole crew, in order, on one idea. */', 'crewRun', context);
@@ -578,7 +757,8 @@ test('a manual department owns the draft before AI probing and consumes its own 
     crewBibleJob: async () => '',
     crewImages: async () => '',
     crewVideo: async () => '',
-    crewRecord: async () => {},
+    crewClaimRoleWork: async () => ({ id: 'work-id' }),
+    crewFinalizeRoleWork: async () => true,
     crewEnsureCurrentProject: () => {},
     productionCheckpoint: () => true,
     uid: () => 'id'
@@ -640,7 +820,8 @@ test('a direct media department cannot leave its synthetic production permanentl
     crewBibleJob: async () => '',
     crewImages: async () => ({ status: 'skipped', text: 'still engine unavailable' }),
     crewVideo: async () => '',
-    crewRecord: async () => {},
+    crewClaimRoleWork: async () => ({ id: 'work-id' }),
+    crewFinalizeRoleWork: async () => true,
     crewEnsureCurrentProject: () => {},
     productionCheckpoint: () => true,
     uid: () => `id-${++serial}`
@@ -671,6 +852,7 @@ test('stopping an in-flight department cancels cleanly instead of becoming a fal
     crewReworkQueue: () => [],
     crewPrepareRework: () => true,
     productionState: () => production,
+    crewReadyRoles: p => p.steps.prompt_writer?.status === 'done' ? [] : ['prompt_writer'],
     crewRun: async () => {
       context.CREW.cancel = true;
       return { ok: false, status: 'failed', out: 'AbortError' };

@@ -37,7 +37,7 @@ Its **Evaluation Lab** records durable model-work receipts and can replay one co
 Agentic Movie Studio coordinates four loopback-only services:
 
 - **Ollama** — user-selectable local language and vision models.
-- **Greenroom** — stable crew identities and production provenance.
+- **Greenroom** — durable agent assignments, exclusive claims, stable crew identities, and production conversation. The Studio integration uses the open-source [Greenroom local-model fork](https://github.com/Hax0rgurl/greenroomlocalmodels/tree/codex/agentic-movie-studio-greenroom) and the [durable agent-work protocol](docs/decisions/0004-greenroom-agent-work-protocol.md).
 - **PitchDeck** — the provider registry, media bridge, render receipts, status recovery, and assembly.
 - **Phosphene** — the built-in local image-to-video and text-to-video provider.
 
@@ -45,7 +45,7 @@ The application has no hosted account, analytics service, or required cloud mode
 
 ## Crew skill books
 
-The 22 agent manuals live in [`src/crew-skills`](src/crew-skills). Each book defines the role's authority, required inputs, canonical fields, forbidden changes, procedure, output contract, validation, repair rules, client-room update, and handoff. A shared Studio Constitution makes human direction, durable checkpoints, stable IDs, and real artifact verification binding across departments.
+The 23 agent manuals live in [`src/crew-skills`](src/crew-skills). Each book defines the role's authority, required inputs, canonical fields, forbidden changes, procedure, output contract, validation, repair rules, client-room update, and handoff. A shared Studio Constitution makes human direction, durable checkpoints, stable IDs, and real artifact verification binding across departments.
 
 `scripts/build-crew-skill-registry.mjs` compiles those readable Markdown files into the local runtime registry. Tests fail if a roster role has no book or if the runtime copy drifts from the authored file.
 

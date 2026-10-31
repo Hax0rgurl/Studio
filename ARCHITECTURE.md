@@ -5,7 +5,7 @@ over one shared project.** The inherited screenplay parser and breakdown remain 
 Cork Board and Slate run as connected modules; Ollama supplies the role-scoped creative
 work; the Agentic Movie Studio taste layer reviews it; PitchDeck routes approved work to independently
 selected still and video providers (with Phosphene as the built-in video adapter); Greenroom
-keeps stable crew identity and a durable production record.
+owns durable role assignments, exclusive execution claims, stable crew identity, and the production record.
 
 That sentence is the design, and it has two halves that are easy to confuse:
 
@@ -84,10 +84,22 @@ manual add, AI, import) satisfies the invariant without each one having to remem
 
 The primary workflow is the **Make a Film** view, not a manual export/import chain.
 
+The execution controller is a durable readiness graph, not a fixed department loop. Deterministic
+code derives the only departments whose prerequisites have passed. When more than one department is
+ready, the Greenroom-claimed producer agent chooses exactly one from that bounded enum, explains the
+handoff, and checkpoints the decision in `S.production.orchestration`. The producer cannot invent a
+role, waive a validation or human-review gate, change the chosen model/provider/billing approval, or
+write another department's artifact. After every canonical checkpoint the graph is recalculated, so
+Resume continues from evidence already saved instead of replaying a memorized checklist.
+
 1. **Idea mode** creates a new Agentic Movie Studio project, asks the director and story editor for the
-   creative spine, writes schema-validated structured screenplay scenes directly into that
-   same project, and runs the inherited deterministic breakdown. Fountain is compatibility
-   for human import/export, not the agent's control format.
+   creative spine, then saves a duration-aware whole-film plan before screenplay pages exist.
+   The writer produces one schema-validated scene at a time and checkpoints each scene so a
+   long feature can resume without discarding completed work. The story editor returns as a
+   separate claimed Greenroom job, reviews the assembled screenplay without rewriting it, and
+   may send only cited scenes back for at most two targeted revision passes. A passing draft is
+   installed into the same project and receives the inherited deterministic breakdown. Fountain
+   is compatibility for human import/export, not the agent's control format.
 2. **Current-script mode** preserves the screenplay already open and starts from its parsed
    scenes. A bundled demo or unrelated draft is never substituted for the user's idea.
 3. Department roles fill the existing bibles, Look, coverage and Prompt modules. They do not
@@ -320,13 +332,20 @@ choices.
 
 Greenroom's seeded crew identities are reused instead of minting `role-randomsuffix`
 identities in browser storage. One native-only credential broker opens or reuses a tagged
-thread for each production, verifies that the thread belongs to the project, and posts every
-role step under the canonical role identity. Credentials never enter the webview. Greenroom
-is the durable identity/provenance layer; it is not being misrepresented as the code that
-runs models or edits Agentic Movie Studio state. Fetched messages are display-only: prose from Greenroom
-never marks a canonical department complete, because it cannot prove that the active snapshot
-contains the corresponding mutation. Those actions and checkpoints remain explicit Agentic Movie Studio
-pipeline steps.
+thread for each production, verifies that the thread belongs to the project, and registers a
+deterministic host for each exact `(production, role, work)` assignment. The role receives a
+self-contained delivery containing its versioned skill book, filmmaker direction, TasteOS
+constraints, predecessor evidence, and allowed canonical write. It must claim that delivery
+exclusively before Ollama or a media tool runs. Studio acknowledges the delivery only after the
+role result passes validation and the canonical project checkpoint succeeds. Lost responses are
+recovered by the deterministic host and work ids instead of creating a second role job.
+Long jobs renew their exclusive delivery lease every 15 seconds; two consecutive renewal
+failures abort model work before Greenroom's 60-second dead-host timeout can assign it elsewhere.
+Credentials never enter the webview. Greenroom owns durable work and conversation; Ollama owns
+inference; Studio alone owns canonical screenplay, bible, Look, shot, prompt, take, and cut writes.
+Fetched message prose remains display-only because a message by itself cannot prove that the active
+snapshot contains the corresponding mutation. See
+[`docs/decisions/0004-greenroom-agent-work-protocol.md`](docs/decisions/0004-greenroom-agent-work-protocol.md).
 
 The separate project called TasteOS (`Compiled Apps/hackathon-upscale-conf`) is a fixed
 Magnific hackathon demonstration with in-memory feedback and no learned model or durable
@@ -372,11 +391,13 @@ solved.
   reports `hydrated:false`. The pipeline records a skipped still stage and continues through
   stops the automated movie path instead of lying that a frame exists or silently falling
   back to Phosphene text-to-video.
-- **Greenroom records the crew; it does not execute it.** Studio's role-scoped Ollama steps
-  do the creative work and mutate the canonical project. Greenroom supplies stable seeded
-  identities and a secure durable thread for their handoffs. A future long-lived
-  Greenroom delivery worker could claim external jobs, but the old one-shot `filmcrew/run.py`
-  is not treated as one.
+- **Greenroom now owns the crew work lifecycle.** Every department is a registered host with a
+  durable delivery, exclusive claim, thread handoff, and post-checkpoint acknowledgment. Studio
+  currently acts as the trusted executor while the desktop app is open because canonical project
+  state still lives in its WebKit project store. Closing the app preserves the Greenroom delivery
+  and Studio work receipt for Resume. A future headless executor can use the same protocol after
+  canonical project storage is moved behind a native compare-and-swap broker; it must not bypass
+  Studio validation or acknowledge prose as an artifact.
 - **The current editor is deterministic assembly.** It concatenates completed clips in shot
   order and preserves any audio already present. It does not yet generate or mix dialogue,
   score, Foley or ambience, and the composer role currently contributes creative direction
