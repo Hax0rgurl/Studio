@@ -182,12 +182,12 @@ pub fn double_feature_key_remove() -> Result<(),String> {
 }
 
 #[tauri::command]
-pub async fn studio_mcp_tools(endpoint:String, token:Option<String>) -> Result<Value,String> {
+pub async fn studio_mcp_tools(endpoint:String, token:Option<String>, kind:Option<String>, instructions:Option<String>) -> Result<Value,String> {
     use std::io::Write;
     tauri::async_runtime::spawn_blocking(move || {
         let mut child=Command::new(studio_python()?).args(["-c",WORKER,"--tools"])
             .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().map_err(|e|e.to_string())?;
-        let data=json!({"url":endpoint,"token":token}).to_string();
+        let data=json!({"url":endpoint,"token":token,"kind":kind,"instructions":instructions,"guide":include_str!("../../src/crew-skills/PROVIDER-SETUP.md")}).to_string();
         child.stdin.take().ok_or("Missing input")?.write_all(data.as_bytes()).map_err(|e|e.to_string())?;
         let output=child.wait_with_output().map_err(|e|e.to_string())?;
         let value:Value=serde_json::from_slice(&output.stdout).map_err(|_|"Plugin discovery failed")?;

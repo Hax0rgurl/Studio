@@ -6743,6 +6743,32 @@ function pluginSettings(){
       row.append(remove);list.append(row);
     }
   }
+  let proposed;
+  const setup=el('agentSetup'),save=el('agentSave'),feedback=el('agentFeedback');
+  const invalidate=()=>{proposed=null;save.hidden=true;};
+  for(const id of ['agentKind','agentEndpoint','agentNotes','agentSecret'])el(id).oninput=invalidate;
+  setup.onclick=async()=>{
+    invalidate();setup.disabled=true;
+    const controls=['agentKind','agentEndpoint','agentNotes','agentSecret'].map(el);
+    controls.forEach(x=>x.disabled=true);
+    const [kind,endpoint,notes,secret]=controls.map(x=>x.value.trim());
+    try{
+      if(!endpoint)throw Error('Paste the connection link from your provider.');
+      feedback.textContent='The setup agent is reading the provider instructions. This can take a minute.';
+      proposed=await crewInvoke('studio_mcp_tools',{endpoint,kind,instructions:notes,token:secret||null});
+      feedback.textContent='Ready to add '+proposed.name+' at '+new URL(proposed.url).host+'. '+(proposed.poll?'Studio will check for the finished video.':'Studio will collect the video returned by the provider.');
+      save.hidden=false;
+    }catch(e){feedback.textContent=String(e);}finally{controls.forEach(x=>x.disabled=false);setup.disabled=false;}
+  };
+  save.onclick=async()=>{
+    try{
+      if(!proposed)return;
+      const token=el('agentSecret').value.trim();
+      if(token)await crewInvoke('double_feature_key',{endpoint:proposed.url,token});
+      localStorage.setItem('studio.mcp.video',JSON.stringify([...studioPlugins().filter(p=>p.url!==proposed.url),proposed]));
+      el('agentSecret').value='';rows();feedback.textContent='Added '+proposed.name+'. Choose it in Dashboard → Double feature → Video renderer.';invalidate();
+    }catch(e){feedback.textContent=String(e);}
+  };
   function args(){
     const schema=discovered.find(x=>x.name===tools.value)?.inputSchema||{};
     prompt.replaceChildren(...Object.keys(schema.properties||{}).map(k=>new Option(k,k)));
@@ -9349,7 +9375,7 @@ function settingsPanelHtml(initialTab){
         +'</div><label style="display:flex;gap:9px;align-items:flex-start;margin-top:12px"><input type="checkbox" id="settingsNoThink"'+(AI.noThink?' checked':'')+dis+' style="margin-top:3px;width:auto"><span><b>Skip the separate thinking step</b><br><span class="auto-note">Faster for routine production work. Models that cannot disable thinking ignore this setting.</span></span></label></div>'
       +'</section>'
       +'<section class="settings-panel'+on('media')+'" data-settings-panel="media"><h4>Media APIs</h4>'
-        +'<div class="settings-card"><h5>Video MCP plugins</h5><div id="pluginList"></div><details><summary>Add or update a plugin</summary><label class="settings-field">Plugin name<input id="pluginName" type="text" autocomplete="off"></label><label class="settings-field">MCP server URL<input id="pluginUrl" type="url" autocomplete="off"></label><label class="settings-field">Bearer token (if required)<input id="pluginToken" type="password" autocomplete="off"></label><button class="btn small" id="pluginFind">Connect and find tools</button><label class="settings-field">Video generation tool<select id="pluginTool"></select></label><label class="settings-field">Prompt field<select id="pluginPrompt"></select></label><label class="settings-field">Video URL result field (blank for a direct link)<input id="pluginVideo" placeholder="video_url"></label><details><summary>Tool options and queued jobs</summary><label class="settings-field">Extra tool arguments as JSON<input id="pluginArgs"></label><label class="settings-field">Status tool name<input id="pluginPoll"></label><label class="settings-field">Job ID result field<input id="pluginJob"></label><label class="settings-field">Job ID argument for status tool<input id="pluginJobArg"></label></details><button class="btn small" id="pluginSave">Save plugin</button></details><p id="pluginStatus" role="status"></p></div>'
+        +'<div class="settings-card"><h5>Provider setup assistant</h5><p>Choose the kind of connection your video provider offers. The agent reads its instructions and sets up the renderer for you.</p><label class="settings-field">Connection type<select id="agentKind"><option value="mcp">MCP server</option><option value="api">Video API</option></select></label><label class="settings-field">Provider connection link<input id="agentEndpoint" type="url" placeholder="https://…"></label><label class="settings-field">Provider instructions<textarea id="agentNotes" placeholder="For an API, paste its public request and response examples. For MCP, the server link is usually enough."></textarea></label><label class="settings-field">Key, if your provider requires one<input type="password" autocomplete="off" id="agentSecret"></label><button class="btn primary" id="agentSetup">Ask the setup agent</button> <button class="btn small" id="agentSave" hidden>Add this provider</button><p role="status" id="agentFeedback"></p><div id="pluginList"></div><details><summary>Manual MCP setup</summary><label class="settings-field">Plugin name<input id="pluginName" type="text" autocomplete="off"></label><label class="settings-field">MCP server URL<input id="pluginUrl" type="url" autocomplete="off"></label><label class="settings-field">Bearer token (if required)<input id="pluginToken" type="password" autocomplete="off"></label><button class="btn small" id="pluginFind">Connect and find tools</button><label class="settings-field">Video generation tool<select id="pluginTool"></select></label><label class="settings-field">Prompt field<select id="pluginPrompt"></select></label><label class="settings-field">Video URL result field (blank for a direct link)<input id="pluginVideo" placeholder="video_url"></label><details><summary>Tool options and queued jobs</summary><label class="settings-field">Extra tool arguments as JSON<input id="pluginArgs"></label><label class="settings-field">Status tool name<input id="pluginPoll"></label><label class="settings-field">Job ID result field<input id="pluginJob"></label><label class="settings-field">Job ID argument for status tool<input id="pluginJobArg"></label></details><button class="btn small" id="pluginSave">Save plugin</button></details><p id="pluginStatus" role="status"></p></div>'
         +'<div class="settings-card"><h5>Qwen Token Plan</h5><p id="qwenKeyState" role="status">Checking Mac Keychain…</p><label class="settings-field"><span>API key</span><input type="password" id="qwenKeyInput" autocomplete="off" spellcheck="false" placeholder="sk-sp-…"></label><button type="button" class="btn small" id="qwenKeySave">Save key</button> <button type="button" class="btn small" id="qwenKeyRemove" disabled>Remove key</button></div>'
         +'<div class="settings-intro">Double feature uses the crew and film editor included in Studio. Wan 3 renders the shots through your Qwen account.</div><details><summary>Legacy production providers</summary><div class="settings-intro">These choices apply to the older production tools.</div>'
         +(mediaLocked?'<div class="crit bad" style="margin-bottom:12px">This production has already frozen its provider choices. Finish, cancel, or archive the render manifest before changing them.</div>':'')
