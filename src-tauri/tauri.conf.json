@@ -19,7 +19,11 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$VIDEO/Agentic Movie Studio/Double Features/*/*.mp4"]
+      }
     }
   },
   "bundle": {

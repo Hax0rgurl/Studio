@@ -595,7 +595,7 @@
     <!-- STUDIO TOWN — a real-time view over the same canonical project -->
     <div class="view" id="view-town">
       <div class="view-head"><h2>Studio Town</h2><span class="meta">The autonomous crew at work. Every movement, message and status comes from a real production event.</span></div>
-      <p id="townCrewStatus" role="status"></p><button class="btn small" onclick="nav('crew')">Open production dashboard</button><div class="town-observe"><div id="townWrap"></div><aside id="townMonitor" aria-label="Latest footage"></aside></div>
+      <p id="townCrewStatus" role="status"></p><span id="townFilmNav"></span><button class="btn small" onclick="nav('crew')">Open production dashboard</button><div class="town-observe"><div id="townWrap"></div><aside id="townMonitor" aria-label="Latest footage"></aside></div>
     </div>
 
     <!-- CLIENT ROOM — human direction, review, and durable Greenroom record -->
@@ -6794,6 +6794,58 @@ function pluginSettings(){
   };rows();
 }
 
+let filmLibraryBusy=false;
+const filmReceipts=new Map();
+function productionChat(run){
+  return (run.chat||[]).map(m=>({roleId:m.sender,fromRoleId:m.sender,toRoleIds:[m.recipient],kind:'conversation',eventType:'reply',who:'@'+m.sender+' → @'+m.recipient,at:m.at,text:m.text,status:'sent'}));
+}
+function filmProject(run){
+  if(!run.films?.length)return;
+  const id='feature-'+run.id,did=id+'-script';
+  let project=DB.projects.find(p=>p.id===id);
+  const created=!project;
+  if(!project){
+    const state=blankState();state.title=run.films[0].title;state.scriptName='Crew shooting script';state.doubleFeatureId=run.id;
+    project={id,name:state.title,created:new Date().toISOString(),drafts:[{id:did,name:'Double feature',imported:new Date().toISOString(),state}]};DB.projects.push(project);
+  }
+  const draft=project.drafts[0],state=ACTIVE.d===draft.id?S:draft.state;
+  let changed=created;
+  for(const f of run.films){
+    let scene=state.scenes.find(sc=>sc.crewFilmNumber===f.number);
+    if(!scene){
+      const parsed=parseFountain('.FILM '+f.number+' — '+f.title.toUpperCase()+'\n\n'+f.shots.join('\n\n'));
+      scene=parsed.scenes[0];if(!scene)continue;
+      scene.num=String(f.number);scene.crewFilmNumber=f.number;
+      scene.shots=f.shots.map((text,i)=>({id:id+'-'+f.number+'-'+(i+1),num:f.number+'.'+(i+1),desc:text,prompt:{text},takes:[]}));
+      state.scenes.push(scene);changed=true;
+    }
+    for(const clip of run.clips||[]){
+      if(clip.film!==f.number)continue;
+      const shot=scene.shots[clip.shot-1];if(!shot)continue;
+      const jobId='crew-'+f.number+'-'+clip.shot;
+      if(shot.takes.some(t=>t.jobId===jobId))continue;
+      const path=run.folder+'/film-'+f.number+'-shot-'+clip.shot+'.mp4';
+      const convert=window.__TAURI__?.core?.convertFileSrc;if(!convert)continue;
+      shot.takes.push({id:shot.id+'-take',jobId,file:convert(path),status:'done',num:1});changed=true;
+    }
+  }
+  draft.state=state;
+  if(changed)saveDB();
+  if(!S.scenes.length && (!activeDraft() || S.title==='Untitled Project') && !crewMutationLocked())openDraft(id,did);
+  else if(changed && ACTIVE.d===did)renderAll();
+  return project;
+}
+async function syncFilmProjects(){
+  if(filmLibraryBusy)return;filmLibraryBusy=true;
+  try{
+    for(const run of await crewInvoke('double_feature_library')){
+      const before=filmReceipts.get(run.id);filmReceipts.set(run.id,run);
+      filmProject(run);
+      if((before?.modified!==run.modified||before?.chat?.length!==run.chat?.length)&&activeView()==='client'&&S.doubleFeatureId===run.id)renderClientRoom();
+    }
+  }catch(e){console.warn('Film project sync:',String(e));}finally{filmLibraryBusy=false;}
+}
+
 function studioMonitor(host,run){
   if(!host||!run)return;
   const clip=run.clips?.at(-1),film=run.films?.at(-1);
@@ -6841,6 +6893,12 @@ function doubleFeatureControls(){
       const blocks=rows.map(r=>{
         const block=document.createElement('section');
         const line=document.createElement('p');line.textContent=r.status;block.append(line);
+        if(r.films?.length){
+          for(const [view,label] of [['scenes','Script'],['boards','Storyboard'],['client','Crew chat']]){
+            const link=document.createElement('button');link.className='btn small';link.textContent=label;
+            link.onclick=()=>{const project=filmProject(r);if(project){if(activeDraft())persistNow();openDraft(project.id,project.drafts[0].id);nav(view);}};block.append(link);
+          }
+        }
         for(const f of r.films||[]){
           const label=document.createElement('p');label.textContent=f.title+' · '+f.source;block.append(label);
           if(f.file){
@@ -7189,6 +7247,13 @@ async function refreshTownRun(){
     const latest=rows.slice().sort((a,b)=>(b.modified||0)-(a.modified||0));
     townRun=latest.find(r=>!String(r.status).startsWith('Stopped')&&r.status!=='Complete')||latest[0]||null;
     el('townCrewStatus').textContent=townRun?townRun.status:'The crew is ready. Start a film in the dashboard.';
+    const links=el('townFilmNav');if(townRun?.films?.length&&links.dataset.run!==townRun.id){
+      links.dataset.run=townRun.id;links.replaceChildren();
+      for(const [view,label] of [['scenes','Script'],['boards','Storyboard'],['client','Crew chat']]){
+        const link=document.createElement('button');link.className='btn small';link.textContent=label;
+        link.onclick=()=>{const proj=filmProject(townRun);if(proj){if(activeDraft())persistNow();openDraft(proj.id,proj.drafts[0].id);nav(view);}};links.append(link);
+      }
+    }
     studioMonitor(el('townMonitor'),townRun);
     if(STUDIO_TOWN_CONTROLLER)STUDIO_TOWN_CONTROLLER.refresh();
   }catch(e){el('townCrewStatus').textContent=String(e);}
@@ -7210,7 +7275,7 @@ function townViewModel(selectedRoleId){
     return StudioTownModel.deriveTownVM({layout:StudioTownLayout,projectId:ACTIVE.p,draftId:ACTIVE.d,
       title:r.films?.at(-1)?.title||'Double feature',roster:CREW_ALL,selectedRoleId,
       production:{id:r.id,status:blocked?'needs_attention':done?'complete':'running',currentStep:done?'':role,error:blocked?r.status:''},
-      transcript:(r.events||[]).map(e=>({roleId:e.role,text:e.text,at:e.at})),services:{},allowManual:false});
+      transcript:[...(r.events||[]).map(e=>({roleId:e.role,text:e.text,at:e.at})),...productionChat(r)],services:{},allowManual:false});
   }
   const videoSelection=videoProviderSelection(p),imageSelection=imageProviderSelection(p);
   const videoProvider=videoProviderDescriptor(videoSelection.id)||{id:videoSelection.id,name:videoSelection.id};
@@ -7306,6 +7371,14 @@ function wireClientRoom(wrap){
 }
 function renderClientRoom(){
   const wrap=el('clientWrap');if(!wrap)return;
+  const run=filmReceipts.get(S.doubleFeatureId);
+  if(run){
+    const messages=productionChat(run);
+    wrap.innerHTML='<h3>Crew chat</h3>'+messages.map(clientTranscriptHtml).join('')
+      +(messages.length?'':'<p>No crew conversation was recorded during this production.</p>')
+      +'<h4>Production notes</h4>'+run.films.map(f=>'<article class="crew-message"><b>Film '+f.number+' · '+esc(f.title)+'</b><p>'+esc(f.screening?.observation||'Screening pending.')+'</p></article>').join('');
+    return;
+  }
   wireClientRoom(wrap);
   const p=productionState(),transcript=crewTranscriptEntries(p),current=p&&p.currentStep?crewFind(p.currentStep):null;
   const roleOptions=CREW_ALL.map(role=>'<option value="'+esc(role.id)+'">@'+esc(role.at)+' · '+esc(role.title)+'</option>').join('');
@@ -13626,7 +13699,7 @@ async function exportToPitchDeck(){
     crewActivateLoadedProduction();
     el('saveState').textContent = 'restored from library';
   }
-  renderAll();nav('town');
+  renderAll();nav('town');syncFilmProjects();setInterval(syncFilmProjects,3500);
   // Service health is real runtime state, so populate every production surface
   // on launch instead of showing stale offline pills until the user visits the Dashboard.
   crewConnect().then(()=>{

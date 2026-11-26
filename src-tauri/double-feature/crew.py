@@ -59,17 +59,32 @@ def duty(role,text):
     state.setdefault('events',[]).append(dict(role=role,text=text,at=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())))
     status(text)
 
+def handoff(sender,recipient,message):
+    state.setdefault('chat',[]).append(dict(sender=sender,recipient=recipient,text=message,at=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())))
+    save(folder/'run.json',state)
+
+def crew_reply(role,context):
+    response=model(role,context,schema={'type':'object','properties':{'message':{'type':'string'}},'required':['message']})
+    return response['message']
+
 def plan(n,previous):
     plays=cfg['plays']
     duty('producer','Choosing the story for film '+str(n))
     choice=model('You are the producer of an independent film crew. Pick an original or one of the available plays. Return JSON.',json.dumps(dict(plays=[dict(id=i,title=p['name'],opening=p['text'][:1200]) for i,p in enumerate(plays)],earlier=previous,request='Return source (integer shelf id, or -1 for original) and brief (concrete story with a visual ending). For film two choose a fresh story.')),schema={'type':'object','properties':{'source':{'type':'integer','minimum':-1,'maximum':len(plays)-1},'brief':{'type':'string'}},'required':['source','brief']})
     source=choice['source'] if plays else -1
     if type(source)!=int or source < -1 or source>=len(plays):raise ValueError('Producer returned an unknown play')
+    handoff('producer','writer',choice['brief'])
+    question=crew_reply('You are the screenwriter. Ask the director one specific practical question about staging this brief.',choice['brief'])
+    handoff('writer','director',question)
+    answer=crew_reply('You are the director. Answer the screenwriter directly with a filmable decision.',choice['brief']+'\n'+question)
+    handoff('director','writer',answer)
     duty('writer','Writing the two shots for film '+str(n))
     screenplay=model('You are the screenwriter and director. Return JSON only. Write an original or faithful adaptation as assigned.',
-        json.dumps(dict(brief=choice['brief'],play=plays[source]['text'] if source>=0 else None,earlierFilm=previous,
+        json.dumps(dict(brief=choice['brief'],direction=answer,play=plays[source]['text'] if source>=0 else None,earlierFilm=previous,
         request='Design a complete two-shot, ten-second short with an observable change and ending. Return title, and shots (exactly two detailed self-contained five-second video prompts). Specify consistent character and location details in each. For film two also return appliedLesson explaining exactly which visual change appears in which shot.')),schema={'type':'object','properties':{'title':{'type':'string'},'shots':{'type':'array','minItems':2,'maxItems':2,'items':{'type':'string'}},'appliedLesson':{'type':'string'}},'required':['title','shots','appliedLesson']})
     if not isinstance(screenplay.get('title'),str) or not screenplay['title'].strip() or len(screenplay['shots'])!=2 or not all(isinstance(x,str) and x.strip() for x in screenplay['shots']):raise ValueError('Invalid film plan')
+    if n==2 and (screenplay['title']==previous['title'] or screenplay['shots']==previous['shots']):
+        raise ValueError('The writer repeated film one. Recover to develop a fresh story before rendering.')
     if n==2 and not screenplay.get('appliedLesson'):raise ValueError('Missing direction based on the screening')
     return dict(number=n,source=plays[source]['name'] if source>=0 else 'Crew original',**{k:screenplay[k] for k in ('title','shots')},appliedLesson=screenplay.get('appliedLesson',''),jobs=[{},{}])
 

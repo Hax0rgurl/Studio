@@ -43,6 +43,13 @@ pub fn double_feature_library() -> Result<Vec<Value>, String> {
                     }
                 }
                 run["clips"]=json!(clips);
+                run["folder"]=json!(entry.path());
+                if let Ok(bytes)=fs::read(entry.path().join("screening-chat.json")){
+                    if let Ok(extra)=serde_json::from_slice::<Vec<Value>>(&bytes){
+                        let mut chat=run["chat"].as_array().cloned().unwrap_or_default();
+                        chat.extend(extra);run["chat"]=json!(chat);
+                    }
+                }
                 runs.push(run);
             }
         }
