@@ -595,7 +595,7 @@
     <!-- STUDIO TOWN — a real-time view over the same canonical project -->
     <div class="view" id="view-town">
       <div class="view-head"><h2>Studio Town</h2><span class="meta">The autonomous crew at work. Every movement, message and status comes from a real production event.</span></div>
-      <div id="townWrap"></div>
+      <p id="townCrewStatus" role="status"></p><button class="btn small" onclick="nav('crew')">Open production dashboard</button><div id="townWrap"></div>
     </div>
 
     <!-- CLIENT ROOM — human direction, review, and durable Greenroom record -->
@@ -7162,7 +7162,17 @@ function renderCrew(){
 }
 
 /* ---------- Studio Town + dedicated Client Room ---------- */
-let STUDIO_TOWN_CONTROLLER=null;
+let STUDIO_TOWN_CONTROLLER=null,townRun=null,townRunTimer;
+async function refreshTownRun(){
+  if(activeView()!=='town'){clearInterval(townRunTimer);return;}
+  try{
+    const rows=await crewInvoke('double_feature_library');
+    const latest=rows.slice().sort((a,b)=>(b.modified||0)-(a.modified||0));
+    townRun=latest.find(r=>!String(r.status).startsWith('Stopped')&&r.status!=='Complete')||latest[0]||null;
+    el('townCrewStatus').textContent=townRun?townRun.status:'The crew is ready. Start a film in the dashboard.';
+    if(STUDIO_TOWN_CONTROLLER)STUDIO_TOWN_CONTROLLER.refresh();
+  }catch(e){el('townCrewStatus').textContent=String(e);}
+}
 function townServiceState(){
   const svc=CREW.services||{};
   return {
@@ -7174,6 +7184,14 @@ function townServiceState(){
 }
 function townViewModel(selectedRoleId){
   const p=productionState(), jobs=Object.values((p&&p.jobs)||{});
+  if(townRun && ((!String(townRun.status).startsWith('Stopped') && townRun.status!=='Complete') || !p || !['running','rendering','assembling'].includes(p.status))){
+    const r=townRun, blocked=String(r.status).startsWith('Stopped'), done=r.status==='Complete';
+    const role=r.role||(/^Rendering|^Submitting|^Waiting for/.test(r.status)?'second_unit':/^Screening|^Editing/.test(r.status)?'editor':/^Crew choosing/.test(r.status)?'producer':'');
+    return StudioTownModel.deriveTownVM({layout:StudioTownLayout,projectId:ACTIVE.p,draftId:ACTIVE.d,
+      title:r.films?.at(-1)?.title||'Double feature',roster:CREW_ALL,selectedRoleId,
+      production:{id:r.id,status:blocked?'needs_attention':done?'complete':'running',currentStep:done?'':role,error:blocked?r.status:''},
+      transcript:(r.events||[]).map(e=>({roleId:e.role,text:e.text,at:e.at})),services:{},allowManual:false});
+  }
   const videoSelection=videoProviderSelection(p),imageSelection=imageProviderSelection(p);
   const videoProvider=videoProviderDescriptor(videoSelection.id)||{id:videoSelection.id,name:videoSelection.id};
   const imageProvider=imageProviderDescriptor(imageSelection.id)||{id:imageSelection.id,name:imageSelection.id};
@@ -7181,7 +7199,7 @@ function townViewModel(selectedRoleId){
   return StudioTownModel.deriveTownVM({
     layout:StudioTownLayout,projectId:ACTIVE.p,draftId:ACTIVE.d,title:S.title||'Untitled',
     production:p,roster:CREW_ALL,transcript:crewTranscriptEntries(p),busyAt:CREW.busy,live,
-    selectedRoleId:selectedRoleId||'',services:townServiceState(),
+    selectedRoleId:selectedRoleId||'',services:p?townServiceState():{},
     imageProvider,videoProvider,
     media:{imageRunning:CREW.busy==='stills'?1:0,
       videoRunning:jobs.filter(job=>['queued','running'].includes(job&&job.status)).length,
@@ -7213,6 +7231,7 @@ function townEnsureController(){
   return STUDIO_TOWN_CONTROLLER;
 }
 function renderTown(){
+  clearInterval(townRunTimer);refreshTownRun();townRunTimer=setInterval(refreshTownRun,3000);
   const controller=townEnsureController();
   if(controller){controller.setActive(true);controller.refresh();}
 }
@@ -13587,7 +13606,7 @@ async function exportToPitchDeck(){
     crewActivateLoadedProduction();
     el('saveState').textContent = 'restored from library';
   }
-  renderAll();
+  renderAll();nav('town');
   // Service health is real runtime state, so populate every production surface
   // on launch instead of showing stale offline pills until the user visits the Dashboard.
   crewConnect().then(()=>{

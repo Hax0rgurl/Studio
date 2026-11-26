@@ -54,11 +54,18 @@ def status(text):
     state['status']=text
     save(folder/'run.json',state)
 
+def duty(role,text):
+    state['role']=role
+    state.setdefault('events',[]).append(dict(role=role,text=text,at=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())))
+    status(text)
+
 def plan(n,previous):
     plays=cfg['plays']
+    duty('producer','Choosing the story for film '+str(n))
     choice=model('You are the producer of an independent film crew. Pick an original or one of the available plays. Return JSON.',json.dumps(dict(plays=[dict(id=i,title=p['name'],opening=p['text'][:1200]) for i,p in enumerate(plays)],earlier=previous,request='Return source (integer shelf id, or -1 for original) and brief (concrete story with a visual ending). For film two choose a fresh story.')),schema={'type':'object','properties':{'source':{'type':'integer','minimum':-1,'maximum':len(plays)-1},'brief':{'type':'string'}},'required':['source','brief']})
     source=choice['source'] if plays else -1
     if type(source)!=int or source < -1 or source>=len(plays):raise ValueError('Producer returned an unknown play')
+    duty('writer','Writing the two shots for film '+str(n))
     screenplay=model('You are the screenwriter and director. Return JSON only. Write an original or faithful adaptation as assigned.',
         json.dumps(dict(brief=choice['brief'],play=plays[source]['text'] if source>=0 else None,earlierFilm=previous,
         request='Design a complete two-shot, ten-second short with an observable change and ending. Return title, and shots (exactly two detailed self-contained five-second video prompts). Specify consistent character and location details in each. For film two also return appliedLesson explaining exactly which visual change appears in which shot.')),schema={'type':'object','properties':{'title':{'type':'string'},'shots':{'type':'array','minItems':2,'maxItems':2,'items':{'type':'string'}},'appliedLesson':{'type':'string'}},'required':['title','shots','appliedLesson']})
@@ -318,17 +325,21 @@ def produce():
             status('Crew choosing and writing film '+str(n))
             state['films'].append(plan(n,previous));status('Screenplay saved')
         film=state['films'][n-1]
-        shots=[render(film,i) for i in range(2)]
+        shots=[]
+        for i in range(2):
+            duty('second_unit','Producing shot '+str(i+1)+' of '+film['title'])
+            shots.append(render(film,i))
         movie=folder/f'Film {n}.mp4'
         if not movie.exists():
             listing=folder/f'edit-{n}.txt'
+            duty('editor','Editing '+film['title'])
             listing.write_text(''.join("file '"+p.name+"'\n" for p in shots))
             temp=folder/f'assembling-{n}.mp4'
             subprocess.run([FF,'-v','error','-y','-f','concat','-safe','1','-i',str(listing),'-c','copy','-movflags','+faststart',str(temp)],check=True)
             sample(temp,8);temp.replace(movie)
         film['file']=movie.name
         if 'screening' not in film:
-            status('Screening '+film['title'])
+            duty('editor','Screening '+film['title'])
             frames=[sample(movie,t) for t in (1,4,6,9)]
             prompt=('Inspect these frames in time order (1, 4, 6, 9 seconds). Cite visible evidence with timestamps. Return JSON with observation and lesson: a specific craft adjustment for the next director. '
                     if n==1 else 'Compare these frames (1, 4, 6, 9 seconds) with the earlier screening and planned adjustment. Return JSON with observation (timestamps), verdict (visible, partial, or unproven) and reason. Admit uncertainty. ')
@@ -348,9 +359,14 @@ if __name__=='__main__':
         except Exception as e:print(json.dumps({'error':str(e)[:240]}))
         sys.exit()
     folder=Path(sys.argv[1]);cfg=json.loads((folder/'settings.json').read_text())
-    with (ROOT/'.crew.lock').open('a') as lock:
-        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    with (folder/'.run.lock').open('a') as owner,(ROOT/'.crew.lock').open('a') as lock:
+        try:fcntl.flock(owner,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:sys.exit()
         state=json.loads((folder/'run.json').read_text())
+        try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:
+            status('Stopped · Another production is using the crew. Recover this production after it finishes.')
+            sys.exit(1)
         try:produce()
         except Exception as e:
             status('Stopped · '+str(e)[:320])

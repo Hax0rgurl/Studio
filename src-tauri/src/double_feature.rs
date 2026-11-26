@@ -33,6 +33,7 @@ pub fn double_feature_library() -> Result<Vec<Value>, String> {
         if let Ok(bytes) = fs::read(entry.path().join("run.json")) {
             if let Ok(mut run) = serde_json::from_slice::<Value>(&bytes) {
                 run["id"] = json!(entry.file_name().to_string_lossy());
+                run["modified"]=json!(entry.path().join("run.json").metadata().ok().and_then(|m|m.modified().ok()).and_then(|t|t.duration_since(UNIX_EPOCH).ok()).map(|d|d.as_millis() as u64).unwrap_or(0));
                 runs.push(run);
             }
         }
