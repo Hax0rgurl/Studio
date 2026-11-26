@@ -588,7 +588,7 @@
 
     <!-- CREW — the people who operate the modules -->
     <div class="view" id="view-crew">
-      <div class="view-head"><h2>Production Dashboard</h2><span class="meta">Give the crew an idea or the script already open. Agentic Movie Studio keeps one project while Ollama, Greenroom, PitchDeck and Phosphene do their own jobs.</span></div>
+      <div class="view-head"><h2>Production Dashboard</h2><span class="meta">Make two shorts with the built-in crew, or open an existing production.</span></div>
       <div id="crewWrap"></div>
     </div>
 
@@ -2428,7 +2428,7 @@ const HELP_TOPICS = [
     </ul>
     <p style="margin-top:8px">The <b>Scope</b> bar limits any export to scene ranges (<span class="kbd">1-20, 34, 50A</span>), page ranges, scenes with shots, or your current filters. <b>Everything</b> downloads the lot as one zip.</p>`],
   ['🔒 Privacy', `
-    <p>Agentic Movie Studio has no cloud account and no analytics. PDF reading happens inside the app. AI and media work use fixed loopback services on this Mac — Ollama, Greenroom, PitchDeck and Phosphene — and are not sent to a hosted API. Greenroom credentials remain in the native backend rather than browser storage. As with any software, overall privacy also depends on your device and system setup.</p>`],
+    <p>Agentic Movie Studio has no cloud account and no analytics. PDF reading happens inside the app. Double feature writes and reviews locally and sends shot prompts to Qwen for video generation. Legacy workflows use their configured services. Greenroom credentials remain in the native backend rather than browser storage. As with any software, overall privacy also depends on your device and system setup.</p>`],
 ];
 function renderHelp(){
   const w = el('helpSections');
@@ -6729,6 +6729,99 @@ async function crewResume(){
 }
 
 /* ---------- the room ---------- */
+let doubleFeatureTimer;
+const studioPlugins=()=>JSON.parse(localStorage.getItem('studio.mcp.video')||'[]');
+function pluginSettings(){
+  const list=el('pluginList'),status=el('pluginStatus'),tools=el('pluginTool'),prompt=el('pluginPrompt');
+  let discovered=[], tested='';
+  function rows(){
+    list.replaceChildren();
+    for(const item of studioPlugins()){
+      const row=document.createElement('p'),remove=document.createElement('button');
+      row.append(document.createTextNode(item.name+' · '+item.tool+' '));remove.textContent='Remove';remove.className='btn small';
+      remove.onclick=async()=>{try{await crewInvoke('studio_mcp_forget',{endpoint:item.url});localStorage.setItem('studio.mcp.video',JSON.stringify(studioPlugins().filter(x=>x.url!==item.url)));rows();}catch(e){status.textContent=String(e);}};
+      row.append(remove);list.append(row);
+    }
+  }
+  function args(){
+    const schema=discovered.find(x=>x.name===tools.value)?.inputSchema||{};
+    prompt.replaceChildren(...Object.keys(schema.properties||{}).map(k=>new Option(k,k)));
+    if([...prompt.options].some(o=>o.value==='prompt'))prompt.value='prompt';
+  }
+  tools.onchange=args;
+  el('pluginFind').onclick=async()=>{
+    const url=el('pluginUrl').value.trim();tested='';discovered=[];tools.replaceChildren();prompt.replaceChildren();
+    try{status.textContent='Connecting…';discovered=await crewInvoke('studio_mcp_tools',{endpoint:url,token:el('pluginToken').value||null});
+      tested=url;tools.replaceChildren(...discovered.map(t=>new Option(t.name,t.name)));args();status.textContent=discovered.length+' tools found.';
+    }catch(e){status.textContent=String(e);}
+  };
+  el('pluginSave').onclick=async()=>{
+    try{
+      const val=k=>el(k).value.trim(),url=val('pluginUrl');
+      if(!url||url!==tested||!tools.value||!prompt.value||!val('pluginName'))throw Error('Enter a name, connect and select a generation tool and prompt field.');
+      const args=JSON.parse(val('pluginArgs')||'{}');if(!args||Array.isArray(args)||typeof args!=='object')throw Error('Tool options must be a JSON object.');
+      const plugin={url,name:val('pluginName'),tool:tools.value,prompt:prompt.value,args,video:val('pluginVideo'),poll:val('pluginPoll'),job:val('pluginJob'),jobArg:val('pluginJobArg')};
+      if(plugin.poll&&(!discovered.some(t=>t.name===plugin.poll)||!plugin.job||!plugin.jobArg))throw Error('Choose an available status tool and both job fields.');
+      if(val('pluginToken'))await crewInvoke('double_feature_key',{endpoint:url,token:val('pluginToken')});
+      el('pluginToken').value='';localStorage.setItem('studio.mcp.video',JSON.stringify([...studioPlugins().filter(x=>x.url!==url),plugin]));rows();status.textContent='Saved. Choose this plugin under Double feature.';
+    }catch(e){status.textContent=String(e);}
+  };rows();
+}
+
+function doubleFeatureControls(){
+  clearInterval(doubleFeatureTimer);
+  const names=el('dfNames'),runs=el('dfRuns'),button=el('dfStart');
+  const renderChoice=el('dfPlugin');for(const plugin of studioPlugins())renderChoice.add(new Option(plugin.name,plugin.url));
+  renderChoice.value=localStorage.getItem('studio.renderer')||'';if(renderChoice.selectedIndex<0)renderChoice.value='';renderChoice.onchange=()=>localStorage.setItem('studio.renderer',renderChoice.value);
+  const choice=el('dfModel');choice.value=localStorage.getItem('studio.doubleFeatureModel')||'qwen3.8-max';choice.onchange=()=>localStorage.setItem('studio.doubleFeatureModel',choice.value);
+  const shelf=()=>JSON.parse(localStorage.getItem('studio.plays.v1')||'[]');
+  const showShelf=()=>{names.textContent=shelf().length?'On the shelf: '+shelf().map(p=>p.name).join(', '):'Empty shelf · the crew may write an original.';};
+  showShelf();
+  el('dfSave').onclick=async()=>{const input=el('dfToken');try{await crewInvoke('double_feature_key',{token:input.value.trim()});input.value='';toast('Qwen key saved on this Mac.');}catch(e){toast(String(e));}};
+  el('dfShelf').onchange=async event=>{
+    try{
+      const entries=shelf();
+      for(const file of event.target.files){
+        const text=/\.pdf$/i.test(file.name)?documentTextFromPDF(await pdfExtract(file)):await file.text();
+        if(!text.trim()) throw Error(file.name+' has no readable text.');
+        if(!entries.some(p=>p.name===file.name&&p.text===text))entries.push({name:file.name,text});
+      }
+      localStorage.setItem('studio.plays.v1',JSON.stringify(entries)); showShelf();
+    }catch(e){toast(String(e));}
+  };
+  const refresh=async()=>{
+    if(!runs.isConnected){clearInterval(doubleFeatureTimer);return;}
+    try{
+      const rows=await crewInvoke('double_feature_library');
+      const blocks=rows.map(r=>{
+        const block=document.createElement('section');
+        const line=document.createElement('p');line.textContent=r.status;block.append(line);
+        for(const f of r.films||[]){
+          const label=document.createElement('p');label.textContent=f.title+' · '+f.source;block.append(label);
+          if(f.file){
+            const play=document.createElement('button');play.className='btn small';play.textContent='Watch film '+f.number;
+            play.onclick=()=>crewInvoke('double_feature_play',{id:r.id,number:f.number}).catch(e=>toast(String(e)));block.append(play);
+          }
+          if(f.appliedLesson||f.screening){
+            const note=document.createElement('p');note.className='auto-note';const review=f.screening||{};
+            note.textContent=[f.appliedLesson,review.observation,review.lesson,review.verdict,review.reason].filter(Boolean).join(' ');block.append(note);
+          }
+        }
+        if(String(r.status).startsWith('Stopped')){
+          const retry=document.createElement('button');retry.className='btn small';retry.textContent='Recover this production';
+          retry.onclick=()=>crewInvoke('double_feature_start',{retry:r.id,plays:[],textModel:''}).catch(e=>toast(String(e)));block.append(retry);
+        }
+        return block;
+      });runs.replaceChildren(...blocks);
+    }catch(e){runs.textContent=String(e);}
+  };
+  button.onclick=async()=>{
+    button.disabled=true;
+    try{await crewInvoke('double_feature_start',{plays:shelf(),renderer:studioPlugins().find(p=>p.url===renderChoice.value)||null,textModel:el('dfModel').value,retry:null});await refresh();}
+    catch(e){toast(String(e));}finally{button.disabled=false;}
+  };
+  refresh();doubleFeatureTimer=setInterval(refresh,4000);
+}
 function renderCrew(){
   const w = el('crewWrap'); if (!w) return;
   crewApplyMutationLock();
@@ -6890,7 +6983,8 @@ function renderCrew(){
     h+='</div>';
   });
   h+='</details>';
-  w.innerHTML = h;
+  w.innerHTML = '<section class="ai-panel" style="max-width:1120px;margin-bottom:14px"><h4>Double feature</h4><p>Two ten-second films. The crew screens the first before directing the second.</p><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Produce two shorts · four shots</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><div id="dfRuns"></div></section><details><summary>Legacy production tools</summary>'+h+'</details>';
+  doubleFeatureControls();
 
   const on = (id, ev, fn)=>{ const n = el(id); if (n) n.addEventListener(ev, fn); };
   const departmentControls=el('crewDepartmentControls');
@@ -9255,7 +9349,9 @@ function settingsPanelHtml(initialTab){
         +'</div><label style="display:flex;gap:9px;align-items:flex-start;margin-top:12px"><input type="checkbox" id="settingsNoThink"'+(AI.noThink?' checked':'')+dis+' style="margin-top:3px;width:auto"><span><b>Skip the separate thinking step</b><br><span class="auto-note">Faster for routine production work. Models that cannot disable thinking ignore this setting.</span></span></label></div>'
       +'</section>'
       +'<section class="settings-panel'+on('media')+'" data-settings-panel="media"><h4>Media APIs</h4>'
-        +'<div class="settings-intro">These are the exact same choices shown in Make a Film. Save here and both dropdowns update together. Photo and video providers remain independent. The list is discovered from installed adapters—it is not restricted to local models.</div>'
+        +'<div class="settings-card"><h5>Video MCP plugins</h5><div id="pluginList"></div><details><summary>Add or update a plugin</summary><label class="settings-field">Plugin name<input id="pluginName" type="text" autocomplete="off"></label><label class="settings-field">MCP server URL<input id="pluginUrl" type="url" autocomplete="off"></label><label class="settings-field">Bearer token (if required)<input id="pluginToken" type="password" autocomplete="off"></label><button class="btn small" id="pluginFind">Connect and find tools</button><label class="settings-field">Video generation tool<select id="pluginTool"></select></label><label class="settings-field">Prompt field<select id="pluginPrompt"></select></label><label class="settings-field">Video URL result field (blank for a direct link)<input id="pluginVideo" placeholder="video_url"></label><details><summary>Tool options and queued jobs</summary><label class="settings-field">Extra tool arguments as JSON<input id="pluginArgs"></label><label class="settings-field">Status tool name<input id="pluginPoll"></label><label class="settings-field">Job ID result field<input id="pluginJob"></label><label class="settings-field">Job ID argument for status tool<input id="pluginJobArg"></label></details><button class="btn small" id="pluginSave">Save plugin</button></details><p id="pluginStatus" role="status"></p></div>'
+        +'<div class="settings-card"><h5>Qwen Token Plan</h5><p id="qwenKeyState" role="status">Checking Mac Keychain…</p><label class="settings-field"><span>API key</span><input type="password" id="qwenKeyInput" autocomplete="off" spellcheck="false" placeholder="sk-sp-…"></label><button type="button" class="btn small" id="qwenKeySave">Save key</button> <button type="button" class="btn small" id="qwenKeyRemove" disabled>Remove key</button></div>'
+        +'<div class="settings-intro">Double feature uses the crew and film editor included in Studio. Wan 3 renders the shots through your Qwen account.</div><details><summary>Legacy production providers</summary><div class="settings-intro">These choices apply to the older production tools.</div>'
         +(mediaLocked?'<div class="crit bad" style="margin-bottom:12px">This production has already frozen its provider choices. Finish, cancel, or archive the render manifest before changing them.</div>':'')
         +'<div class="settings-card"><h5>Storyboard photos</h5><div class="settings-grid" style="margin-top:10px">'
           +'<label class="settings-field"><span>Provider</span><select id="settingsImageProvider"'+mediaDis+'>'+settingsProviderOptions(imageProviders(),imageSelection.id)+'</select></label>'
@@ -9265,7 +9361,7 @@ function settingsPanelHtml(initialTab){
           +'<label class="settings-field"><span>Provider</span><select id="settingsVideoProvider"'+mediaDis+'>'+settingsProviderOptions(videoProviders(),videoSelection.id)+'</select></label>'
           +'<label class="settings-field"><span>Model</span><div id="settingsVideoModelWrap">'+settingsProviderModelHtml('Video',videoProvider,videoSelection.model,mediaLocked)+'</div></label>'
         +'</div></div>'
-        +'<div class="auto-note">Provider and model choices are copied into the production receipt when a run begins so retries cannot silently switch vendors.</div>'
+        +'<div class="auto-note">Provider and model choices are copied into the production receipt when a run begins so retries cannot silently switch vendors.</div></details>'
       +'</section>'
       +'<section class="settings-panel'+on('services')+'" data-settings-panel="services"><h4>Services &amp; extensions</h4>'
         +'<div class="settings-intro">Connection addresses, health checks, and installed API/MCP adapters.</div>'
@@ -9298,6 +9394,22 @@ function settingsWire(initialTab){
     const wrap=el('settings'+kind+'ModelWrap');
     if (wrap) wrap.innerHTML=settingsProviderModelHtml(kind,provider,stored||first,mediaProviderSelectionLocked());
   };
+  pluginSettings();
+  const keyInput=el('qwenKeyInput'),keySave=el('qwenKeySave'),keyRemove=el('qwenKeyRemove'),keyState=el('qwenKeyState');
+  async function updateQwenKey(action){
+    keySave.disabled=keyRemove.disabled=true;
+    try{
+      if(action==='save'){await crewInvoke('double_feature_key',{token:keyInput.value.trim()});keyInput.value='';}
+      if(action==='remove'){await crewInvoke('double_feature_key_remove');keyInput.value='';}
+      const saved=await crewInvoke('double_feature_key_saved');
+      keyRemove.disabled=!saved;
+      keyState.textContent=saved?'Key saved in Mac Keychain. Enter a new key to replace it.':'No key saved.';
+    }catch(error){keyState.textContent=String(error);keyRemove.disabled=false;}
+    finally{keySave.disabled=false;}
+  }
+  keySave.onclick=()=>updateQwenKey('save');
+  keyRemove.onclick=()=>updateQwenKey('remove');
+  updateQwenKey();
   const image=el('settingsImageProvider'); if (image) image.addEventListener('change',()=>refreshModel('Image'));
   const video=el('settingsVideoProvider'); if (video) video.addEventListener('change',()=>refreshModel('Video'));
   const check=el('settingsCheck'); if (check) check.addEventListener('click',()=>settingsCheckConnections(false));

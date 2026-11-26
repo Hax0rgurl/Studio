@@ -2,6 +2,7 @@
 // release builds. DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod double_feature;
 mod greenroom;
 mod local_http;
 mod services;
@@ -44,6 +45,14 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             initial_file,
+            double_feature::studio_mcp_tools,
+            double_feature::studio_mcp_forget,
+            double_feature::double_feature_library,
+            double_feature::double_feature_start,
+            double_feature::double_feature_key,
+            double_feature::double_feature_key_saved,
+            double_feature::double_feature_key_remove,
+            double_feature::double_feature_play,
             services::local_services_health,
             services::start_local_services,
             greenroom::greenroom_open_production_thread,

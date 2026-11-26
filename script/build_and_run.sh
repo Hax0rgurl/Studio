@@ -7,7 +7,9 @@ EXECUTABLE_NAME="agentic-movie-studio"
 BUNDLE_ID="com.abandonedmuse.agenticmoviestudio"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TAURI_DIR="$ROOT_DIR/src-tauri"
-DIST_DIR="$ROOT_DIR/dist"
+DIST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/studio-build.XXXXXXXX")"
+trap 'rm -rf -- "$DIST_DIR"' EXIT
+export CARGO_TARGET_DIR="$DIST_DIR/target"
 PROJECT_APP="$DIST_DIR/$APP_NAME.app"
 INSTALLED_APP="/Applications/$APP_NAME.app"
 LEGACY_APP="/Applications/Studio.app"
@@ -47,8 +49,15 @@ build_bundle() {
   local stage_app="$stage_dir/$APP_NAME.app"
   local contents="$stage_app/Contents"
   /bin/mkdir -p "$contents/MacOS" "$contents/Resources"
-  /usr/bin/ditto "$TAURI_DIR/target/release/$EXECUTABLE_NAME" "$contents/MacOS/$EXECUTABLE_NAME"
+  /usr/bin/ditto "$CARGO_TARGET_DIR/release/$EXECUTABLE_NAME" "$contents/MacOS/$EXECUTABLE_NAME"
   /bin/chmod 755 "$contents/MacOS/$EXECUTABLE_NAME"
+  local editor="${STUDIO_FFMPEG:-$(command -v ffmpeg || true)}"
+  if [ -z "$editor" ]; then editor="$INSTALLED_APP/Contents/Resources/ffmpeg"; fi
+  if [ ! -x "$editor" ]; then echo "Set STUDIO_FFMPEG to an executable film editor." >&2; return 1; fi
+  if [ -x "$editor" ]; then
+    /bin/cp "$editor" "$contents/Resources/ffmpeg"
+  fi
+  python3 "$ROOT_DIR/script/bundle_crew.py" "$contents/Resources"
   /usr/bin/ditto "$TAURI_DIR/icons/icon.icns" "$contents/Resources/icon.icns"
 
   /bin/cat > "$contents/Info.plist" <<PLIST
@@ -168,7 +177,8 @@ launch_and_verify() {
 case "$MODE" in
   run)
     build_bundle
-    launch_and_verify "$PROJECT_APP"
+    install_bundle
+    launch_and_verify "$INSTALLED_APP"
     ;;
   --install|install)
     build_bundle
@@ -177,20 +187,24 @@ case "$MODE" in
     ;;
   --verify|verify)
     build_bundle
-    launch_and_verify "$PROJECT_APP"
+    install_bundle
+    launch_and_verify "$INSTALLED_APP"
     ;;
   --debug|debug)
     build_bundle
-    lldb -- "$PROJECT_APP/Contents/MacOS/$EXECUTABLE_NAME"
+    install_bundle
+    lldb -- "$INSTALLED_APP/Contents/MacOS/$EXECUTABLE_NAME"
     ;;
   --logs|logs)
     build_bundle
-    launch_and_verify "$PROJECT_APP"
+    install_bundle
+    launch_and_verify "$INSTALLED_APP"
     /usr/bin/log stream --info --style compact --predicate "process == \"$EXECUTABLE_NAME\""
     ;;
   --telemetry|telemetry)
     build_bundle
-    launch_and_verify "$PROJECT_APP"
+    install_bundle
+    launch_and_verify "$INSTALLED_APP"
     /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\""
     ;;
   *)
