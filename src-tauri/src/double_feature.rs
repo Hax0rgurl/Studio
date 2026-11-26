@@ -34,6 +34,15 @@ pub fn double_feature_library() -> Result<Vec<Value>, String> {
             if let Ok(mut run) = serde_json::from_slice::<Value>(&bytes) {
                 run["id"] = json!(entry.file_name().to_string_lossy());
                 run["modified"]=json!(entry.path().join("run.json").metadata().ok().and_then(|m|m.modified().ok()).and_then(|t|t.duration_since(UNIX_EPOCH).ok()).map(|d|d.as_millis() as u64).unwrap_or(0));
+                let mut clips=Vec::new();
+                for film in 1..=2 {
+                    for shot in 1..=2 {
+                        if entry.path().join(format!("film-{film}-shot-{shot}.mp4")).is_file(){
+                            clips.push(json!({"film":film,"shot":shot}));
+                        }
+                    }
+                }
+                run["clips"]=json!(clips);
                 runs.push(run);
             }
         }
@@ -200,4 +209,25 @@ pub async fn studio_mcp_tools(endpoint:String, token:Option<String>, kind:Option
 pub fn studio_mcp_forget(endpoint:String)->Result<(),String>{
     let status=Command::new("/usr/bin/security").args(["delete-generic-password","-a","Studio","-s",&format!("Studio.MCP.{endpoint}")]).output().map_err(|e|e.to_string())?.status;
     if status.success()||status.code()==Some(44){Ok(())}else{Err("Could not remove plugin key".into())}
+}
+
+#[tauri::command]
+pub async fn studio_shot_preview(id:String, film:u8, shot:u8)->Result<String,String>{
+    if id.is_empty() || !id.chars().all(|c|c.is_ascii_alphanumeric() || c=='-') || !(1..=2).contains(&film) || !(1..=2).contains(&shot){
+        return Err("Invalid shot".into());
+    }
+    tauri::async_runtime::spawn_blocking(move ||{
+        let source=library()?.join(id).join(format!("film-{film}-shot-{shot}.mp4"));
+        let ff=std::env::current_exe().map_err(|e|e.to_string())?.parent().ok_or("Missing Studio")?.join("../Resources/ffmpeg");
+        let preview=Command::new(ff).arg("-i").arg(source).args(["-loglevel","error","-t","5","-an","-vf","scale=640:-2","-c:v","libx264","-preset","veryfast","-pix_fmt","yuv420p","-movflags","frag_keyframe+empty_moov","-f","mp4","pipe:1"]).output().map_err(|e|e.to_string())?;
+        if !preview.status.success(){return Err("Could not decode the shot preview.".into());}
+        use std::io::Write;
+        let mut encoder=Command::new("/usr/bin/base64").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().map_err(|e|e.to_string())?;
+        let mut input=encoder.stdin.take().ok_or("Missing preview stream")?;
+        let writer=std::thread::spawn(move||input.write_all(&preview.stdout));
+        let output=encoder.wait_with_output().map_err(|e|e.to_string())?;
+        writer.join().map_err(|_|"Preview interrupted")?.map_err(|e|e.to_string())?;
+        if !output.status.success(){return Err("Preview encoding failed".into());}
+        Ok(format!("data:video/mp4;base64,{}",String::from_utf8_lossy(&output.stdout).trim()))
+    }).await.map_err(|e|e.to_string())?
 }

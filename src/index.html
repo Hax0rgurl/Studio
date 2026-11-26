@@ -407,7 +407,7 @@
 </style>
 <link rel="stylesheet" href="./cinematic-polish.css">
 <link rel="stylesheet" href="./modules/studio-town/town.css">
-</head>
+<style>.town-observe{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,29%);gap:14px;align-items:start}.town-observe #townMonitor{padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px}.town-observe #townMonitor:empty{display:none}.town-observe #townWrap{min-width:0}@media(max-width:1100px){.town-observe{display:flex;flex-direction:column-reverse}.town-observe>*{width:100%}.town-observe video{max-height:200px}}</style></head>
 <body>
 <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -595,7 +595,7 @@
     <!-- STUDIO TOWN — a real-time view over the same canonical project -->
     <div class="view" id="view-town">
       <div class="view-head"><h2>Studio Town</h2><span class="meta">The autonomous crew at work. Every movement, message and status comes from a real production event.</span></div>
-      <p id="townCrewStatus" role="status"></p><button class="btn small" onclick="nav('crew')">Open production dashboard</button><div id="townWrap"></div>
+      <p id="townCrewStatus" role="status"></p><button class="btn small" onclick="nav('crew')">Open production dashboard</button><div class="town-observe"><div id="townWrap"></div><aside id="townMonitor" aria-label="Latest footage"></aside></div>
     </div>
 
     <!-- CLIENT ROOM — human direction, review, and durable Greenroom record -->
@@ -6794,6 +6794,23 @@ function pluginSettings(){
   };rows();
 }
 
+function studioMonitor(host,run){
+  if(!host||!run)return;
+  const clip=run.clips?.at(-1),film=run.films?.at(-1);
+  if(!host.children.length){
+    host.innerHTML='<div><h3></h3><p role="status"></p><p class="auto-note"></p></div><video autoplay muted loop playsinline controls style="width:min(100%,560px);border-radius:6px" hidden></video>';
+  }
+  host.querySelector('h3').textContent=film?.title||'Studio floor';
+  host.querySelector('p').textContent=run.status;
+  const description=host.querySelector('.auto-note'),video=host.querySelector('video');
+  description.textContent=clip?'Latest footage · Film '+clip.film+' · Shot '+clip.shot:(run.events?.at(-1)?.text||'Footage appears here when the first shot finishes.');
+  const key=clip?[run.id,clip.film,clip.shot].join('/'):'';
+  if(host.dataset.shot===key)return;
+  host.dataset.shot=key;video.hidden=true;video.removeAttribute('src');video.load();
+  if(clip)crewInvoke('studio_shot_preview',{id:run.id,film:clip.film,shot:clip.shot}).then(src=>{
+    if(host.isConnected&&host.dataset.shot===key){video.src=src;video.muted=true;video.hidden=false;video.play().catch(()=>{});}
+  }).catch(()=>{if(host.dataset.shot===key){delete host.dataset.shot;description.textContent='Preview unavailable. The original shot is saved.';}});
+}
 function doubleFeatureControls(){
   clearInterval(doubleFeatureTimer);
   const names=el('dfNames'),runs=el('dfRuns'),button=el('dfStart');
@@ -6819,6 +6836,8 @@ function doubleFeatureControls(){
     if(!runs.isConnected){clearInterval(doubleFeatureTimer);return;}
     try{
       const rows=await crewInvoke('double_feature_library');
+      const recent=rows.slice().sort((a,b)=>(b.modified||0)-(a.modified||0));
+      studioMonitor(el('dashboardMonitor'),recent.find(r=>!String(r.status).startsWith('Stopped'))||recent[0]);
       const blocks=rows.map(r=>{
         const block=document.createElement('section');
         const line=document.createElement('p');line.textContent=r.status;block.append(line);
@@ -7009,7 +7028,7 @@ function renderCrew(){
     h+='</div>';
   });
   h+='</details>';
-  w.innerHTML = '<section class="ai-panel" style="max-width:1120px;margin-bottom:14px"><h4>Double feature</h4><p>Two ten-second films. The crew screens the first before directing the second.</p><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Produce two shorts · four shots</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><div id="dfRuns"></div></section><details><summary>Legacy production tools</summary>'+h+'</details>';
+  w.innerHTML = '<section class="ai-panel" style="max-width:1120px;margin-bottom:14px"><div id="dashboardMonitor"></div><h4>Double feature</h4><p>Two ten-second films. The crew screens the first before directing the second.</p><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Produce two shorts · four shots</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><div id="dfRuns"></div></section><details><summary>Legacy production tools</summary>'+h+'</details>';
   doubleFeatureControls();
 
   const on = (id, ev, fn)=>{ const n = el(id); if (n) n.addEventListener(ev, fn); };
@@ -7170,6 +7189,7 @@ async function refreshTownRun(){
     const latest=rows.slice().sort((a,b)=>(b.modified||0)-(a.modified||0));
     townRun=latest.find(r=>!String(r.status).startsWith('Stopped')&&r.status!=='Complete')||latest[0]||null;
     el('townCrewStatus').textContent=townRun?townRun.status:'The crew is ready. Start a film in the dashboard.';
+    studioMonitor(el('townMonitor'),townRun);
     if(STUDIO_TOWN_CONTROLLER)STUDIO_TOWN_CONTROLLER.refresh();
   }catch(e){el('townCrewStatus').textContent=String(e);}
 }

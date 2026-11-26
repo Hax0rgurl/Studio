@@ -45,6 +45,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             initial_file,
+            double_feature::studio_shot_preview,
             double_feature::studio_mcp_tools,
             double_feature::studio_mcp_forget,
             double_feature::double_feature_library,
