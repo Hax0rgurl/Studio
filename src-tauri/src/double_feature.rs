@@ -70,6 +70,7 @@ pub fn double_feature_start(
     text_model: String,
     retry: Option<String>,
     renderer: Option<Value>,
+    departments: Option<Vec<Value>>,
 ) -> Result<String, String> {
     let _guard = START.lock().map_err(|e| e.to_string())?;
     let dir = library()?;
@@ -110,7 +111,7 @@ pub fn double_feature_start(
             .collect();
         fs::write(
             folder.join("settings.json"),
-            json!({"plays":shelf,"textModel":text_model,"renderer":renderer}).to_string(),
+            json!({"plays":shelf,"textModel":text_model,"renderer":renderer,"departments":departments}).to_string(),
         )
         .map_err(|e| e.to_string())?;
         fs::write(

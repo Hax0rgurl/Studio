@@ -251,6 +251,7 @@ def plugin_render(film,i,clip):
     if not job.get('id') and not job.get('video'):
         if job.get('submitted'):raise ValueError('Check the plugin job history before resubmitting this shot.')
         args={**p.get('args',{}),p['prompt']:film['shots'][i]}
+        if 'boards' in film:args[p['frameArg']]=first_frame(film,i)
         job['submitted']=True;status('Submitting to '+p['name'])
         result=client.call(p['tool'],args)
         job['video']=field(result,p['video'])
@@ -270,15 +271,74 @@ def plugin_render(film,i,clip):
     sample(tmp,4);tmp.replace(clip);return clip
 
 
+def prepare_floor(n,previous):
+    productions=state.setdefault('preproduction',{})
+    record=productions.setdefault(str(n),{})
+    crew=cfg['departments']
+    for index,department in enumerate(crew):
+        role=department['id']
+        if role in record:continue
+        duty(role,department['title']+' · Film '+str(n))
+        context=dict(film=n,material=cfg['plays'],previousFilm=previous and {'title':previous['title'],'lesson':previous.get('screening')},decisions=record)
+        instruction=department['job']+' Deliver your department’s actual decision for a two-shot short. Address the next department directly. Use the written scene and established casting, wardrobe and art direction. Keep your handoff under 150 words.'
+        properties={'message':{'type':'string'}}
+        if role=='writer':
+            instruction+=' Write a playable scene in Fountain format with a scene heading, action and any dialogue. Return title and script. For film two write a distinct story.'
+            properties.update(title={'type':'string'},script={'type':'string'})
+        if role in ('prompt_writer','stills_prompt'):
+            instruction+=' Return two self-contained shot prompts in order, preserving all established details.'
+            properties['prompts']={'type':'array','minItems':2,'maxItems':2,'items':{'type':'string'}}
+        if role in ('casting_director','location_scout','prop_master'):
+            instruction+=' Return named entries with concrete visual descriptions. Use an empty list if none are needed.'
+            properties['entries']={'type':'array','items':{'type':'object','properties':{'name':{'type':'string'},'desc':{'type':'string'}},'required':['name','desc']}}
+        reply=model(instruction,json.dumps(context),schema={'type':'object','properties':properties,'required':list(properties)})
+        if not isinstance(reply.get('message'),str) or not reply['message'].strip():raise ValueError('Missing '+role+' handoff.')
+        if role=='writer' and (not reply.get('script','').strip() or not reply.get('title','').strip() or (previous and reply['title']==previous['title'])):raise ValueError('Writer must deliver a distinct screenplay.')
+        if 'prompts' in properties and (len(reply.get('prompts',[]))!=2 or not all(isinstance(x,str) and x.strip() for x in reply['prompts'])):raise ValueError('Both shots need usable directions.')
+        record[role]=reply
+        recipient=crew[index+1]['id'] if index+1<len(crew) else 'stills'
+        handoff(role,recipient,reply['message'])
+    return dict(number=n,title=record['writer']['title'],script=record['writer']['script'],source='Studio crew',shots=record['prompt_writer']['prompts'],stillPrompts=record['stills_prompt']['prompts'],jobs=[{},{}],boards=[{},{}],appliedLesson=record['director']['message'] if previous else '')
+
+def photograph(film,i):
+    board=film['boards'][i]
+    name=f"board-{film['number']}-{i+1}.jpg"
+    path=folder/name
+    if path.is_file() and board.get('file')==name:return
+    duty('stills','Photographing storyboard frame '+str(i+1)+' · '+film['title'])
+    if not board.get('sourceUrl'):
+        if board.get('requested'):raise RuntimeError('Storyboard submission interrupted. Check the image provider history before resubmitting.')
+        board['requested']=True;save(folder/'run.json',state)
+        try:
+            out=request(base+'/api/v1/services/aigc/multimodal-generation/generation',dict(model='qwen-image-3.0-pro',input={'messages':[{'role':'user','content':[{'text':film['stillPrompts'][i]}]}]},parameters={'size':'1280*720'}),auth)
+        except RuntimeError as e:
+            if any(code in str(e) for code in ('HTTP 400','HTTP 401','HTTP 403')):board['requested']=False
+            raise
+        board['sourceUrl']=out['output']['choices'][0]['message']['content'][0]['image'];save(folder/'run.json',state)
+    if urlsplit(board['sourceUrl']).scheme!='https':raise ValueError('Invalid storyboard image URL.')
+    with urlopen(board['sourceUrl'],timeout=120) as source:
+        result=subprocess.run([FF,'-loglevel','error','-i','pipe:0','-frames:v','1','-f','image2pipe','-c:v','mjpeg','pipe:1'],input=source.read(),capture_output=True,check=True)
+    if not result.stdout.startswith(b'\xff\xd8'):raise ValueError('Storyboard frame could not be decoded.')
+    tmp=path.with_suffix('.tmp');tmp.write_bytes(result.stdout);tmp.replace(path)
+    board['file']=name;board.pop('sourceUrl',None);status('Storyboard frame '+str(i+1)+' saved')
+
+def first_frame(film,i):
+    path=folder/f"board-{film['number']}-{i+1}.jpg"
+    if film['boards'][i].get('file')!=path.name:raise ValueError('Missing storyboard frame.')
+    return 'data:image/jpeg;base64,'+base64.b64encode(path.read_bytes()).decode()
+
+
 def render(film,i):
     job=film['jobs'][i];clip=folder/f"film-{film['number']}-shot-{i+1}.mp4"
     if clip.exists():sample(clip,4);return clip
     if cfg.get('renderer'):return plugin_render(film,i,clip)
     if not job.get('id'):
         if job.get('submitted'):raise RuntimeError('Submission was interrupted before a job ID was saved. Check Alibaba job history before another submission.')
+        video_input={'prompt':film['shots'][i]}
+        if 'boards' in film:video_input['media']=[{'type':'first_frame','url':first_frame(film,i)}]
         job['submitted']=True;status('Submitting '+clip.stem)
         try:
-            result=request(base+'/api/v1/services/aigc/video-generation/video-synthesis',dict(model=MODEL,input={'prompt':film['shots'][i]},parameters={'resolution':'720P','ratio':'16:9','duration':5}),{**auth,'X-DashScope-Async':'enable'})
+            result=request(base+'/api/v1/services/aigc/video-generation/video-synthesis',dict(model=MODEL,input=video_input,parameters={'resolution':'720P','ratio':'16:9','duration':5}),{**auth,'X-DashScope-Async':'enable'})
         except RuntimeError as error:
             if 'HTTP 401' in str(error) or 'HTTP 403' in str(error):
                 job['submitted']=False
@@ -334,12 +394,15 @@ def produce():
     FF=sys.argv[2]
     if cfg.get('textModel') not in ('qwen3.8-max','qwen4-max'):
         start_brain(Path(FF).parent)
+    if cfg.get('departments') and cfg.get('renderer') and not cfg['renderer'].get('frameArg'):raise ValueError('Select a renderer with a storyboard image input before starting production.')
     for n in (1,2):
         previous=state['films'][0] if n==2 else None
         if len(state['films'])<n:
             status('Crew choosing and writing film '+str(n))
-            state['films'].append(plan(n,previous));status('Screenplay saved')
+            state['films'].append(prepare_floor(n,previous) if cfg.get('departments') else plan(n,previous));status('Screenplay saved')
         film=state['films'][n-1]
+        if 'boards' in film:
+            for i in range(2):photograph(film,i)
         shots=[]
         for i in range(2):
             duty('second_unit','Producing shot '+str(i+1)+' of '+film['title'])

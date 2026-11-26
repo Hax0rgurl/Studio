@@ -2158,10 +2158,10 @@ function renderBibles(){
     const d = ((S.bibles[type][name]||{}).desc||'').toLowerCase();
     return name.toLowerCase().includes(q) || d.includes(q);
   };
-  const chars = Object.entries(map.cast).sort((a,b)=>b[1].length-a[1].length).filter(([n])=>matches('characters',n));
+  const chars = Object.entries(Object.assign(Object.fromEntries(Object.keys(S.bibles.characters).map(n=>[n,[]])),map.cast)).sort((a,b)=>b[1].length-a[1].length).filter(([n])=>matches('characters',n));
   const t = totals();
-  const locs = [...t.locs].sort().filter(n=>matches('locations',n));
-  const props = Object.entries(map.props||{}).sort((a,b)=>b[1].length-a[1].length).filter(([n])=>matches('props',n));
+  const locs = [...new Set([...t.locs,...Object.keys(S.bibles.locations)])].sort().filter(n=>matches('locations',n));
+  const props = Object.entries(Object.assign(Object.fromEntries(Object.keys(S.bibles.props).map(n=>[n,[]])),map.props||{})).sort((a,b)=>b[1].length-a[1].length).filter(([n])=>matches('props',n));
 
   const card = (type, name, count, placeholder) => {
     const b = S.bibles[type][name]||{};
@@ -6786,7 +6786,7 @@ function pluginSettings(){
       const val=k=>el(k).value.trim(),url=val('pluginUrl');
       if(!url||url!==tested||!tools.value||!prompt.value||!val('pluginName'))throw Error('Enter a name, connect and select a generation tool and prompt field.');
       const args=JSON.parse(val('pluginArgs')||'{}');if(!args||Array.isArray(args)||typeof args!=='object')throw Error('Tool options must be a JSON object.');
-      const plugin={url,name:val('pluginName'),tool:tools.value,prompt:prompt.value,args,video:val('pluginVideo'),poll:val('pluginPoll'),job:val('pluginJob'),jobArg:val('pluginJobArg')};
+      const plugin={url,name:val('pluginName'),tool:tools.value,prompt:prompt.value,frameArg:val('pluginFrameArg'),args,video:val('pluginVideo'),poll:val('pluginPoll'),job:val('pluginJob'),jobArg:val('pluginJobArg')};
       if(plugin.poll&&(!discovered.some(t=>t.name===plugin.poll)||!plugin.job||!plugin.jobArg))throw Error('Choose an available status tool and both job fields.');
       if(val('pluginToken'))await crewInvoke('double_feature_key',{endpoint:url,token:val('pluginToken')});
       el('pluginToken').value='';localStorage.setItem('studio.mcp.video',JSON.stringify([...studioPlugins().filter(x=>x.url!==url),plugin]));rows();status.textContent='Saved. Choose this plugin under Double feature.';
@@ -6800,28 +6800,56 @@ function productionChat(run){
   return (run.chat||[]).map(m=>({roleId:m.sender,fromRoleId:m.sender,toRoleIds:[m.recipient],kind:'conversation',eventType:'reply',who:'@'+m.sender+' → @'+m.recipient,at:m.at,text:m.text,status:'sent'}));
 }
 function filmProject(run){
-  if(!run.films?.length)return;
+  const films=[...(run.films||[])],prep=run.preproduction||{};
+  for(const [number,record] of Object.entries(prep)){
+    if(record.writer&&!films.some(f=>f.number===Number(number)))films.push({number:Number(number),...record.writer,shots:record.prompt_writer?.prompts||[],stillPrompts:record.stills_prompt?.prompts||[]});
+  }
+  if(!films.length && !Object.keys(prep).length)return;
   const id='feature-'+run.id,did=id+'-script';
   let project=DB.projects.find(p=>p.id===id);
   const created=!project;
   if(!project){
-    const state=blankState();state.title=run.films[0].title;state.scriptName='Crew shooting script';state.doubleFeatureId=run.id;
+    const state=blankState();state.title=films[0]?.title||'Film in development';state.scriptName='Crew shooting script';state.doubleFeatureId=run.id;
     project={id,name:state.title,created:new Date().toISOString(),drafts:[{id:did,name:'Double feature',imported:new Date().toISOString(),state}]};DB.projects.push(project);
   }
   const draft=project.drafts[0],state=ACTIVE.d===draft.id?S:draft.state;
   let changed=created;
-  for(const f of run.films){
+  if(state.title==='Film in development'&&films.length){project.name=state.title=films[0].title;changed=true;}
+  for(const [number,record] of Object.entries(prep)){
+    state.floorReceipts=state.floorReceipts||{};
+    for(const [role,work] of Object.entries(record)){
+      const tag=number+'-'+role;if(state.floorReceipts[tag])continue;
+      const look={director:'tone',production_designer:'design',costume_designer:'wardrobe',dp:'lensing',camera_operator:'framing',gaffer:'lighting',colorist:'palette',key_grip:'camera',composer:'music',script_supervisor:'negative'};
+      if(look[role])state.look[look[role]]=work.message;
+      const type={casting_director:'characters',location_scout:'locations',prop_master:'props'}[role];
+      if(type)for(const entry of work.entries||[]){
+        state.bibles[type][entry.name]={desc:entry.desc};
+        const sc=state.scenes.find(item=>item.crewFilmNumber===Number(number));
+        if(sc&&type==='characters'&&!sc.characters.includes(entry.name))sc.characters.push(entry.name);
+        if(sc&&type==='props'&&!sc.elements.props.includes(entry.name))sc.elements.props.push(entry.name);
+      }
+      state.floorReceipts[tag]=true;changed=true;
+    }
+  }
+  for(const f of films){
     let scene=state.scenes.find(sc=>sc.crewFilmNumber===f.number);
     if(!scene){
-      const parsed=parseFountain('.FILM '+f.number+' — '+f.title.toUpperCase()+'\n\n'+f.shots.join('\n\n'));
+      let parsed=f.script?parseFountain(f.script):{scenes:[]};
+      if(!parsed.scenes.length)parsed=parseFountain('.FILM '+f.number+' — '+f.title.toUpperCase()+'\n\n'+(f.script||f.shots.join('\n\n')));
       scene=parsed.scenes[0];if(!scene)continue;
-      scene.num=String(f.number);scene.crewFilmNumber=f.number;
-      scene.shots=f.shots.map((text,i)=>({id:id+'-'+f.number+'-'+(i+1),num:f.number+'.'+(i+1),desc:text,prompt:{text},takes:[]}));
-      state.scenes.push(scene);changed=true;
+      parsed.scenes.forEach((sc,i)=>{sc.num=f.number+'.'+(i+1);sc.crewFilmNumber=f.number;state.scenes.push(sc);});changed=true;
     }
+    const scenes=state.scenes.filter(sc=>sc.crewFilmNumber===f.number);
+    const shotAt=i=>scenes.flatMap(sc=>sc.shots).find(sh=>sh.id===id+'-'+f.number+'-'+(i+1));
+    f.shots.forEach((text,i)=>{
+      let shot=shotAt(i);
+      if(!shot){shot={id:id+'-'+f.number+'-'+(i+1),num:f.number+'.'+(i+1),desc:text,prompt:{text},takes:[]};scenes[Math.min(i,scenes.length-1)].shots.push(shot);changed=true;}
+      const photo=f.boards?.[i]?.file;
+      if(photo&&!shot.board?.studioPhoto&&window.__TAURI__?.core?.convertFileSrc){const board=boardOf(shot);board.studioPhoto=window.__TAURI__.core.convertFileSrc(run.folder+'/'+photo);board.desc=f.stillPrompts[i];changed=true;}
+    });
     for(const clip of run.clips||[]){
       if(clip.film!==f.number)continue;
-      const shot=scene.shots[clip.shot-1];if(!shot)continue;
+      const shot=shotAt(clip.shot-1);if(!shot)continue;
       const jobId='crew-'+f.number+'-'+clip.shot;
       if(shot.takes.some(t=>t.jobId===jobId))continue;
       const path=run.folder+'/film-'+f.number+'-shot-'+clip.shot+'.mp4';
@@ -6920,7 +6948,11 @@ function doubleFeatureControls(){
   };
   button.onclick=async()=>{
     button.disabled=true;
-    try{await crewInvoke('double_feature_start',{plays:shelf(),renderer:studioPlugins().find(p=>p.url===renderChoice.value)||null,textModel:el('dfModel').value,retry:null});await refresh();}
+    try{
+      const departments=['director','producer',...CREW_PIPELINE.filter(r=>!['director','stills','second_unit','editor'].includes(r))].map(id=>{const r=crewFind(id);return {id,title:r.title,job:r.job+(id==='taste'?' Explicit filmmaker direction: '+(GLOBAL_TASTE.statement||''):'' )};});
+      const provider=studioPlugins().find(p=>p.url===renderChoice.value);
+      if(provider&&!provider.frameArg)throw Error('This renderer needs a storyboard image input. Select Wan 3 or configure its first-frame field.');
+      await crewInvoke('double_feature_start',{departments,plays:shelf(),renderer:studioPlugins().find(p=>p.url===renderChoice.value)||null,textModel:el('dfModel').value,retry:null});await refresh();}
     catch(e){toast(String(e));}finally{button.disabled=false;}
   };
   refresh();doubleFeatureTimer=setInterval(refresh,4000);
@@ -7086,7 +7118,7 @@ function renderCrew(){
     h+='</div>';
   });
   h+='</details>';
-  w.innerHTML = '<section class="ai-panel" style="max-width:1120px;margin-bottom:14px"><div id="dashboardMonitor"></div><h4>Double feature</h4><p>Two ten-second films. The crew screens the first before directing the second.</p><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Produce two shorts · four shots</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><div id="dfRuns"></div></section><details><summary>Legacy production tools</summary>'+h+'</details>';
+  w.innerHTML = '<section class="ai-panel" style="max-width:1120px;margin-bottom:14px"><div id="dashboardMonitor"></div><h4>Double feature</h4><p>Follow the director’s brief through script, casting, wardrobe, photography, storyboard and final cut.</p><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Start crew · 4 storyboard photos and 4 video shots</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><div id="dfRuns"></div></section><details><summary>Legacy production tools</summary>'+h+'</details>';
   doubleFeatureControls();
 
   const on = (id, ev, fn)=>{ const n = el(id); if (n) n.addEventListener(ev, fn); };
@@ -7274,7 +7306,7 @@ function townViewModel(selectedRoleId){
     const role=r.role||(/^Rendering|^Submitting|^Waiting for/.test(r.status)?'second_unit':/^Screening|^Editing/.test(r.status)?'editor':/^Crew choosing/.test(r.status)?'producer':'');
     return StudioTownModel.deriveTownVM({layout:StudioTownLayout,projectId:ACTIVE.p,draftId:ACTIVE.d,
       title:r.films?.at(-1)?.title||'Double feature',roster:CREW_ALL,selectedRoleId,
-      production:{id:r.id,status:blocked?'needs_attention':done?'complete':'running',currentStep:done?'':role,error:blocked?r.status:''},
+      production:{id:r.id,steps:Object.fromEntries(Object.keys(Object.values(r.preproduction||{}).at(-1)||{}).map(k=>[k,{status:'done'}])),status:blocked?'needs_attention':done?'complete':'running',currentStep:done?'':role,error:blocked?r.status:''},
       transcript:[...(r.events||[]).map(e=>({roleId:e.role,text:e.text,at:e.at})),...productionChat(r)],services:{},allowManual:false});
   }
   const videoSelection=videoProviderSelection(p),imageSelection=imageProviderSelection(p);
@@ -9487,7 +9519,7 @@ function settingsPanelHtml(initialTab){
         +'</div><label style="display:flex;gap:9px;align-items:flex-start;margin-top:12px"><input type="checkbox" id="settingsNoThink"'+(AI.noThink?' checked':'')+dis+' style="margin-top:3px;width:auto"><span><b>Skip the separate thinking step</b><br><span class="auto-note">Faster for routine production work. Models that cannot disable thinking ignore this setting.</span></span></label></div>'
       +'</section>'
       +'<section class="settings-panel'+on('media')+'" data-settings-panel="media"><h4>Media APIs</h4>'
-        +'<div class="settings-card"><h5>Provider setup assistant</h5><p>Choose the kind of connection your video provider offers. The agent reads its instructions and sets up the renderer for you.</p><label class="settings-field">Connection type<select id="agentKind"><option value="mcp">MCP server</option><option value="api">Video API</option></select></label><label class="settings-field">Provider connection link<input id="agentEndpoint" type="url" placeholder="https://…"></label><label class="settings-field">Provider instructions<textarea id="agentNotes" placeholder="For an API, paste its public request and response examples. For MCP, the server link is usually enough."></textarea></label><label class="settings-field">Key, if your provider requires one<input type="password" autocomplete="off" id="agentSecret"></label><button class="btn primary" id="agentSetup">Ask the setup agent</button> <button class="btn small" id="agentSave" hidden>Add this provider</button><p role="status" id="agentFeedback"></p><div id="pluginList"></div><details><summary>Manual MCP setup</summary><label class="settings-field">Plugin name<input id="pluginName" type="text" autocomplete="off"></label><label class="settings-field">MCP server URL<input id="pluginUrl" type="url" autocomplete="off"></label><label class="settings-field">Bearer token (if required)<input id="pluginToken" type="password" autocomplete="off"></label><button class="btn small" id="pluginFind">Connect and find tools</button><label class="settings-field">Video generation tool<select id="pluginTool"></select></label><label class="settings-field">Prompt field<select id="pluginPrompt"></select></label><label class="settings-field">Video URL result field (blank for a direct link)<input id="pluginVideo" placeholder="video_url"></label><details><summary>Tool options and queued jobs</summary><label class="settings-field">Extra tool arguments as JSON<input id="pluginArgs"></label><label class="settings-field">Status tool name<input id="pluginPoll"></label><label class="settings-field">Job ID result field<input id="pluginJob"></label><label class="settings-field">Job ID argument for status tool<input id="pluginJobArg"></label></details><button class="btn small" id="pluginSave">Save plugin</button></details><p id="pluginStatus" role="status"></p></div>'
+        +'<div class="settings-card"><h5>Provider setup assistant</h5><p>Choose the kind of connection your video provider offers. The agent reads its instructions and sets up the renderer for you.</p><label class="settings-field">Connection type<select id="agentKind"><option value="mcp">MCP server</option><option value="api">Video API</option></select></label><label class="settings-field">Provider connection link<input id="agentEndpoint" type="url" placeholder="https://…"></label><label class="settings-field">Provider instructions<textarea id="agentNotes" placeholder="For an API, paste its public request and response examples. For MCP, the server link is usually enough."></textarea></label><label class="settings-field">Key, if your provider requires one<input type="password" autocomplete="off" id="agentSecret"></label><button class="btn primary" id="agentSetup">Ask the setup agent</button> <button class="btn small" id="agentSave" hidden>Add this provider</button><p role="status" id="agentFeedback"></p><div id="pluginList"></div><details><summary>Manual MCP setup</summary><label class="settings-field">Plugin name<input id="pluginName" type="text" autocomplete="off"></label><label class="settings-field">MCP server URL<input id="pluginUrl" type="url" autocomplete="off"></label><label class="settings-field">Bearer token (if required)<input id="pluginToken" type="password" autocomplete="off"></label><button class="btn small" id="pluginFind">Connect and find tools</button><label class="settings-field">Video generation tool<select id="pluginTool"></select></label><label class="settings-field">Prompt field<select id="pluginPrompt"></select></label><label class="settings-field">Video URL result field (blank for a direct link)<input id="pluginVideo" placeholder="video_url"></label><details><summary>Tool options and queued jobs</summary><label class="settings-field">First-frame input (JPEG data URL)<input id="pluginFrameArg"></label><label class="settings-field">Extra tool arguments as JSON<input id="pluginArgs"></label><label class="settings-field">Status tool name<input id="pluginPoll"></label><label class="settings-field">Job ID result field<input id="pluginJob"></label><label class="settings-field">Job ID argument for status tool<input id="pluginJobArg"></label></details><button class="btn small" id="pluginSave">Save plugin</button></details><p id="pluginStatus" role="status"></p></div>'
         +'<div class="settings-card"><h5>Qwen Token Plan</h5><p id="qwenKeyState" role="status">Checking Mac Keychain…</p><label class="settings-field"><span>API key</span><input type="password" id="qwenKeyInput" autocomplete="off" spellcheck="false" placeholder="sk-sp-…"></label><button type="button" class="btn small" id="qwenKeySave">Save key</button> <button type="button" class="btn small" id="qwenKeyRemove" disabled>Remove key</button></div>'
         +'<div class="settings-intro">Double feature uses the crew and film editor included in Studio. Wan 3 renders the shots through your Qwen account.</div><details><summary>Legacy production providers</summary><div class="settings-intro">These choices apply to the older production tools.</div>'
         +(mediaLocked?'<div class="crit bad" style="margin-bottom:12px">This production has already frozen its provider choices. Finish, cancel, or archive the render manifest before changing them.</div>':'')
@@ -10341,7 +10373,7 @@ function boardOf(sh){
 function boardStyle(sh){ return boardOf(sh).style || S.boardStyle || ''; }
 function boardStatus(sh){
   const b = boardOf(sh);
-  if (b.frame) return { k:'ready', label:'Frame ready' };
+  if (b.frame||b.studioPhoto) return { k:'ready', label:'Frame ready' };
   return { k:'need', label:'Needs frame' };
 }
 function boardCounts(){
@@ -10349,7 +10381,7 @@ function boardCounts(){
   allShotsB().forEach(({sh})=>{
     shots++;
     const b = boardOf(sh);
-    if (b.frame) ready++;
+    if (b.frame || b.studioPhoto) ready++;
     if ((b.desc || (sh.prompt && sh.prompt.text) || '').trim()) prompted++;
     const state=boardVideoStatus(sh);
     if (state.k==='done') videos++;
@@ -10426,8 +10458,8 @@ async function renderBoards(){
   }
   const c = boardCounts();
   const shown = list.filter(({sh})=>{
-    if (BOARD.filter === 'need') return !boardOf(sh).frame;
-    if (BOARD.filter === 'ready') return !!boardOf(sh).frame;
+    if (BOARD.filter === 'need') return !(boardOf(sh).frame||boardOf(sh).studioPhoto);
+    if (BOARD.filter === 'ready') return !!(boardOf(sh).frame||boardOf(sh).studioPhoto);
     if (BOARD.filter === 'rendering') return ['admitting','queued','running'].includes(boardVideoStatus(sh).k);
     if (BOARD.filter === 'video') return boardVideoStatus(sh).k==='done';
     return true;
@@ -10460,7 +10492,7 @@ async function renderBoards(){
     rows.forEach(({sh, i:si, j})=>{
       const b = boardOf(sh);
       const st = boardStatus(sh);
-      const url = b.frame ? frameUrls.get(b.frame) : null;
+      const url = b.frame ? frameUrls.get(b.frame) : b.studioPhoto||null;
       const desc = (b.desc || (sh.prompt && sh.prompt.text) || '').trim();
       const open = BOARD.expanded === sh.id;
       const spec = [sh.size, sh.angle, sh.move].filter(Boolean).join(' · ');
