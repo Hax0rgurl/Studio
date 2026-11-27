@@ -10669,7 +10669,9 @@ async function docRun(only){
       }
       const before = aiSceneFountain(sc);
       if (isRepair) cleaned = restoreParentheticals(before, cleaned);
-      const unchanged = cleaned.replace(/\s+/g,' ').trim() === before.replace(/\s+/g,' ').trim();
+      // Line breaks and indentation are the actual edits in a formatting repair.
+      const comparable=text=>isRepair?text.replace(/\r\n?/g,'\n').trimEnd():text.replace(/\s+/g,' ').trim();
+      const unchanged = comparable(cleaned)===comparable(before);
       const audit = isRepair ? aiRepairAudit(before, cleaned) : null;
       DOC.results[idx] = {
         out: cleaned,
