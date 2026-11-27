@@ -3577,7 +3577,7 @@ async function crewFetchJson(path, opts){
   if(typeof studioDesktop==='function' && studioDesktop() && opts?.body && ['/api/image/generate','/api/video/queue-batch','/api/video/jobs','/api/video/assemble'].includes(path)){
     const data=JSON.parse(opts.body);
     const receipt=floorProduction(),provider=String(data.providerId||'');
-    if(['/api/video/queue-batch','/api/image/generate'].includes(path) && typeof filmmakerIntervention==='function' && filmmakerIntervention(productionState()))
+    if(['/api/video/queue-batch','/api/image/generate'].includes(path) && typeof filmmakerIntervention==='function' && (filmmakerIntervention(productionState())||unreadFilmmakerDirection(productionState())))
       throw Error('The filmmaker stopped this production before submission.');
     if(['/api/video/queue-batch','/api/image/generate'].includes(path) && provider && !provider.startsWith('studio-'))
       throw Error('Select a built-in Studio provider or a configured 480p renderer before spending credits.');
@@ -3715,7 +3715,7 @@ function crewSaveClientNote(text,targetRoleId,kind){
   const guard=p.orchestration?.loopGuard, previousStages=guard?.stages;
   p.clientNotes=prior.concat([{
     id:'client_'+uid(), text:note, kind:screening?'screening':(['veto','replacement'].includes(kind)?kind:'direction'), at:new Date().toISOString(),
-    afterStep:p.currentStep||'', projectId:ACTIVE.p, draftId:ACTIVE.d, targetRoleId:target
+    awaitingProducer:!!p.booking && !screening && !kind, afterStep:p.currentStep||'', projectId:ACTIVE.p, draftId:ACTIVE.d, targetRoleId:target
   }]);
   // Human direction is an explicit new phase input. It is the only UI action
   // that clears a no-progress retry latch without changing the artifact graph.
@@ -3992,6 +3992,11 @@ function crewTranscriptEntries(p){
     who:note.targetRoleId?'You → @'+String((crewFind(note.targetRoleId)||{}).at||note.targetRoleId):'You → crew',
     kind:'client', status:note.kind==='screening'?'screening note':'direction', text:String(note.text||''), targetRoleId:String(note.targetRoleId||'')
   }));
+  for(const note of crewClientNotes(p)){
+    const reading=note.producerReading;
+    if(reading)entries.push({id:'reply_'+note.id,roleId:'producer',kind:'conversation',at:reading.at,
+      who:'@producer → You',status:reading.action,text:reading.reply});
+  }
   const collaboration=crewCollaborationState(p);
   (collaboration&&collaboration.events||[]).forEach(event=>{
     if (!event) return;
@@ -7019,7 +7024,9 @@ async function crewCall(ask){
           return;
         }
       }
-      if(typeof filmmakerIntervention==='function' && filmmakerIntervention(p)){p.status='paused';p.currentStep='';productionCheckpoint();return;}
+      if(typeof filmmakerIntervention==='function' && (filmmakerIntervention(p)||unreadFilmmakerDirection(p))){
+        p.awaitingFilmmakerHandoff=true;p.status='paused';p.currentStep='';productionCheckpoint();return;
+      }
       const loopTicket=crewLoopTicket(p,id);
       if (!loopTicket.ok){
         p.status='needs_attention';

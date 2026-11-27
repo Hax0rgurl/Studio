@@ -470,3 +470,13 @@ test('a filmmaker replacement stops an unshot draft and goes straight to the cre
   assert.equal(starts[0][2].booking.commission,null);
   assert.match(starts[0][1],/Midnight Crossing/);
 });
+
+test('producer interprets a plain-language rejection before another department works',async()=>{
+  const {ctx,run,starts}=floor(),b=run('bookFilms()');
+  const note={id:'note',text:'I just saw enough. Put this one in the bin.',awaitingProducer:true};
+  const film={id:'original',booking:{id:b.id,number:1,commission:{choice:{title:'Old'}}},status:'paused',clientNotes:[note]};
+  ctx.S={title:'Old'};ctx.productionState=()=>film;ctx.productionCheckpoint=()=>true;ctx.crewUnprovenJobs=()=>[];
+  ctx.floorChat=async()=>JSON.stringify({action:'reject',reply:'I will shelve this and ask for new pitches.'});
+  await run('wakeProducer()');assert.equal(note.producerReading.action,'reject');
+  assert.equal(starts.length,0);await run('wakeProducer()');assert.equal(film.status,'superseded');
+});

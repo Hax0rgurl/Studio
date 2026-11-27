@@ -71,13 +71,36 @@ function filmmakerIntervention(p){
   for(const note of p.clientNotes||[]){
     if(note.kind==='screening'||note.kind==='brief')continue;
     const text=String(note.text||'').trim();
-    if(note.kind==='replacement')replacement=text;
+    if(note.kind==='replacement'||note.producerReading?.action==='replace')replacement=text;
     else if(!note.targetRoleId && /^use [^\n]+ as the film\. it supersedes the earlier pitch\.\s*\n/i.test(text))
       replacement=text.slice(text.indexOf('\n')).trim();
-    else if(note.kind==='veto' || /^(?:this|that|it)(?: is|['’]s) (?:fucking )?(?:shit|garbage|trash)[.!\s]*$/im.test(text) ||
+    else if(note.kind==='veto' || note.producerReading?.action==='reject' || /^(?:this|that|it)(?: is|['’]s) (?:fucking )?(?:shit|garbage|trash)(?:[.!?]|$)/im.test(text) ||
       /^(?:kill|scrap|reject) (?:this|the) (?:film|movie|premise|draft|idea)\b/im.test(text))veto=text;
   }
   return replacement||veto?{replacement,veto}:null;
+}
+function unreadFilmmakerDirection(p){
+  return p?.booking && (p.clientNotes||[]).find(note=>note.awaitingProducer && !note.producerReading);
+}
+async function readFilmmakerDirection(p,book,note){
+  if(note.retryAt>Date.now())return;
+  const instruction='Interpret this direct message from the filmmaker in the context of the current production. Her instruction controls the production. Choose reject when she condemns or kills the current work, even in casual or profane language. Choose replace when she gives a different film to make in its place. Choose direct for a change to the existing film or other ordinary notes. Distinguish a quote or scripted dialogue from an instruction. Respond to her in one sentence stating what the crew will do. Return JSON with action and reply.';
+  const context=JSON.stringify({title:S.title,currentAssignment:p.currentStep,direction:note.text});
+  try{
+    const raw=book.textModel==='qwen3.5:latest'?await aiVisionChat(instruction,context,[],book.textModel):
+      await floorChat(book.textModel,instruction,context,[],true,{temperature:0});
+    const decision=aiParseJson(raw);
+    if(!['direct','reject','replace'].includes(decision?.action)||!String(decision.reply||'').trim())throw Error('Incomplete producer decision.');
+    if(productionState()!==p||!p.booking||!p.clientNotes.includes(note))return;
+    note.producerReading={action:decision.action,reply:decision.reply,at:new Date().toISOString()};
+    delete note.retryAt;delete note.readError;
+  }catch(error){
+    note.readError=String(error.message||error);note.retryAt=Date.now()+30000;
+  }
+  if(productionState()===p && !productionCheckpoint()){
+    delete note.producerReading;
+    throw Error('Could not save the producer’s response to the filmmaker.');
+  }
 }
 function redirectRejectedFilm(p,book,order){
   const number=book.number, slot='replacement'+number;
@@ -391,6 +414,15 @@ async function wakeProducer(){
     const active=productionState();
     const intervention=filmmakerIntervention(active);
     if(intervention && redirectRejectedFilm(active,book,intervention))return;
+    const unread=unreadFilmmakerDirection(active);
+    if(unread && active.booking.id===book.id && active.booking.number===book.number){
+      await readFilmmakerDirection(active,book,unread);return;
+    }
+    if(active?.awaitingFilmmakerHandoff && active.status==='paused' && active.booking?.id===book.id && active.booking.number===book.number){
+      delete active.awaitingFilmmakerHandoff;
+      if(!productionCheckpoint())throw Error('Could not save the filmmaker handoff.');
+      await crewResume();return;
+    }
     if(typeof tasteLoadSnapshot==='function'){
       if(TASTE_OS.loading)return;
       await tasteLoadSnapshot();
