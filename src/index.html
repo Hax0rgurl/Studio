@@ -5137,29 +5137,62 @@ async function crewWriteScript(role, ask){
 function crewScreenplayPages(scenes=S.scenes){
   return scenes.map(sc=>({scene:sc.num,slug:sc.slug,text:sc.text}));
 }
+function crewFollowupReview(work){
+  const prior=work.lastReview;
+  if(!prior)return null;
+  const notes=(prior.problems||[]).filter(note=>note.severity!=='minor');
+  const earlier=new Map((work.revisionHistory||[]).filter(entry=>entry.review?.reviewedAt===prior.reviewedAt && entry.review?.pagesHash===prior.pagesHash)
+    .map(entry=>[String(entry.sceneNumber),(entry.prior?.blocks||[]).map(block=>block.text||'').join(' ')]));
+  const schema=JSON.parse(JSON.stringify(CREW_SCREENPLAY_REVIEW_SCHEMA));
+  schema.required.push('resolved');
+  schema.properties.resolved={type:'array',items:{type:'integer',minimum:1,maximum:Math.max(1,notes.length)}};
+  const finding=schema.properties.problems.items;
+  finding.required.push('priorFinding','viewerConsequence');
+  finding.properties.priorFinding={type:'integer',minimum:0,maximum:notes.length};
+  finding.properties.viewerConsequence={type:'string'};
+  return {notes,earlier,schema};
+}
+function crewCheckFollowupReview(followup,review,major,pages){
+  const normalized=value=>String(value||'').trim().replace(/\s+/g,' ').toLowerCase();
+  const resolved=review.resolved;
+  if(!Array.isArray(resolved)||resolved.some(n=>!Number.isInteger(n)||n<1||n>followup.notes.length))throw Error('List resolved prior finding numbers.');
+  const open=new Set();
+  for(const note of major){
+    const n=note.priorFinding,source=pages.find(row=>String(row.scene)===String(note.sceneNumber)),quote=normalized(note.evidence);
+    if(!Number.isInteger(n)||n<0||n>followup.notes.length||resolved.includes(n))throw Error('Use an open prior finding number, or zero for a new issue.');
+    if(n && String(followup.notes[n-1].sceneNumber)!==String(note.sceneNumber))throw Error('Reference the prior finding for this scene.');
+    if(quote.length<8 || !normalized(source?.text).includes(quote) || normalized(note.viewerConsequence).length<12)
+      throw Error('Each major finding needs an exact quotation from this scene and a concrete consequence a viewer would see or hear.');
+    if(n)open.add(n);
+  }
+  if(followup.notes.some((_,i)=>!open.has(i+1)&&!resolved.includes(i+1)))throw Error('Account for every prior major finding as resolved or still open.');
+}
 async function crewReviewScreenplay(role,ask){
   const p=productionState();
   if (!p||!['idea','adaptation'].includes(p.mode)) return {status:'skipped',text:'The existing imported screenplay remains canon; automatic story review cannot rewrite it.'};
   const work=crewWriterWork(p);
   if (!S.scenes.length||!work.plan) return {status:'failed',text:'No planned screenplay is available for independent story review.'};
-  const pages=crewScreenplayPages();
+  const pages=crewScreenplayPages(),followup=crewFollowupReview(work);
   const user=crewContext(role,{extra:'APPROVED WRITER PLAN:\n'+JSON.stringify(work.plan)
     +'\n\nDURABLE WRITER WORK:\n'+JSON.stringify({revisionPass:work.revisionPass||0,sceneCount:S.scenes.length})})
     +(ask?'\n\nPRODUCTION ASSIGNMENT:\n'+ask:'')
-    +(work.lastReview?'\n\nPREVIOUS REVIEW TO CHECK AGAINST THE NEW PAGES:\n'+JSON.stringify(work.lastReview.problems||[]):'')
+    +(followup?'\n\nREVISION CHECK. Prior major findings (numbered from 1): '+JSON.stringify(followup.notes.map((finding,i)=>({number:i+1,...finding})))+
+      '\nPages before this revision: '+JSON.stringify(Object.fromEntries(followup.earlier))+
+      '\nCompare the changed pages to those directions. List the numbers that are resolved in resolved. For each remaining major finding identify its priorFinding, quote only exact current scene text in evidence, and describe in viewerConsequence what someone would actually see or hear go wrong. Use priorFinding 0 for a newly discovered material problem. Explain the on-screen consequence of the new problem. Wording, articles, units, and alternative ways to photograph an equally readable event belong in minor notes unless they change what a viewer experiences or break explicit filmmaker direction. Before reversing an earlier direction, identify the conflict and follow the filmmaker. Acknowledge a successful correction and move on.':'')
     +'\n\nSCREENPLAY PAGES DELIVERED BY THE WRITER:\n'+JSON.stringify(pages)+'\nAssess these pages against the latest filmmaker direction, including anything it supersedes in the original pitch. Check whether earlier findings have been resolved. Request a further rewrite for a concrete problem on screen. Coverage belongs to the first AD after this review. Provisional breakdown suggestions are outside the screenplay.'
     +'\nA major finding can be a storytelling failure even if every action is filmable. A purely predictable demonstration needs a rewrite when the filmmaker asks for wit, humor or drama. Judge these pages from a human viewer’s seat. What expectation does the opening create? What does the ending make us understand, feel or laugh at that was not already obvious? Identify the first on-screen detail that would make someone stay. Explain what gives the ending meaning and why someone might want to share the moment. Do not predict popularity. Quote two distinct, literal extracts in story order from the screenplay in audience.setup and audience.payoff, and explain their relationship in audience.effect. When the film does not earn a payoff, return revise and cite the affected scene. A quiet observation, a sonic change, a laugh or a question that earns the next scene can carry the ending. Read each in its own form.'
     +'\n\nIndependently review the completed screenplay. Do not rewrite it. Check the causal progression, distinct scene turns, visual behavior, ending, duration, continuity, filmmaker direction, and approved treatment. '
     +(p.mode==='adaptation'?'Reject paper-section mimicry, copied prose, illustrated-lecture structure, unsupported facts, and narration that substitutes for filmable evidence. ':'')
     +'Every revise verdict must identify at least one blocking or major scene-specific problem with quoted or precisely paraphrased evidence and an executable required change. Return the review schema only.';
   const value=await crewJsonAgentCall(role,user,{temperature:0.2,json:true,
-    schema:CREW_SCREENPLAY_REVIEW_SCHEMA,schemaName:'screenplay_independent_review',roleId:role.id,
+    schema:followup?.schema||CREW_SCREENPLAY_REVIEW_SCHEMA,schemaName:'screenplay_independent_review',roleId:role.id,
     workloadId:'department.story_editor.screenplay_review.'+(work.revisionPass||0),artifactType:'screenplay_review'},review=>{
       if(!['pass','revise'].includes(review.verdict)||!Array.isArray(review.problems))
         throw Error('Return a pass or revise verdict and a problems array.');
       const major=review.problems.filter(problem=>['blocking','major'].includes(problem.severity));
       if(major.some(problem=>!pages.some(row=>String(row.scene)===String(problem.sceneNumber))))
         throw Error('Attach each blocking or major finding to a scene in the delivered screenplay.');
+      if(followup)crewCheckFollowupReview(followup,review,major,pages);
       if(major.length)review.verdict='revise';
       if(review.verdict==='revise'&&!major.length)
         throw Error('A revise verdict requires a major or blocking finding about a numbered screenplay scene. If you found only minor notes, return pass with those notes.');
@@ -8663,7 +8696,7 @@ function screenplayPrintDocument(){
   const draft=activeDraft()||{};
   return '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(S.title||'Screenplay')+'</title><style>'
     +'@page{size:Letter;margin:.75in 1in .75in 1.5in}*{box-sizing:border-box}body{margin:0;background:#fff;color:#000;font:12pt/1.02 Courier,\"Courier New\",monospace}'
-    +'.title-page{height:9in;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;page-break-after:always}.title-page h1{font-size:14pt;text-decoration:underline;text-transform:uppercase;margin:0 0 18px}.title-page p{margin:4px}'
+    +'.title-page{height:6.75in;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;page-break-after:always}.title-page h1{font-size:14pt;text-decoration:underline;text-transform:uppercase;margin:0 0 18px}.title-page p{margin:4px}'
     +'.screenplay-scene{break-inside:auto}.scene-heading{font-weight:bold;text-transform:uppercase;margin:18px 0 10px}.scene-number{float:right}.action{margin:0 0 10px;white-space:pre-wrap}.character{margin:12px 0 0 2.2in;text-transform:uppercase}.parenthetical{width:2.4in;margin:0 0 0 1.7in}.dialogue{width:3.5in;margin:0 0 8px 1.1in}.transition{text-align:right;text-transform:uppercase;margin:10px 0}.blank{height:6px}'
     +'@media screen{body{max-width:8.5in;margin:24px auto;padding:.75in 1in .75in 1.5in;box-shadow:0 2px 20px #bbb}.title-page{height:8.5in}}'
     +'</style></head><body><section class="title-page"><h1>'+esc(S.title||'Untitled Screenplay')+'</h1><p>Written screenplay</p>'

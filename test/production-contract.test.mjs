@@ -203,7 +203,7 @@ test('agentic screenplay development plans, checkpoints each scene, and loops th
   assert.match(development,/work\.sceneDrafts\[key\]=scene/);
   assert.match(development,/productionCheckpoint\(\)===false/);
   assert.match(development,/INDEPENDENT STORY-EDITOR NOTES/);
-  assert.match(development,/schema:CREW_SCREENPLAY_REVIEW_SCHEMA/);
+  assert.match(development,/schema:followup\?\.schema\|\|CREW_SCREENPLAY_REVIEW_SCHEMA/);
   const call=bodyBetween('async function crewCall','async function crewStart');
   assert.match(call,/p\.writerWork\.review\.verdict==='revise'/);
   assert.match(call,/productionStep\('writer','waiting'/);
@@ -1355,4 +1355,16 @@ test('a saved role receipt admits only the screenplay pages the story editor act
   assert.deepEqual(next(),['story_review']);
   p.mode='script';
   assert.deepEqual(next(),['prop_master']);
+});
+
+test('a follow-up review accounts for the prior findings and cites what the viewer would experience', () => {
+  const validate=loadFunction('function crewCheckFollowupReview','async function crewReviewScreenplay','crewCheckFollowupReview',{});
+  const pages=[{scene:'1',text:'The rope slips free. The bell stays silent.'}];
+  const last={notes:[{sceneNumber:1},{sceneNumber:1}]};
+  const finding={priorFinding:2,sceneNumber:1,evidence:'The bell stays silent.',viewerConsequence:'The listener cannot hear the promised signal.'};
+  assert.doesNotThrow(()=>validate(last,{resolved:[1]},[finding],pages));
+  assert.throws(()=>validate(last,{resolved:[]},[finding],pages),/every prior major/);
+  assert.throws(()=>validate(last,{resolved:[1,2]},[finding],pages),/open prior/);
+  assert.throws(()=>validate(last,{resolved:[1]},[{...finding,evidence:'The bell is ringing.'}],pages),/exact quotation/);
+  assert.doesNotThrow(()=>validate(last,{resolved:[1,2]},[],pages));
 });

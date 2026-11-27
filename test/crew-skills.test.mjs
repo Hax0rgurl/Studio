@@ -80,7 +80,7 @@ test('screenwriter is schema-first and Fountain is compatibility only', async ()
   assert.match(writer, /additionalProperties:false/);
   assert.match(writer, /schema:CREW_SCREENPLAY_PLAN_SCHEMA/);
   assert.match(writer, /schema:CREW_SCREENPLAY_SCENE_SCHEMA/);
-  assert.match(writer, /schema:CREW_SCREENPLAY_REVIEW_SCHEMA/);
+  assert.match(writer, /schema:followup\?\.schema\|\|CREW_SCREENPLAY_REVIEW_SCHEMA/);
   assert.match(writer, /crewWritePlannedScene/);
   assert.match(writer, /crewReviewScreenplay/);
   assert.match(writer, /Fountain remains an import\/export adapter/);
