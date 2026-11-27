@@ -7205,12 +7205,15 @@ function dashboardScreenings(host){
   const rows=studioScreenings();
   const signature=JSON.stringify(rows);
   if(host.dataset.version===signature)return;
+  const openRuns=new Set(Array.from(host.querySelectorAll('details[open]'),node=>node.dataset.screeningRun));
   host.dataset.version=signature;
   host.replaceChildren();
   if(!rows.length)return;
   const heading=document.createElement('h4');heading.textContent='Crew screenings';host.append(heading);
   for(const row of rows){
-    const detail=document.createElement('details');
+    const entry=document.createElement('div');
+    entry.style.cssText='display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:8px;margin:6px 0';
+    const detail=document.createElement('details');detail.dataset.screeningRun=row.runId;detail.open=openRuns.has(row.runId);
     const label=document.createElement('summary');label.textContent=row.title;detail.append(label);
     for(const [caption,value] of [['What the editor saw',row.review.observation],['Compared with',row.review.comparedWith?.title],['Change on screen',row.review.verdict],['Evidence',row.review.evidence],['Next film',row.review.lesson]]){
       if(!value)continue;
@@ -7230,15 +7233,16 @@ function dashboardScreenings(host){
       name.textContent='Your screening note'+(note.targetRoleId?' to @'+(crewFind(note.targetRoleId)?.at||note.targetRoleId):'')+'. ';
       line.append(name,note.text);detail.append(line);
     }
-    for(const [view,caption] of [['export','Watch cut'],['scenes','Script'],['boards','Storyboard'],['client','Crew chat']]){
+    for(const [view,caption] of [['scenes','Script'],['boards','Storyboard'],['client','Crew chat']]){
       const link=document.createElement('button');link.className='btn small';link.textContent=caption;
       link.onclick=()=>{
-        if(view==='export'){watchScreenedCut(row);return;}
         if(ACTIVE.p!==row.projectId||ACTIVE.d!==row.draftId)openDraft(row.projectId,row.draftId);
         if(ACTIVE.p===row.projectId&&ACTIVE.d===row.draftId)nav(view);
       };detail.append(link);
     }
-    host.append(detail);
+    const play=document.createElement('button');play.className='btn small';play.textContent='Watch cut';
+    play.setAttribute('aria-label','Watch '+row.title);play.onclick=()=>watchScreenedCut(row);
+    entry.append(detail,play);host.append(entry);
   }
 }
 async function reviewMissingPhoto(book){
@@ -7303,7 +7307,7 @@ function doubleFeatureControls(){
       const rows=await crewInvoke('double_feature_library');
       if(!runs.isConnected)return;
       const recent=rows.slice().sort((a,b)=>(b.modified||0)-(a.modified||0));
-      if(floorProduction())el('dashboardMonitor').textContent=[S.title,productionState().currentStep||productionState().status,productionState().error].filter(Boolean).join(' · ');
+      if(floorProduction())el('dashboardMonitor').textContent=[S.title,productionState().currentStep||productionState().status,crewAttentionMessage(productionState())].filter(Boolean).join(' · ');
       else studioMonitor(el('dashboardMonitor'),recent.find(r=>!String(r.status).startsWith('Stopped'))||recent[0]);
       const blocks=rows.filter(r=>(r.films||[]).some(f=>f.file)).map(r=>{
         const block=document.createElement('section');
@@ -7343,6 +7347,7 @@ function doubleFeatureControls(){
 }
 function renderCrew(){
   const w = el('crewWrap'); if (!w) return;
+  const openScreenings=new Set(Array.from(w.querySelectorAll('[data-screening-run][open]'),node=>node.dataset.screeningRun));
   const owner=JSON.stringify([ACTIVE.p,ACTIVE.d,productionState()?.id]);
   const inputs=w.dataset.directionOwner===owner?['crewAsk','crewClientDirection'].map(id=>el(id)).filter(Boolean).map(field=>({
     id:field.id,value:field.value,focused:field===document.activeElement,start:field.selectionStart,end:field.selectionEnd
@@ -7518,6 +7523,7 @@ function renderCrew(){
     }
   }
   doubleFeatureControls();
+  w.querySelectorAll('[data-screening-run]').forEach(node=>{node.open=openScreenings.has(node.dataset.screeningRun);});
 
   const on = (id, ev, fn)=>{ const n = el(id); if (n) n.addEventListener(ev, fn); };
   const departmentControls=el('crewDepartmentControls');
