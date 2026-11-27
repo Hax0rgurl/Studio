@@ -312,6 +312,46 @@ test('local commissioning requests a structured slate and a ballot tied to perso
   assert.match(calls[1].prompt,/One sound that catches my ear/);
 });
 
+test('the producer can select a stored publishing passage and keeps the actual earlier vote',async()=>{
+  const {ctx,run}=floor(),book=run('bookFilms()');
+  ctx.localStorage.setItem('studio.taste.publishing.v1',JSON.stringify({brief:'The sound reveals who is outside.'}));
+  let passage='T99',directorCalls=0;
+  ctx.floorChat=async(_,role,prompt)=>{
+    if(role.startsWith('Director')){
+      directorCalls++;
+      return JSON.stringify({pitches:['Bell','Lever','Scale'].map(title=>({title,opening:'A bell rings.',ending:'The bird answers.',whyWatch:'A counterfeit alarm.'}))});
+    }
+    assert.match(prompt,/"T1":"The sound reveals who is outside\."/);
+    return JSON.stringify({index:0,setupQuote:'bell rings',payoffQuote:'bird answers',blockingGap:'',reason:'The answer identifies the intruder.',
+      postingEvidence:passage,postingReason:'The answer from the bird gives the sound a source.'});
+  };
+  let meeting=await ctx.commissionOriginal(book,'');
+  assert.equal(meeting.choice,null);
+  passage='T1';
+  meeting=await ctx.commissionOriginal(run('readBooking()'),'');
+  assert.equal(directorCalls,1);assert.equal(meeting.rounds.length,1);
+  assert.deepEqual(Array.from(meeting.rounds[0].decisions,d=>d.stage),['voting','approved']);
+  assert.equal(meeting.postingEvidence,'The sound reveals who is outside.');
+});
+
+test('direction arriving during a vote survives the pending response and reaches the next pitches',async()=>{
+  const {ctx,run}=floor(),book=run('bookFilms()');
+  const chat=ctx.floorChat;let sent=false;
+  ctx.floorChat=async(model,role,prompt,...rest)=>{
+    if(!role.startsWith('Director')&&!sent){
+      sent=true;assert.ok(ctx.sendMeetingDirection('Let the audience hear the answer before they see it.','director',book.id,1));
+    }else if(role.startsWith('Director')&&sent)assert.match(prompt,/audience hear the answer/);
+    return chat(model,role,prompt,...rest);
+  };
+  const obsolete=await ctx.commissionOriginal(book,'');
+  assert.equal(obsolete.choice,null);
+  assert.equal(run('readBooking().pitchNotes.length'),1);
+  const updated=await ctx.commissionOriginal(run('readBooking()'),'');
+  assert.ok(updated.choice);
+  assert.equal(updated.rounds.length,2);
+  assert.equal(updated.rounds[0].decisions.length,0);
+});
+
 test('the director revises the rejected story with the producer’s note and hands accepted pages to the writer',async()=>{
   const {ctx,run,starts}=floor();
   let drafts=0;

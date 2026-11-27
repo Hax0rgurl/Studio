@@ -603,6 +603,7 @@
     <!-- CLIENT ROOM — human direction, review, and durable Greenroom record -->
     <div class="view" id="view-client">
       <div class="view-head"><h2>Client Room</h2><span class="meta">Watch the real department record, direct a specific agent, and send approved or flagged work back through the crew.</span></div>
+      <details hidden class="ai-panel" id="clientMeeting" style="max-width:1120px;margin-bottom:14px"><summary>Pitch meeting</summary><div></div></details>
       <div id="clientWrap"></div>
     </div>
 
@@ -6929,6 +6930,7 @@ async function crewStart(mode, ask, sourceOptions){
     videoProvider:{id:videoSelection.id,model:videoSelection.model||'',billingApproved:videoSelection.billingApproved===true,frozenAt:now},
     imageProvider:{id:imageSelection.id,model:imageSelection.model||'',billingApproved:imageSelection.billingApproved===true,frozenAt:now}
   };
+  if(source.booking?.pitchNotes?.length)S.production.clientNotes=source.booking.pitchNotes.map(n=>({...n,projectId:ACTIVE.p,draftId:ACTIVE.d}));
   if (['idea','adaptation'].includes(mode)) S.production.targetMinutes=targetMinutes;
   if (mode==='adaptation'){
     S.production.sourceMaterial=String(source.text||brief).trim();
@@ -7310,6 +7312,34 @@ async function reviewMissingPhoto(book){
   openModal('Missing storyboard photo · '+state.title,'<p>Studio has no image or provider confirmation for this attempt. If Qwen already counted it, another attempt can use an extra image credit. Check your provider history before authorizing a replacement.</p>',[{label:'Keep on hold'},...buttons]);
   return true;
 }
+function pitchMeetingLabel(meeting){
+  if(meeting.choice)return 'Producer selected '+meeting.choice.title;
+  if(meeting.stage==='voting')return 'Producer reviewing pitches';
+  return meeting.stage==='pitching'?'Director developing pitches':'Director revising pitches';
+}
+function showPitchMeeting(details,meeting,id,prefix='',notes=[]){
+  details.hidden=!meeting;
+  if(details.dataset.meeting!==id){details.open=!!prefix;details.dataset.meeting=id;}
+  if(!meeting)return;
+  details.querySelector('summary').textContent=prefix+pitchMeetingLabel(meeting);
+  const rounds=meeting.rounds?.length?meeting.rounds:[{pitches:meeting.pitches||[],decisions:meeting.reason||meeting.rejection?[{reason:meeting.reason,note:meeting.rejection}]:[]}];
+  const direction=notes.map(n=>'<p><strong>You → '+esc(n.targetRoleId?'@'+n.targetRoleId:'crew')+'</strong> '+esc(n.text)+'</p>').join('');
+  details.querySelector('div').innerHTML=direction+rounds.map(round=>
+    (round.pitches||[]).map(p=>'<div class="pl-shot"><strong>'+esc(p.title)+'</strong><p>'+esc(p.opening)+'</p><p>'+esc(p.ending)+'</p>'+(p.whyWatch?'<p>'+esc(p.whyWatch)+'</p>':'')+'</div>').join('')+
+    (round.decisions||[]).map(d=>'<p><strong>Producer review</strong> '+esc(d.reason||d.note||'')+
+      (d.note&&d.note!==d.reason?' '+esc(d.note):'')+(d.attempts>1?' ('+Number(d.attempts)+' attempts)':'')+'</p>').join('')
+  ).join('<hr>')+(meeting.postingEvidence?'<p>Publishing brief: “'+esc(meeting.postingEvidence)+'” '+esc(meeting.postingReason||'')+'</p>':'');
+}
+function showClientPitchMeeting(){
+  const book=readBooking(),live=livePitchMeeting(book),p=productionState();
+  const receipt=p?.booking||p?.supersededBooking;
+  const meeting=live||receipt?.commission;
+  const id=live?book.id+'/'+book.number:(meeting?p.id:'');
+  showPitchMeeting(el('clientMeeting'),meeting,id,live?'On the floor · ':'',live?(book.pitchNotes||[]).filter(n=>n.number===book.number):receipt?.pitchNotes||[]);
+}
+window.addEventListener('studio-booking-changed',()=>{
+  if(activeView()==='client')showClientPitchMeeting();
+});
 function doubleFeatureControls(){
   clearInterval(doubleFeatureTimer);
   const daily=el('dfDaily');
@@ -7325,18 +7355,7 @@ function doubleFeatureControls(){
     }
     button.textContent=book?.phase==='held'?(bookingNeedsPhotoDecision(book)?'Review missing photo':'Retry this booking'):active?'Crew is working':'Book two shorts · 4 storyboard photos and 4 video shots';
     const meeting=book?.['commission'+book.number], details=el('dfMeeting');
-    const meetingId=meeting?book.id+'/'+book.number:'';
-    if(details.dataset.meeting!==meetingId)details.open=false;
-    details.dataset.meeting=meetingId;
-    details.hidden=!meeting;
-    if(meeting){
-      const label=meeting.choice?'Producer selected '+meeting.choice.title:meeting.stage==='voting'?'Producer reviewing pitches':meeting.stage==='pitching'?'Director developing pitches':'Director revising pitches';
-      details.querySelector('summary').textContent=label;
-      const note=meeting.rejection||meeting.reason;
-      details.querySelector('div').innerHTML=(note?'<p>'+esc(note)+'</p>':'')+
-        (meeting.postingEvidence?'<p>Publishing brief: “'+esc(meeting.postingEvidence)+'” '+esc(meeting.postingReason||'')+'</p>':'')+
-        (meeting.pitches||[]).map(p=>'<div class="pl-shot"><strong>'+esc(p.title)+'</strong><p>'+esc(p.opening)+'</p><p>'+esc(p.ending)+'</p></div>').join('');
-    }
+    showPitchMeeting(details,meeting,meeting?book.id+'/'+book.number:'','',(book?.pitchNotes||[]).filter(n=>n.number===book.number));
     button.disabled=submitting||!!active;
     el('dfShelve').hidden=!canShelveOriginal(productionState(),book);
     el('dfShelve').disabled=!!productionState()?.shelveRequestedAt;
@@ -7749,6 +7768,20 @@ let STUDIO_TOWN_CONTROLLER=null,townRun=null,townRunTimer;
 async function refreshTownRun(){
   if(activeView()!=='town'){clearInterval(townRunTimer);return;}
   try{
+    const book=readBooking(),meeting=livePitchMeeting(book);
+    if(meeting){
+      townRun=null;el('townMonitor').replaceChildren();
+      el('townCrewStatus').textContent=book.phase==='held'?'Pitch meeting on hold · '+book.error:pitchMeetingLabel(meeting);
+      const links=el('townFilmNav');
+      if(links.dataset.run!=='pitchMeeting'){
+        const button=document.createElement('button');button.className='btn small';button.dataset.townUi='';
+        button.textContent='Open pitch meeting';button.onclick=()=>nav('client');
+        links.replaceChildren(button);links.dataset.run='pitchMeeting';
+      }
+      STUDIO_TOWN_CONTROLLER?.refresh();return;
+    }
+    const linksBefore=el('townFilmNav');
+    if(linksBefore.dataset.run==='pitchMeeting'){linksBefore.replaceChildren();delete linksBefore.dataset.run;}
     const rows=await crewInvoke('double_feature_library');
     const latest=rows.slice().sort((a,b)=>(b.modified||0)-(a.modified||0));
     if(floorProduction()){
@@ -7780,6 +7813,16 @@ function townServiceState(){
 }
 function townViewModel(selectedRoleId){
   const p=productionState(), jobs=Object.values((p&&p.jobs)||{});
+  const book=readBooking(),meeting=livePitchMeeting(book);
+  if(meeting){
+    const role=meeting.stage==='voting'?'producer':'director';
+    return StudioTownModel.deriveTownVM({layout:StudioTownLayout,projectId:ACTIVE.p,draftId:ACTIVE.d,title:'Pitch meeting',
+      production:{id:book.id,steps:{},currentStep:role,status:book.phase==='held'?'needs_attention':'running',error:book.error||''},
+      roster:CREW_ALL,selectedRoleId,services:{},transcript:[
+        ...(meeting.pitches||[]).map(pitch=>({roleId:'director',text:pitch.title+' · '+pitch.opening})),
+        ...(meeting.reason?[{roleId:'producer',text:meeting.reason}]:[])
+      ],allowManual:false});
+  }
   if(!p?.booking && townRun && ((!String(townRun.status).startsWith('Stopped') && townRun.status!=='Complete') || !p || !['running','rendering','assembling'].includes(p.status))){
     const r=townRun, blocked=String(r.status).startsWith('Stopped'), done=r.status==='Complete';
     const role=r.role||(/^Rendering|^Submitting|^Waiting for/.test(r.status)?'second_unit':/^Screening|^Editing/.test(r.status)?'editor':/^Crew choosing/.test(r.status)?'producer':'');
@@ -7818,7 +7861,8 @@ function townEnsureController(){
       layout:StudioTownLayout,assets:STUDIO_TOWN_ASSETS,
       getViewModel:selected=>townViewModel(selected),
       onNavigate:view=>nav(view),onSettings:()=>openAppSettings('services'),onSkill:townShowSkill,
-      onDirection:(roleId,text)=>{const saved=crewAddClientNote(text,roleId);if(saved&&STUDIO_TOWN_CONTROLLER)STUDIO_TOWN_CONTROLLER.refresh();return saved;},
+      onDirection:(roleId,text)=>{const b=readBooking(),vm=STUDIO_TOWN_CONTROLLER?.vm;
+        const saved=vm?.runId===b?.id && b?sendMeetingDirection(text,roleId,b.id,b.number):crewAddClientNote(text,roleId);if(saved&&STUDIO_TOWN_CONTROLLER)STUDIO_TOWN_CONTROLLER.refresh();return saved;},
       onReview:async(roleId,verdict,note)=>{await crewReviewArtifact(roleId,verdict,note);if(STUDIO_TOWN_CONTROLLER)STUDIO_TOWN_CONTROLLER.refresh();},
       onRun:roleId=>crewRun(roleId,''),onNotice:message=>toast(message),onError:error=>toast(error.message),
       onRefresh:async()=>{await crewRefreshRecord();if(STUDIO_TOWN_CONTROLLER)STUDIO_TOWN_CONTROLLER.refresh();}
@@ -7866,7 +7910,7 @@ function wireClientRoom(wrap){
       if(button.id==='clientBook'){
         try{submitProduction(text.trim());}
         catch(error){input.value=text;toast(String(error.message||error));}
-      }else if(!crewAddClientNote(text,target)){
+      }else if(!(button.dataset.meetingId?sendMeetingDirection(text,target,button.dataset.meetingId,Number(button.dataset.filmNumber)):crewAddClientNote(text,target))){
         const current=el('clientDirection');if(current)current.value=text;
       }
       renderClientRoom();return;
@@ -7888,6 +7932,7 @@ function wireClientRoom(wrap){
 }
 function renderClientRoom(){
   const wrap=el('clientWrap');if(!wrap)return;
+  showClientPitchMeeting();
   const run=filmReceipts.get(S.doubleFeatureId);
   if(run){
     const messages=productionChat(run);
@@ -7903,6 +7948,7 @@ function renderClientRoom(){
   wrap.dataset.draftKey=draftKey;
   wireClientRoom(wrap);
   const p=productionState(),transcript=crewTranscriptEntries(p),current=p&&p.currentStep?crewFind(p.currentStep):null;
+  const booking=readBooking(),inMeeting=!!livePitchMeeting(booking)&&(!p||p.status==='superseded');
   const roleOptions=CREW_ALL.map(role=>'<option value="'+esc(role.id)+'">@'+esc(role.at)+' · '+esc(role.title)+'</option>').join('');
   wrap.innerHTML='<div class="ai-panel" style="max-width:1120px;margin-bottom:14px">'
     +'<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap"><h4 style="margin:0">Production record</h4>'
@@ -7911,10 +7957,10 @@ function renderClientRoom(){
     +(p?'<div class="auto-note" style="margin-top:9px">'+esc(S.title||'Untitled')+' · '+esc(String(p.status||'idle').replace(/_/g,' '))
       +(current?' · working now: @'+esc(current.at):'')+(p.greenroomMessageCount?' · '+Number(p.greenroomMessageCount)+' Greenroom messages':'')+'</div>'
       :'<div class="auto-note" style="margin-top:9px">No active production. Start one from the Dashboard, or run a department from Studio Town.</div>')+'</div>'
-    +'<div class="ai-panel" style="max-width:1120px;margin-bottom:14px"><h4 style="margin-top:0">Your direction</h4>'
-    +'<div class="client-direction-grid"><label class="bd-f"><span>Send to</span><select data-town-direction id="clientTarget"'+(!p?' disabled':'')+'><option value="">Entire crew</option>'+roleOptions+'</select></label>'
+    +'<div class="ai-panel" style="max-width:1120px;margin-bottom:14px"><h4 style="margin-top:0">'+(inMeeting?'Your direction for the upcoming film':'Your direction'+(p?' for '+esc(S.title||'this film'):''))+'</h4>'
+    +'<div class="client-direction-grid"><label class="bd-f"><span>Send to</span><select data-town-direction id="clientTarget"'+(!p&&!inMeeting?' disabled':'')+'><option value="">Entire crew</option>'+roleOptions+'</select></label>'
     +'<label class="bd-f"><span>Direction</span><textarea data-town-direction id="clientDirection" rows="3" placeholder="'+(p?.status==='complete'?'What worked or fell short in the finished film?':p?'What should this department keep or change at its next checkpoint?':'Give the producer a film idea.')+'"></textarea></label></div>'
-    +'<button class="btn primary" data-town-ui id="clientSend" style="margin-top:8px">'+(p?.status==='complete'?'Save screening note':!p?'Book a film':'Send direction')+'</button>'
+    +'<button class="btn primary" data-town-ui id="clientSend" '+(inMeeting?'data-meeting-id="'+esc(booking.id)+'" data-film-number="'+Number(booking.number)+'"':'')+' style="margin-top:8px">'+(inMeeting?'Send direction':p?.status==='complete'?'Save screening note':!p?'Book a film':'Send direction')+'</button>'
     +(p?.status==='complete'&&window.__TAURI__?.core?'<button class="btn small" data-town-ui id="clientBook">Book a new film from this idea</button>':'')+'</div>'
     +'<div class="ai-panel" style="max-width:1120px"><div class="crew-transcript">'
     +(transcript.length?transcript.map(clientTranscriptHtml).join(''):'<div class="auto-note">No department checkpoint exists yet. Nothing is being simulated here; messages appear only after real work starts or you send direction.</div>')
