@@ -200,6 +200,9 @@
   .modal-box{background:linear-gradient(180deg,#141a28,var(--bg2));border:1px solid #333d52;border-radius:14px;width:min(680px,92vw);max-height:84vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.6)}
   .modal-head{padding:15px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
   .modal-head h3{font-size:15px;flex:1}
+  .shot-staging{margin-top:4px;font-size:12px;color:var(--tx2)}
+  .shot-staging summary{cursor:pointer}
+  .shot-staging div{white-space:pre-line;line-height:1.5;padding:6px 0}
   .modal-body{padding:18px 20px;overflow-y:auto;font-size:13px;line-height:1.6}
   .modal-foot{padding:13px 20px;border-top:1px solid var(--line);display:flex;gap:9px;justify-content:flex-end}
   #modal.settings-open .modal-box{width:min(980px,95vw);max-height:91vh}
@@ -2029,6 +2032,13 @@ function renderShots(){
   }));
   wireShotTables();
 }
+function shotStaging(sh){
+  return [['First frame',sh.firstFrame],['Story beat',sh.storyBeat],['Purpose',sh.purpose],['Continuity',sh.continuity],['Last frame',sh.lastFrame]]
+    .filter(([,value])=>typeof value==='string'&&value.trim()).map(([label,value])=>label+': '+value.trim()).join('\n');
+}
+function plannedShot(sh){
+  return [[sh.size,sh.angle,sh.move,sh.lens,sh.desc].filter(Boolean).join(' | '),shotStaging(sh)].filter(Boolean).join('\n');
+}
 function shotTable(sc,i){
   return `<table class="shot-table"><thead><tr><th style="padding-left:14px">Shot</th><th>Size</th><th>Angle</th><th>Move</th><th>Lens</th><th style="width:38%">Description</th><th></th></tr></thead>
   <tbody>${sc.shots.map((sh,j)=>`<tr>
@@ -2037,7 +2047,7 @@ function shotTable(sc,i){
     <td><input list="dlAngle" data-i="${i}" data-j="${j}" data-f="angle" value="${esc(sh.angle)}" style="width:100px" placeholder="Low / Dutch…"></td>
     <td><input list="dlMove" data-i="${i}" data-j="${j}" data-f="move" value="${esc(sh.move)}" style="width:110px" placeholder="Push in…"></td>
     <td><input data-i="${i}" data-j="${j}" data-f="lens" value="${esc(sh.lens)}" placeholder="35mm" style="width:70px"></td>
-    <td><input data-i="${i}" data-j="${j}" data-f="desc" value="${esc(sh.desc)}" placeholder="What we see…"></td>
+    <td><input data-i="${i}" data-j="${j}" data-f="desc" value="${esc(sh.desc)}" placeholder="What we see…">${shotStaging(sh)?`<details class="shot-staging"><summary>Staging notes</summary><div>${esc(shotStaging(sh))}</div></details>`:''}</td>
     <td><button class="del" data-i="${i}" data-j="${j}">✕</button></td>
   </tr>`).join('')}</tbody></table>
   <button class="btn small add-shot" data-add="${i}">+ Add shot</button>`;
@@ -3474,7 +3484,7 @@ function crewContext(role, options){
       if (includeFull || requested.length===1) sceneLines.push(String(sc.text||'').trim());
       if ((sc.shots||[]).length){
         sceneLines.push('Shot plan:');
-        sc.shots.forEach(sh=>sceneLines.push('- '+sh.num+' | '+[sh.size,sh.angle,sh.move,sh.lens,sh.desc].filter(Boolean).join(' | ')
+        sc.shots.forEach(sh=>sceneLines.push('- '+sh.num+' | '+plannedShot(sh)
           +(sh.prompt&&sh.prompt.text?' | VIDEO PROMPT COMPLETE':' | VIDEO PROMPT MISSING')));
       }
       sceneLines.push('');
@@ -3701,7 +3711,7 @@ function crewArtifactText(artifact){
     }).join('\n\n');
   }
   if (artifact.kind==='coverage') return (S.scenes||[]).map(sc=>'SCENE '+sc.num+' — '+sc.slug+'\n'
-    +(sc.shots||[]).map(sh=>sh.num+' · '+[sh.size,sh.angle,sh.move,sh.lens,sh.desc].filter(Boolean).join(' · ')).join('\n')).join('\n\n');
+    +(sc.shots||[]).map(sh=>sh.num+' · '+plannedShot(sh)).join('\n')).join('\n\n');
   if (artifact.kind==='video_prompts') return allShots().filter(row=>row.sh.prompt&&row.sh.prompt.text)
     .map(row=>'SCENE '+row.sc.num+' · SHOT '+row.sh.num+'\n'+row.sh.prompt.text).join('\n\n---\n\n');
   if (artifact.kind==='still_prompts') return allShots().filter(row=>row.sh.board&&row.sh.board.desc)
@@ -5123,10 +5133,10 @@ function crewCoverageSceneSatisfies(sc,constraint){
 }
 const CREW_COVERAGE_SCHEMA={type:'object',additionalProperties:false,required:['sceneNumber','shots','coverageCheck'],properties:{
   sceneNumber:{type:'string'},shots:{type:'array',minItems:1,maxItems:16,items:{type:'object',additionalProperties:false,
-    required:['size','angle','movement','lens','description','storyBeat','purpose','continuity'],properties:{
+    required:['size','angle','movement','lens','description','storyBeat','purpose','continuity','firstFrame','lastFrame'],properties:{
       size:{type:'string',minLength:1},angle:{type:'string'},movement:{type:'string',minLength:1},lens:{type:'string'},
       description:{type:'string',minLength:12},storyBeat:{type:'string',minLength:8},purpose:{type:'string',minLength:8},
-      continuity:{type:'string',minLength:8}}}},coverageCheck:{type:'string',minLength:20}}};
+      continuity:{type:'string',minLength:8},firstFrame:{type:'string',minLength:8},lastFrame:{type:'string',minLength:8}}}},coverageCheck:{type:'string',minLength:20}}};
 function crewCoverageValue(value,sc,constraint){
   if (String((value&&value.sceneNumber)||'').trim()!==String(sc.num||'').trim())
     throw new Error('The First AD returned coverage for scene '+String((value&&value.sceneNumber)||'unknown')+' while scene '+sc.num+' was assigned.');
@@ -5134,7 +5144,10 @@ function crewCoverageValue(value,sc,constraint){
   if (!rows.length) throw new Error('Scene '+sc.num+' has no coverage.');
   if (constraint&&constraint.onePerScene&&rows.length!==1)
     throw new Error('Binding human direction requires exactly one shot for scene '+sc.num+'; the First AD returned '+rows.length+'.');
-  return rows.map((row,index)=>({
+  if(rows.some(row=>['firstFrame','lastFrame'].some(key=>typeof row?.[key]!=='string'||row[key].trim().length<8)))
+    throw Error('Each newly planned shot needs a concrete first and last frame.');
+  return rows.map(row=>({
+    firstFrame:row.firstFrame.trim(),lastFrame:row.lastFrame.trim(),
     id:uid(),num:'',size:String(row.size||'').trim(),angle:String(row.angle||'').trim(),
     move:String(row.movement||'').trim(),lens:String(row.lens||'').trim(),
     desc:String(row.description||'').trim(),storyBeat:String(row.storyBeat||'').trim(),
@@ -5182,7 +5195,7 @@ async function crewCoverage(role, ask){
     const user=evidence+(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
       +(constraint.text?'\n\nBINDING HUMAN COVERAGE LIMIT:\n'+constraint.text:'')
       +'\n\nPlan executable coverage for only this scene. Map every essential story beat to at least one shot, keep screen direction and geography coherent, '
-      +'and do not add decorative coverage with no purpose. The preserved shots above remain; return the complementary complete scene plan in story order.'
+      +'Specify the first and last visible states of each shot. Start before the important action happens. Account for where people and props physically are, how they get there, and whether the action fits the running time. Preserve any deliberately fantastical event in the filmmaker’s script. The preserved shots above remain; return the complementary complete scene plan in story order.'
       +(constraint.onePerScene?' The response must contain exactly one shot for this scene. Compress the complete beat into that sustained shot; do not return alternates, inserts, or extra coverage.':'');
     let raw='',value,planned;
     try{
@@ -5251,7 +5264,7 @@ function crewVideoPromptAssignment(sc,sh){
   const prior=sh.prompt&&String(sh.prompt.text||'').trim(),review=sh.prompt&&sh.prompt.verdict;
   return '=== VIDEO SHOT '+String(sh.id||sh.num)+' ===\nshotId (copy exactly): '+String(sh.id||'')
     +'\nSCENE '+sc.num+' CANON:\n'+[sc.synopsis,sc.text].filter(Boolean).join('\n')
-    +'\nPLANNED SHOT '+sh.num+': '+[sh.size,sh.angle,sh.move,sh.lens,sh.desc].filter(Boolean).join(' | ')
+    +'\nPLANNED SHOT '+sh.num+': '+plannedShot(sh)
     +'\nAPPROVED FIRST-FRAME PROMPT:\n'+String(boardOf(sh).desc||'')
     +(prior?'\nPRIOR VIDEO PROMPT TO REPAIR:\n'+prior:'')
     +(review&&review.verdict!=='pass'?critiqueToNote(review):'');
@@ -5264,7 +5277,7 @@ async function crewGenerateVideoPromptBatch(rows,role,ask,target,seconds,provide
       extra:'WRITE '+rows.length+' COMPLETE VIDEO PROMPTS IN THIS ONE BOUNDED PASS FOR '+String(provider.name||provider.id||'the selected provider')+'.\n\n'
         +rows.map(row=>crewVideoPromptAssignment(row.sc,row.sh)).join('\n\n')})
     +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')+'\n\n'+crewVideoPromptShape(target,seconds)
-    +'\nOne prompt is one continuous shot. Animate forward from the approved first frame through only the scene action. Repeat the physical identity, geography, light, lens, and state anchors needed by the video model. '
+    +'\nOne prompt is one continuous shot. Stage the saved story beat from the approved first frame to the planned end state. Keep actors and props physically continuous. A prop must already be present or enter by a visible action. Preserve any intentional effect specified by the filmmaker. Repeat the physical identity, geography, light, lens, and state anchors needed by the video model. '
     +'Do not add people, props, events, cuts, camera moves, text, sound, or explanations that canon does not establish. The outer response is the requested prompts JSON array; each text field contains the finished provider-ready prompt.';
   return crewJsonAgentCall(role,user,{temperature:0.25,schema:crewVideoPromptBatchSchema(rows),schemaName:'video_prompt_batch',
     roleId:role.id,workloadId:'department.'+role.id+'.video_prompt.batch',artifactType:'video_prompt_batch',
@@ -5306,7 +5319,7 @@ async function crewReviewVideoPromptBatch(rows,role,target,seconds){
   const reviewer=crewFind('script_supervisor')||role;
   const artifacts=rows.map(({sc,sh})=>'=== VIDEO REVIEW '+String(sh.id||sh.num)+' ===\nshotId: '+String(sh.id||'')
     +'\nSCENE '+sc.num+' CANON:\n'+[sc.synopsis,sc.text].filter(Boolean).join('\n')
-    +'\nPLANNED SHOT: '+[sh.size,sh.angle,sh.move,sh.lens,sh.desc].filter(Boolean).join(' | ')
+    +'\nPLANNED SHOT: '+plannedShot(sh)
     +'\nPROMPT:\n'+String(sh.prompt&&sh.prompt.text||'')).join('\n\n');
   const user=crewContext(reviewer,{scenes:rows.map(row=>row.sc),budget:16000,taskFirst:true,collaborationCap:2500,
       extra:'INDEPENDENT REVIEW OF '+rows.length+' PROVIDER-READY VIDEO PROMPTS.\n\n'+artifacts})
@@ -5373,7 +5386,7 @@ async function crewWritePrompts(role, ask){
         for(const {sc,sh,review} of reviews){
           if(review.verdict!=='pass')continue;
           const taste=await critiqueTaste(sh.prompt.text,{scene:sc.slug,shot:sh.num,sceneObject:sc},crewFind('taste'));
-          if(!taste && (tasteStatement()||TASTE_OS.snapshot?.profile?.rules?.some(r=>r.active!==false)))
+          if(!taste)
             throw Error('TasteOS returned no verdict for '+sh.num+'.');
           sh.prompt.taste=taste;sh.prompt.tasteReviewed=true;
           if(!productionCheckpoint())throw Error('Could not save the video TasteOS review for '+sh.num+'.');
@@ -5418,12 +5431,12 @@ async function critiqueStillBatch(rows,role){
   const sceneMap=new Map(); rows.forEach(row=>sceneMap.set(String(row.sc.id||row.sc.num),row.sc));
   const artifacts=rows.map(({sc,sh})=>'=== REVIEW ITEM '+String(sh.id||sh.num)+' ===\n'
     +'shotId: '+String(sh.id||'')+'\nSCENE '+sc.num+' CANON:\n'+[sc.synopsis,sc.text].filter(Boolean).join('\n')
-    +'\nPLANNED SHOT '+sh.num+': '+[sh.size,sh.angle,sh.move,sh.lens,sh.desc].filter(Boolean).join(' | ')
+    +'\nPLANNED SHOT '+sh.num+': '+plannedShot(sh)
     +'\nVERIFIED OFF-SCRIPT TERMS: '+((boardOf(sh).offScript||[]).join(', ')||'none')
     +'\nSTORYBOARD-PHOTO PROMPT:\n'+String(boardOf(sh).desc||'')).join('\n\n');
   const user=crewContext(role,{scenes:[...sceneMap.values()],budget:24000,taskFirst:true,collaborationCap:3000,
       extra:'INDEPENDENT BATCH REVIEW OF '+rows.length+' FINISHED STORYBOARD-PHOTO PROMPTS.\n\n'+artifacts})
-    +'\n\nReview every item against canon, one frozen instant, internal consistency, physical support, identity, geography, shot spec, lighting, composition, continuity, and clarity. '
+    +'\n\nCheck that the photo depicts the assigned first frame and leaves the scripted action possible. A reveal already completed in the source photo is a high-severity continuity error. Quote the offending words. Review every item against canon, one frozen instant, internal consistency, physical support, identity, geography, shot spec, lighting, composition, continuity, and clarity. '
     +'Quote the exact offending words for every finding. Do not manufacture faults. Calling the artifact a photograph is allowed. '
     +'“At the instant”, “caught as”, and comparable language identify a frozen state and are allowed unless the same prompt actually describes multiple states or a sequence. '
     +'FILM STOCK, IMPERFECTION, AESTHETIC REFUSALS, and AVOID are required Studio blocks; never fail their existence. '
@@ -5459,7 +5472,7 @@ async function crewSupervise(role, ask){
     const v = await critique('prompt', sh.prompt.text, {
       seconds: sh.prompt.seconds || PL.seconds, licence: sh.prompt.licence,
       offScript: sh.prompt.offScript || [], sceneNum: sc.num, shotNum: sh.num,
-      shotDesc: [sh.size, sh.angle, sh.move, sh.desc].filter(Boolean).join(' · '),
+      shotDesc: plannedShot(sh),
       sceneText: aiSceneFountain(sc), sceneObject:sc },role);
     if (!v) throw new Error('The script supervisor did not return a valid review for scene '+sc.num+' shot '+sh.num+'.');
     sh.prompt.verdict = v;
@@ -5489,15 +5502,6 @@ async function crewTaste(role, ask){
   const withPrompt = allShots().filter(x=>onlyTarget(x)&&x.sh.prompt && x.sh.prompt.text);
   const withStill = allShots().filter(x=>onlyTarget(x)&&x.sh.board&&String(x.sh.board.desc||'').trim());
   if (!withPrompt.length&&!withStill.length) return 'Nothing to judge yet.';
-  const examples=tasteExamples(), profile=TASTE_OS.snapshot&&TASTE_OS.snapshot.profile;
-  const learned=(profile&&profile.rules||[]).filter(rule=>rule.active!==false);
-  if (!examples.kept.length&&!examples.killed.length&&!tasteStatement()&&!learned.length){
-    const at=new Date().toISOString();
-    for (const {sc,sh} of withStill){ const board=boardOf(sh); board.tasteUntrainedAt=at; board.review=imageReviewEnvelope(sc,sh,board.desc); }
-    if (!persistNow()) throw new Error('The untrained TasteOS receipt could not be saved.');
-    return {status:crewStoryboardTasteComplete()?'done':'waiting',text:'TasteOS has no filmmaker evidence yet. This frame is explicitly marked untrained; Keep, Flag, Revise, or Kill it with a reason to teach the system.',
-      artifact:crewArtifactRef('taste_reviews','TasteOS prompt reviews','tasteos','No human taste evidence exists yet.',{judged:0,untrained:true})};
-  }
   for (const { sc, sh } of withPrompt){
     const t = await critiqueTaste(sh.prompt.text, { scene: sc.slug, shot: sh.num, sceneObject:sc },role);
     if (!t) throw new Error('The TasteOS reviewer did not return a valid evidence-based judgment for scene '+sc.num+' shot '+sh.num+'.');
@@ -5669,7 +5673,7 @@ function crewStillPromptAssignment(sc,sh){
     +'SHOT ID (copy exactly into shotId): '+String(sh.id||'')+'\n'
     +'SCENE '+sc.num+' CANONICAL BEAT:\n'+[sc.synopsis,sc.text].filter(Boolean).join('\n')+'\n\n'
     +(board.filmmakerCorrection?'FILMMAKER REJECTED THE PREVIOUS PHOTOGRAPH: '+board.filmmakerCorrection+'. Show the corrected physical state in this photograph.\n':'')
-    +'PLANNED SHOT '+sh.num+':\n'+[sh.size,sh.angle,sh.move,sh.lens,sh.desc].filter(Boolean).join(' | ')
+    +'PLANNED SHOT '+sh.num+':\n'+plannedShot(sh)
     +(sh.prompt&&sh.prompt.text?'\n\nAPPROVED VIDEO PROMPT:\n'+sh.prompt.text
       :'\n\nNo video prompt exists yet. Build the source photograph directly from the screenplay, shot, Look, and bibles.')
     +(board.offScript?.length?'\nCANON REPAIR: Replace these unsupported terms with the exact nouns from the screenplay and bibles: '+board.offScript.join(', '):'')
@@ -5708,7 +5712,7 @@ async function crewStillPrompts(role, ask){
       extra:'BATCH OF '+shots.length+' STORYBOARD PHOTOGRAPHS. Finish every listed shot in this single department pass.\n\n'+assignments})
     +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
     +'\n\nReturn one prompts array with exactly one object for every assigned shotId. Author one showcase-quality source photograph per shot. '
-    +'Each object describes one frozen physical instant: no timeline, seconds, camera travel, audio, dialogue, process narration, or filenames. '
+    +'Create the actual first frame of the assigned take. Use the saved first-frame state, or infer it from the earliest scripted action for an older shot. Keep the reveal achievable in front of the camera. Do not show the outcome early. Each object describes one frozen physical instant: no timeline, seconds, camera travel, audio, dialogue, process narration, or filenames. '
     +'Use concrete canon-bound information in every block. SHOT is a descriptive sentence, never an ID. PHYSICAL STATE names mass, gravity, support, contact, and deformation. '
     +'ENVIRONMENT, LIGHTING, CAMERA, and COMPOSITION repeat approved facts and reproducible geography. A frozen phrase such as “at the instant” is allowed; a sequence of states is not.';
   const schema=crewStillPromptBatchSchema(shots);
@@ -6554,7 +6558,7 @@ function crewProgressFingerprint(p){
   const scenes=(S.scenes||[]).map(sc=>[String(sc.num||''),crewProgressHash(sc.slug||''),crewProgressHash(sc.text||''),
     crewProgressHash(sc.synopsis||''),(sc.shots||[]).map(sh=>{
       const board=boardOf(sh),prompt=sh.prompt||{},takes=Array.isArray(sh.takes)?sh.takes:[];
-      return [String(sh.id||sh.num||''),crewProgressHash([sh.size,sh.angle,sh.move,sh.lens,sh.desc].join('|')),
+      return [String(sh.id||sh.num||''),crewProgressHash(plannedShot(sh)),
         crewProgressHash(board.desc||''),String(board.craft&&board.craft.verdict||''),Number(board.revisionPass)||0,
         String(board.taste&&board.taste.verdict||board.tasteUntrainedAt||''),String(board.frame||''),
         crewProgressHash(prompt.text||''),takes.map(take=>[take.jobId||'',take.status||'',take.outputPath||take.file||''])];
@@ -8011,7 +8015,7 @@ function usedNames(scenes){
 }
 function shotLine(sh){
   const bits = [sh.size, sh.angle, sh.move, sh.lens? sh.lens+' lens':''].filter(Boolean).join(', ');
-  return `**SHOT ${sh.num}**${bits? ' — '+bits:''}${sh.desc? ': '+sh.desc:''}`;
+  return `**SHOT ${sh.num}**${bits? ' — '+bits:''}${sh.desc? ': '+sh.desc:''}`+(shotStaging(sh)?'\n'+shotStaging(sh):'');
 }
 function sceneHeaderMd(sc){
   return `### Scene ${sc.num} — ${sc.slug}  (${eighthsFmt(sc.eighths)} pg)`;
@@ -8265,9 +8269,9 @@ ${['characters','locations','props'].map(t=>{
 
 /* ---------- CSVs & sheets ---------- */
 function buildShotCSV(){
-  const rows = [['Scene','Slugline','Shot','Size','Angle','Movement','Lens','Description']];
+  const rows = [['Scene','Slugline','Shot','Size','Angle','Movement','Lens','Description','First frame','Story beat','Purpose','Continuity','Last frame']];
   for (const sc of exportScenes()) for (const sh of sc.shots)
-    rows.push([sc.num, sc.slug, sh.num, sh.size, sh.angle, sh.move, sh.lens, sh.desc]);
+    rows.push([sc.num, sc.slug, sh.num, sh.size, sh.angle, sh.move, sh.lens, sh.desc, sh.firstFrame, sh.storyBeat, sh.purpose, sh.continuity, sh.lastFrame]);
   return rows.map(r=>r.map(csvCell).join(',')).join('\n');
 }
 function buildSceneCSV(){
@@ -11394,7 +11398,7 @@ async function boardWriteFromScript(shotId){
   toast('Writing shot ' + (sh.num||'') + '…');
   const user = 'FILM: ' + S.title + '\n'
     + 'SCENE ' + sc.num + ' — ' + sc.slug + '\n'
-    + 'THE SHOT: ' + [sh.size, sh.angle, sh.move, sh.desc].filter(Boolean).join(' · ') + '\n\n'
+    + 'THE SHOT: ' + plannedShot(sh) + '\n\n'
     + '=== THE FILM\'S LOOK ===\n' + lookBlock() + '\n\n'
     + '=== THE SCENE — canon ===\n\n' + sc.slug + '\n\n' + String(sc.text||'').trim() + '\n';
   try{
@@ -11952,7 +11956,36 @@ function tasteBlock(ex){
   return s;
 }
 
-const TASTE_SPINE = `You are the filmmaker's own eye, reading a shot prompt before it is rendered. You are not checking whether it is correct — somebody else does that. You are answering one question: is this the kind of thing THIS filmmaker keeps?
+const PROMPT_CRITERIA=[
+  ['Clarity','Can someone understand the instruction on a first reading?'],
+  ['Subjects','Can we identify each person or object and tell whose experience matters?'],
+  ['Actions','Can the actors physically perform the action as written? What observable behavior carries its meaning?'],
+  ['Spatial relationships','Where are the subjects, objects and camera in relation to each other?'],
+  ['Timing and sequencing','Can each beat happen in order within the available time, including enough time to read the consequence?'],
+  ['Contradictions','Do any instructions require incompatible states, positions, intentions or actions?'],
+  ['Grammar','Does any wording or pronoun ambiguity change what gets shown?'],
+  ['Visual outcome','Can a viewer see what happened and to whom? Preserve intended ambiguity; distinguish an observable reaction from assuming guilt or honesty.'],
+  ['Detail','Which details produce a distinctive image, and which compete with the main beat?'],
+  ['Audio','Is each important sound, line, or intentional silence tied to an observable moment?']
+];
+function promptReviewSchema(still){
+  const string={type:'string'},checks=Object.fromEntries(PROMPT_CRITERIA.map(([name])=>[name,{
+    type:'object',additionalProperties:false,required:['status','finding'],properties:{
+      status:{type:'string',enum:still&&name==='Audio'?['n/a']:['pass','revise']},finding:{type:'string',minLength:4}}
+  }]));
+  return {type:'object',additionalProperties:false,required:['verdict','confidence','reads','against','why','checks'],properties:{
+    verdict:{type:'string',enum:['keep','maybe','kill']},confidence:{type:'string',enum:['low','high']},reads:string,why:string,
+    against:{type:'array',maxItems:4,items:{type:'object',required:['pattern','evidence','fix'],properties:{pattern:string,evidence:string,fix:string}}},
+    checks:{type:'object',additionalProperties:false,required:Object.keys(checks),properties:checks}
+  }};
+}
+function completePromptReview(review,still){
+  return PROMPT_CRITERIA.every(([name])=>{
+    const item=review?.checks?.[name],allowed=still&&name==='Audio'?['n/a']:['pass','revise'];
+    return allowed.includes(item?.status)&&typeof item?.finding==='string'&&item.finding.trim().length>=4;
+  });
+}
+const TASTE_SPINE = `Read the shot prompt before it is rendered. Give a personal taste verdict using the filmmaker’s evidence, then evaluate the ten craft criteria independently. Evaluate the shot text only. The review instructions are never part of the shot.
 
 === HOW TO JUDGE ===
 - Everything you know about their taste is below: what they said they want, what they circled, what they killed. That is the whole basis. Do not import your own idea of what is cinematic, tasteful, or crowd-pleasing.
@@ -11966,7 +11999,8 @@ Return JSON and nothing else:
 {"verdict":"keep"|"maybe"|"kill","confidence":"high"|"low",
  "reads":"<one sentence on what this prompt is actually going for>",
  "against":[{"pattern":"<the taste pattern it breaks>","evidence":"<exact words from the prompt>","fix":"<one instruction, under 20 words>"}],
- "why":"<one sentence: why they would or would not keep it>"}
+ "why":"<one sentence about the fit with their stated taste>",
+ "checks":{<all ten named criteria, each with status and finding as specified in the schema>}}
 
 verdict "kill" only when it clearly contradicts something they killed or said they hate.
 "maybe" when it is inoffensive but has nothing of them in it — that is the most common honest answer.
@@ -11976,7 +12010,7 @@ Report at most four entries in "against". If nothing breaks, "against" is empty.
 async function critiqueTaste(promptText, ctx, role){
   const ex = tasteExamples();
   const learned=(TASTE_OS.snapshot&&TASTE_OS.snapshot.profile&&TASTE_OS.snapshot.profile.rules||[]).filter(rule=>rule.active!==false);
-  if (!ex.kept.length && !ex.killed.length && !tasteStatement()&&!learned.length) return null;
+  const still=ctx?.artifact==='storyboard still',schema=promptReviewSchema(still);
   let user = (role ? crewContext(role,{scenes:ctx&&ctx.sceneObject?[ctx.sceneObject]:[],fullScene:true,
     budget:22000,collaborationCap:7000})+'\n\n=== ARTIFACT UNDER FORMAL TASTE REVIEW ===\n' : '')
     + 'FILM: ' + S.title + '\n';
@@ -11984,20 +12018,24 @@ async function critiqueTaste(promptText, ctx, role){
   user += 'They have circled ' + ex.totalKept + ' take' + (ex.totalKept===1?'':'s')
         + ' and killed ' + ex.totalKilled + ' so far.\n\n';
   user += tasteBlock(ex);
+  const publishing=postingTaste();
+  if(publishing.brief)user+='\nPersonal publishing taste: '+publishing.brief+'\n';
+  if(publishing.excluded.length)user+='\nSubjects excluded from crew-original pitches: '+publishing.excluded.join(', ')+'. Preserve the filmmaker’s supplied material.\n';
+  user+='\nEvaluate all ten prompt criteria. For each, cite a specific detail or omission and, if needed, give a concrete fix. Judge only the supplied wording. An ambiguous motive may be intentional. Separate what we can see happen from what we can infer. '+(still?'This is a single silent first-frame photograph. For timing judge the chosen instant. Mark Audio n/a.':'This is a timed video. Check the duration, beat order, and sound cues including intentional silence.')+'\n'+PROMPT_CRITERIA.map(([k,v])=>k+' — '+v).join('\n')+'\n';
   user += '=== THE PROMPT UNDER JUDGEMENT ===\n\n' + promptText + '\n\nJudge it now.\n';
   const system=(role ? crewSystem(role)+'\n\n=== TASTE REVIEW EXECUTION CONTRACT ===\nStudio owns the handoff envelope. Use the complete TasteOS skill book and cited evidence, then return only the JSON required below.\n\n' : '')+TASTE_SPINE;
   const reviewRole=String((role&&role.id)||'taste');
-  let raw = await aiStream(system, user, null, null, { json:true, temperature:0.2,
-    roleId:reviewRole,workloadId:'review.'+reviewRole+'.taste',artifactType:'taste_review',maxTokens:1400 });
   let v;
-  try { v = aiParseJson(raw); }
-  catch(e){
-    if (!role) return null;
-    raw=await aiStream(system,user+'\n\nYour first response was not valid TasteOS review JSON. Repair only the response structure and return the complete JSON object.',null,null,
-      {json:true,temperature:0.05,roleId:reviewRole,workloadId:'review.'+reviewRole+'.taste.repair',artifactType:'taste_review',maxTokens:1400});
-    try { v=aiParseJson(raw); } catch(repairError){ return null; }
+  for(let attempt=0;attempt<2;attempt++){
+    const raw=await aiStream(system,user+(attempt?'\nReturn every required criterion with its status and a specific finding.':''),null,null,{
+      json:true,schema,temperature:attempt?0.05:0.2,roleId:reviewRole,workloadId:'review.'+reviewRole+'.taste'+(attempt?'.repair':''),
+      artifactType:'taste_review',maxTokens:3200});
+    try{v=aiParseJson(raw);}catch{v=null;}
+    if(completePromptReview(v,still))break;
+    v=null;
   }
-  if (!v || typeof v !== 'object') return null;
+  if(!v)return null;
+  v.promptFingerprint=videoPromptFingerprint(promptText);
   v.against = Array.isArray(v.against) ? v.against.slice(0, 4).filter(x=>x && x.pattern) : [];
   v.verdict = ['keep','maybe','kill'].includes(v.verdict) ? v.verdict : 'maybe';
   v.confidence = v.confidence === 'high' ? 'high' : 'low';
@@ -12123,6 +12161,41 @@ function tasteExperimentHtml(experiment,rubric){
         +'<div class="tb-spacer"></div><button class="btn primary small" data-experiment-review>Save my evaluation</button></div></div>')+'</div>';
 }
 
+function tastePromptReports(){
+  return allShots().flatMap(({sc,sh})=>[['Storyboard',sh.board,sh.board?.desc],['Video',sh.prompt,sh.prompt?.text]]
+    .filter(([,holder,text])=>holder&&text?.trim()).map(([kind,holder,text])=>({sc,sh,kind,holder,text})));
+}
+function tasteReportFor(row){
+  const fingerprint=videoPromptFingerprint(row.text);
+  return [row.holder.promptAudit,row.holder.taste].find(r=>r?.promptFingerprint===fingerprint&&completePromptReview(r,row.kind==='Storyboard'));
+}
+function tasteReportsHtml(){
+  const rows=tastePromptReports();
+  return '<div class="ai-panel" style="max-width:1160px;margin-bottom:14px"><h4>Shot prompt reviews</h4>'+
+    '<p class="auto-note">'+PROMPT_CRITERIA.map(([k])=>esc(k)).join(' · ')+'</p>'+
+    (rows.length?'<button class="btn small" id="tasteReviewPrompts"'+(TASTE_OS.auditing?' disabled':'')+'>'+(TASTE_OS.auditing?'Review in progress':'Review unexamined prompts')+'</button>':'<p>No storyboard or video prompts in this draft yet.</p>')+
+    rows.map(row=>{const review=tasteReportFor(row);return '<details><summary>'+esc(row.sh.num+' · '+row.kind+' · '+(review?Object.values(review.checks).filter(x=>x.status==='revise').length+' to revise · taste: '+review.verdict:'awaiting review'))+'</summary>'+
+      (review?PROMPT_CRITERIA.map(([key])=>'<p><strong>'+esc(key)+'</strong> · '+esc(review.checks[key].status)+' — '+esc(review.checks[key].finding)+'</p>').join(''):'')+'</details>';}).join('')+'</div>';
+}
+async function auditCurrentPrompts(){
+  if(TASTE_OS.auditing)return;
+  const owner={...ACTIVE},rows=tastePromptReports();
+  TASTE_OS.auditing=true;renderTasteOs();
+  try{
+    for(const row of rows){
+      if(owner.p!==ACTIVE.p||owner.d!==ACTIVE.d)break;
+      if(tasteReportFor(row))continue;
+      const review=await critiqueTaste(row.text,{scene:row.sc.slug,shot:row.sh.num,artifact:row.kind==='Storyboard'?'storyboard still':'video'});
+      if(owner.p!==ACTIVE.p||owner.d!==ACTIVE.d)break;
+      const current=tastePromptReports().find(x=>x.sh.id===row.sh.id&&x.kind===row.kind&&x.text===row.text);
+      if(!current)continue;
+      if(!review)throw Error('Incomplete review for '+row.sh.num+'.');
+      current.holder.promptAudit=review;
+      if(!persistNow())throw Error('Could not save the prompt review.');
+    }
+  }catch(error){toast(String(error.message||error));}
+  finally{TASTE_OS.auditing=false;if(activeView()==='tasteos')renderTasteOs();}
+}
 function renderTasteOs(){
   const wrap=el('tasteOsWrap'); if (!wrap) return;
   const refresh=el('btnTasteRefresh');
@@ -12152,6 +12225,11 @@ function renderTasteOs(){
     +'<div class="auto-note" style="margin-bottom:8px">Your own words outrank anything inferred. Agents may not edit this.</div>'
     +'<textarea id="tasteFoundation" rows="6" style="width:100%" placeholder="Write what you consistently want, refuse, and protect. Be concrete.">'+esc(profile.foundation||'')+'</textarea>'
     +'<button class="btn primary" id="tasteFoundationSave" style="margin-top:9px">Save explicit foundation</button></div>'
+    +'<div class="ai-panel" style="max-width:1160px;margin-bottom:14px"><h4>What I would publish</h4>'
+    +'<label class="bd-f"><span>Personal publishing standard and examples from my work</span><textarea id="tastePostingBrief" aria-label="Personal publishing standard" rows="3">'+esc(postingTaste().brief)+'</textarea></label>'
+    +'<label class="bd-f"><span>Exclude from original pitches · one word or phrase per line</span><textarea id="tasteExcluded" aria-label="Excluded pitch terms" rows="3">'+esc(postingTaste().excluded.join('\n'))+'</textarea></label>'
+    +'<button class="btn primary" id="tastePostingSave">Save publishing taste</button></div>'
+    +tasteReportsHtml()
     +'<div class="ai-panel" style="max-width:1160px;margin-bottom:14px"><div style="display:flex;align-items:center;gap:9px"><h4 style="margin:0">Your judgment rubric</h4>'
     +'<div class="tb-spacer"></div><button class="btn small" id="tasteRubricAdd">＋ Add your own criterion</button><button class="btn primary" id="tasteRubricSave">Save rubric</button></div>'
     +'<div class="auto-note" style="margin:8px 0 10px">Weights are 0–5. The rubric tells every department how its artifact will be judged; it does not silently rewrite operational settings.</div>'
@@ -12192,6 +12270,12 @@ function renderTasteOs(){
       :'<div class="auto-note">No evidence recorded yet.</div>')+'</div>';
 
   const bind=(id,fn)=>{ const node=el(id); if (node) node.addEventListener('click',fn); };
+  bind('tasteReviewPrompts',auditCurrentPrompts);
+  bind('tastePostingSave',()=>{
+    const brief=el('tastePostingBrief').value.trim(),excluded=[...new Set(el('tasteExcluded').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean))];
+    localStorage.setItem(postingTasteKey,JSON.stringify({brief,excluded}));
+    toast('Publishing taste saved for future original pitches.',true);
+  });
   bind('tasteFoundationSave',async()=>{
     try{ await tasteSetFoundationNow((el('tasteFoundation')||{}).value||''); GLOBAL_TASTE.statement=(el('tasteFoundation')||{}).value||''; S.tasteNotes=GLOBAL_TASTE.statement; persist(); renderTasteOs(); toast('TasteOS foundation saved.',true); }
     catch(error){ TASTE_OS.error=String((error&&error.message)||error); renderTasteOs(); }
@@ -12615,7 +12699,7 @@ function plUserMessage(t){
   if (sh){
     const spec = [sh.size, sh.angle, sh.move, sh.lens ? sh.lens + ' lens' : ''].filter(Boolean).join(', ');
     u += '\nTHE SHOT — this is what you are writing, not the whole scene:\n';
-    u += 'Shot ' + sh.num + (spec ? ' (' + spec + ')' : '') + (sh.desc ? ' — ' + sh.desc : '') + '\n';
+    u += 'Shot ' + sh.num + (spec ? ' (' + spec + ')' : '') + (sh.desc ? ' — ' + sh.desc : '') + '\n'+(shotStaging(sh)?shotStaging(sh)+'\n':'');
     const prev = t.j > 0 ? sc.shots[t.j-1] : null;
     if (prev) u += 'The shot immediately before it, for continuity: ' + (prev.desc || prev.num) + '\n';
   } else {
@@ -12730,7 +12814,7 @@ async function plRun(only, crewRole){
         if ((PL.critic || PL.taste) && !PL.cancel){
           const ctx = {
             seconds: PL.seconds, licence: PL.licence, offScript,
-            sceneNum: sc.num, shotNum: sh ? sh.num : '', shotDesc: sh ? [sh.size, sh.angle, sh.move, sh.desc].filter(Boolean).join(' · ') : '',
+            sceneNum: sc.num, shotNum: sh ? sh.num : '', shotDesc: sh ? plannedShot(sh) : '',
             sceneText: aiSceneFountain(sc),
           };
           const tctx = { scene: sc.slug, shot: sh ? sh.num : '' };
@@ -13040,7 +13124,7 @@ function renderPrompts(){
       holder.prompt.verdict = await critique('prompt', holder.prompt.text, {
         seconds: holder.prompt.seconds || PL.seconds, licence: holder.prompt.licence,
         offScript: holder.prompt.offScript || [], sceneNum: sc.num, shotNum: sh ? sh.num : '',
-        shotDesc: sh ? [sh.size, sh.angle, sh.move, sh.desc].filter(Boolean).join(' · ') : '',
+        shotDesc: sh ? plannedShot(sh) : '',
         sceneText: aiSceneFountain(sc),
       });
       if (PL.taste){

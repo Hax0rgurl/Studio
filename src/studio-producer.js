@@ -102,28 +102,50 @@ async function screeningSheet(sample){
   });
   return canvas.toDataURL('image/jpeg',0.90).split(',')[1];
 }
+const postingTasteKey='studio.taste.publishing.v1';
+function postingTaste(){
+  const value=JSON.parse(localStorage.getItem(postingTasteKey)||'{}');
+  return {brief:String(value.brief||''),excluded:(Array.isArray(value.excluded)?value.excluded:[]).filter(x=>typeof x==='string'&&x.trim())};
+}
+function excludedPitchSubject(pitch,excluded){
+  const words=s=>String(s).normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu)||[];
+  const lines=[pitch.title,pitch.opening,pitch.ending,pitch.whyWatch||''].map(s=>' '+words(s).join(' ')+' ');
+  return excluded.find(term=>{const phrase=words(term).join(' ');return phrase&&lines.some(line=>line.includes(' '+phrase+' '));})||'';
+}
 async function commissionOriginal(book,foundation){
   const key='commission'+book.number;
   const existing=book[key];
-  if(existing?.choice && existing.foundation===foundation)return existing;
+  const posting=postingTaste(),personal=!!(posting.brief||posting.excluded.length);
+  const rules=typeof TASTE_OS==='undefined'?[]:(TASTE_OS.snapshot?.profile?.rules||[])
+    .filter(r=>r.active!==false&&r.scope==='global'&&(!r.roles?.length||r.roles.some(id=>['director','producer','taste'].includes(id))))
+    .map(r=>String(r.instruction||'').trim()).filter(Boolean);
+  const postingSignature=JSON.stringify([posting,rules]);
+  if(existing?.choice && existing.foundation===foundation && (existing.postingSignature===postingSignature||(!personal&&!rules.length&&!existing.postingSignature)))return existing;
   const consult=async(role,prompt,temperature)=>{
     const raw=book.textModel==='qwen3.5:latest'?await aiVisionChat(role,prompt,[],book.textModel,temperature):
       await floorChat(book.textModel,role,prompt,[],true,{temperature});
     return aiParseJson(raw);
   };
-  const mandate='Filmmaker’s words, binding: '+foundation+'\nFilm-specific direction: '+(book.direction||'Crew original.')+
+  const fit=personal?'\nTasteOS publishing standard for new crew originals: '+posting.brief+
+    '\nExcluded premise terms: '+JSON.stringify(posting.excluded)+'. Use the filmmaker’s stated taste and examples to decide whether they would actually post the finished film. Never claim that they posted or liked a work without evidence. Reject a poor fit even when the mechanics are clever.':'';
+  const mandate='Filmmaker’s words, binding: '+foundation+'\nFilm-specific direction: '+(book.direction||'Crew original.')+fit+(rules.length?'\nGlobal TasteOS instructions: '+JSON.stringify(rules):'')+
     '\nRunning time: '+(book.options?.targetMinutes?book.options.targetMinutes*60:10)+' seconds.';
   const lessons=screeningBrief(book['screenings'+book.number],true);
   const prior=existing?.rejection||'';
   const slate=await consult('Director in a film studio pitch meeting',mandate+lessons+
-    '\nPitch three genuinely different stories to the producer before any camera decisions. Write the actual image, line or action that hooks a viewer, the specific human tension or comic premise, and the payoff. Let the genre and the filmmaker guide you. A demonstration of materials or a predictable chain reaction does not constitute a story unless the filmmaker explicitly requests it. Let the current brief supply the characters, objects and world. A previous film’s craft note can change how this story reads. Only reuse its story elements when they serve this brief. Plant what the ending depends on. Describe actions a viewer can follow in the available seconds. No camera specs. Return JSON with pitches, each containing title, opening, ending, and whyWatch.'+
+    '\nPitch three genuinely different stories to the producer before any camera decisions. Write the actual image, line or action that hooks a viewer, the specific human tension or comic premise, and the payoff. Let the genre and the filmmaker guide you. A demonstration of materials or a predictable chain reaction does not constitute a story unless the filmmaker explicitly requests it. Let the current brief supply the characters, objects and world. A previous film’s craft note can change how this story reads. Only reuse its story elements when they serve this brief. Ground the hook in a recognizable human want, risk, choice or contradiction. Make it possible to stage with the people, time, locations and actual props in the pitch. If a character reveals an object, account for its size and where it came from. An intentional effect belongs only where the filmmaker’s brief calls for it. Plant what the ending depends on. Describe actions a viewer can follow in the available seconds. No camera specs. Return JSON with pitches, each containing title, opening, ending, and whyWatch.'+
     (prior?'\nProducer rejected the previous slate because: '+prior:''),0.9);
   if(!Array.isArray(slate.pitches)||slate.pitches.length!==3||slate.pitches.some(p=>!['title','opening','ending','whyWatch'].every(k=>typeof p[k]==='string'&&p[k].trim())))
     throw Error('The director returned an incomplete pitch slate.');
   const pages=slate.pitches.map(({title,opening,ending})=>({title,opening,ending}));
+  const permitted=pages.map((p,index)=>({...p,index})).filter(p=>!excludedPitchSubject(slate.pitches[p.index],posting.excluded));
+  if(!permitted.length){
+    const rejection='All three premises contain subjects excluded in TasteOS: '+posting.excluded.join(', ')+'. Pitch different subjects.';
+    book[key]={foundation,postingSignature,pitches:slate.pitches,choice:null,reason:rejection,rejection};saveBooking(book);return book[key];
+  }
   const ballot=await consult('Independent commissioning producer',mandate+lessons+
-    '\nRead only what a viewer will see. What makes the opening worth staying for? What in that opening earns the ending? A coincidence, an unintroduced prop solving the story, or physically incompatible actions need another pitch. Surreal and observational films can earn the ending through a legible visual or emotional connection. Check whether someone can read the change in the allotted time. An earlier film’s prop or technique is never evidence for a beat on these pages.'+
-    '\nReturn JSON with index (0, 1, 2 or -1 to reject all) and reason. For a selection also include setupQuote copied exactly from opening, payoffQuote copied exactly from ending, and blockingGap (an empty string only if there is no missing connection). In reason explain how those specific beats connect and why watching the payoff matters. If all three need a missing event to work, reject all and explain what to fix.\n'+JSON.stringify(pages),0.35);
+    '\nRead only what a viewer will see. Identify the first observable gesture or line, the question it raises, and what the last beat changes for someone. Imagine actors performing each beat with actual props at their stated size. If a reveal needs an impossible hiding place, an unmotivated transformation, or missing time, count it as a blockingGap unless that specific effect is intentional and established. Recognizing a familiar setting alone earns no greenlight. What makes the opening worth staying for? What in that opening earns the ending? A coincidence, an unintroduced prop solving the story, or physically incompatible actions need another pitch. Surreal and observational films can earn the ending through a legible visual or emotional connection. Check whether someone can read the change in the allotted time. An earlier film’s prop or technique is never evidence for a beat on these pages.'+
+    '\nReturn JSON with index (0, 1, 2 or -1 to reject all) and reason. For a selection also include setupQuote copied exactly from opening, payoffQuote copied exactly from ending, and blockingGap (an empty string only if there is no missing connection). In reason explain how those specific beats connect and why watching the payoff matters. If all three need a missing event to work, reject all and explain what to fix.\n'+ (personal?' Include postingEvidence, an exact quote from the publishing brief, foundation or active global TasteOS instructions, and postingReason explaining how an observable beat earns that connection. Use the original index printed on each eligible pitch.':'')+'\n'+JSON.stringify(permitted),0.35);
   if(!Number.isInteger(ballot.index)||ballot.index< -1||ballot.index>2||!String(ballot.reason||'').trim())throw Error('The producer returned an incomplete commissioning decision.');
   const pick=pages[ballot.index];
   let rejection=pick?'':ballot.reason;
@@ -132,10 +154,13 @@ async function commissionOriginal(book,foundation){
     if(typeof ballot.blockingGap!=='string' || !quoted(pick.opening,ballot.setupQuote) || !quoted(pick.ending,ballot.payoffQuote)){
       rejection='The producer must identify the setup and payoff in the actual pitch before commissioning it.';
     }else if(ballot.blockingGap.trim())rejection=ballot.blockingGap.trim();
+    if(excludedPitchSubject(slate.pitches[ballot.index],posting.excluded))rejection='Selected premise is excluded by the filmmaker’s publishing profile.';
+    else if(personal&&(posting.brief||foundation)&&(![posting.brief,foundation,...rules].some(line=>quoted(line||'',ballot.postingEvidence))||!String(ballot.postingReason||'').trim()))
+      rejection='The producer must connect the chosen beat to the filmmaker’s own stated publishing taste.';
   }
   const choice=rejection?null:slate.pitches[ballot.index];
   const storyEvidence=choice?{setup:ballot.setupQuote.trim(),payoff:ballot.payoffQuote.trim()}:null;
-  book[key]={foundation,pitches:slate.pitches,choice,reason:ballot.reason,storyEvidence,rejection};
+  book[key]={foundation,postingSignature,pitches:slate.pitches,choice,reason:ballot.reason,storyEvidence,postingReason:choice&&personal?ballot.postingReason:'',postingEvidence:choice&&personal?ballot.postingEvidence:'',rejection};
   saveBooking(book);
   return book[key];
 }
@@ -244,7 +269,7 @@ async function wakeProducer(){
       if(!fromSource){
         commission=await commissionOriginal(book,foundation);
         if(!commission.choice)return;
-        brief='PRODUCER GREENLIGHT — develop this chosen story: '+JSON.stringify(commission.choice)+'\nProducer’s decision: '+commission.reason+'\n'+brief;
+        brief='PRODUCER GREENLIGHT — develop this chosen story: '+JSON.stringify(commission.choice)+'\nProducer’s decision: '+commission.reason+(commission.postingEvidence?'\nPublishing taste: “'+commission.postingEvidence+'” — '+commission.postingReason:'')+'\n'+brief;
       }
       if(foundation)brief='STANDING FILMMAKER DIRECTION (binding): '+foundation+'\n'+brief;
       if(!book.script && !book.options?.targetMinutes)brief+='\nMake exactly two five-second scenes, exactly one shot per scene. Total ten seconds.';

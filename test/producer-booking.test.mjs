@@ -228,3 +228,23 @@ test('daily screenings compare the cut with a source from its own brief and reco
     assert.equal(run('readBooking().phase'),'complete');
   }
 });
+
+test('publishing taste excludes listed subjects before the vote and requires evidence for a greenlight',async()=>{
+  const {ctx,run}=floor(), seen=[];
+  ctx.localStorage.setItem('studio.taste.publishing.v1',JSON.stringify({brief:'I post observational comedy about work.',excluded:['wedding']}));
+  const pitches=['Wedding march','Night shift','Welder'].map(title=>({title,opening:'Everyone clocks in.',ending:'One card stays behind.',whyWatch:'The last card is the boss.'}));
+  let cited='not the filmmaker';
+  ctx.floorChat=async(_,role,prompt)=>{
+    if(role.startsWith('Director'))return JSON.stringify({pitches});
+    seen.push(JSON.parse(prompt.slice(prompt.lastIndexOf('\n')+1)));
+    return JSON.stringify({index:1,reason:'Labor is invisible.',setupQuote:'clocks in',payoffQuote:'stays behind',blockingGap:'',postingEvidence:cited,postingReason:'The abandoned timecard makes overtime visible.'});
+  };
+  const book=run('bookFilms()');
+  assert.equal((await ctx.commissionOriginal(book,'')).choice,null);
+  cited='observational comedy about work';
+  assert.equal((await ctx.commissionOriginal(book,'')).choice.title,'Night shift');
+  assert.deepEqual(seen[0].map(x=>x.index),[1,2]);
+  ctx.localStorage.setItem('studio.taste.publishing.v1',JSON.stringify({brief:'Changed.',excluded:['wedding','night shift','welder']}));
+  assert.equal((await ctx.commissionOriginal(book,'')).choice,null);
+  assert.equal(seen.length,2);
+});
