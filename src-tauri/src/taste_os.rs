@@ -1044,7 +1044,8 @@ fn review_experiment_at(dir: &Path, request: ReviewExperimentRequest) -> Result<
 }
 
 fn load_profile(dir: &Path) -> Result<TasteProfile, String> {
-    let path = dir.join("profile.json");
+    let current=dir.join("profile.current.json");
+    let path=if current.is_file(){current}else{dir.join("profile.json")};
     if !path.exists() {
         return Ok(TasteProfile::default());
     }
@@ -1068,7 +1069,13 @@ fn save_profile(dir: &Path, profile: &TasteProfile) -> Result<(), String> {
         &revisions.join(format!("revision-{:08}.json", profile.revision)),
         profile,
     )?;
-    atomic_write_json(&dir.join("profile.json"), profile)
+    let current=dir.join("profile.current.json");
+    if current.exists(){return atomic_write_json(&current, profile)}
+    let result=atomic_write_json(&dir.join("profile.json"), profile);
+    if matches!(&result,Err(error) if error.starts_with("could not commit TasteOS state: Permission denied")){
+        return atomic_write_json(&current, profile)
+    }
+    result
 }
 
 fn snapshot_from_dir(dir: &Path) -> Result<TasteSnapshot, String> {
@@ -1637,12 +1644,15 @@ pub fn taste_os_set_foundation(
     let _guard = TASTE_OS_LOCK
         .lock()
         .map_err(|_| "TasteOS state lock is poisoned".to_string())?;
-    let dir = taste_dir(&app)?;
-    ensure_dir(&dir)?;
-    let mut profile = load_profile(&dir)?;
+    set_foundation_at(&taste_dir(&app)?, request)
+}
+
+pub(crate) fn set_foundation_at(dir: &Path, request: FoundationRequest) -> Result<FeedbackReceipt, String> {
+    ensure_dir(dir)?;
+    let mut profile = load_profile(dir)?;
     let foundation = clean(&request.foundation, 12_000);
     let event = persist_feedback(
-        &dir,
+        dir,
         &mut profile,
         FeedbackRequest {
             kind: "foundation".into(),
@@ -1663,10 +1673,10 @@ pub fn taste_os_set_foundation(
     profile.foundation = foundation;
     profile.revision += 1;
     profile.updated_at = now_iso();
-    save_profile(&dir, &profile)?;
+    save_profile(dir, &profile)?;
     Ok(FeedbackReceipt {
         event_id: event.id,
-        snapshot: snapshot_from_dir(&dir)?,
+        snapshot: snapshot_from_dir(dir)?,
     })
 }
 

@@ -271,16 +271,65 @@ def plugin_render(film,i,clip):
     sample(tmp,4);tmp.replace(clip);return clip
 
 
+def style_bibles(record):
+    duty('production_designer','Styling the canonical bibles against the film Look')
+    result=[]
+    look={key:record[key]['message'] for key in ('dp','gaffer','colorist','costume_designer','camera_operator','production_designer') if key in record}
+    for role in ('casting_director','location_scout','prop_master'):
+        for entry in record.get(role,{}).get('entries',[]):
+            context=dict(subject=entry,look=look,styleGuide=cfg['reviewPolicy']['styleGuide'])
+            value=model(cfg['reviewPolicy']['styleSystem'],json.dumps(context),schema={'type':'object','properties':{'desc':{'type':'string'}},'required':['desc']})
+            if not value.get('desc','').strip():raise ValueError('Style pass returned no description for '+entry['name'])
+            result.append(dict(role=role,name=entry['name'],canon=entry['desc'],desc=value['desc']))
+    record['style']={'entries':result,'message':'Styled '+str(len(result))+' canonical bible entries.'}
+    handoff('production_designer','stills_prompt',record['style']['message'])
+
+def approve_artifact(film,i,kind):
+    import hashlib
+    policy=cfg.get('reviewPolicy')
+    if not policy:raise ValueError('Missing frozen TasteOS profile. Start a reviewed production before rendering.')
+    owner='stills_prompt' if kind=='still' else 'prompt_writer'
+    prompts=film['stillPrompts'] if kind=='still' else film['shots']
+    checks=film.setdefault('reviews',{}).setdefault(kind+str(i),{})
+    canon=state['preproduction'][str(film['number'])]
+    for attempt in range(2):
+        artifact=prompts[i]
+        digest=hashlib.sha256(artifact.encode()).hexdigest()
+        if checks.get('digest')!=digest:checks.update(digest=digest,craft=None,taste=None)
+        for key,reviewer in [('craft','script_supervisor'),('taste','taste')]:
+            receipt=checks.get(key)
+            if not receipt:
+                duty(reviewer,'Reviewing '+kind+' prompt · shot '+str(i+1))
+                contract=policy['reviewers'][reviewer]
+                context=dict(artifact=artifact,kind=kind,shot=i+1,script=film['script'],canon=canon,foundation=policy['foundation'],rubric=policy['rubric'],rules=policy['rules'],evidence=policy['evidence'],examples=policy['examples'])
+                schema={'type':'object','properties':{'decision':{'type':'string','enum':['approve','revise','reject']},'reason':{'type':'string'},'basis':{'type':'string'},'fix':{'type':'string'}},'required':['decision','reason','basis','fix']}
+                receipt=model(contract+'\n'+policy[('stillCraft' if kind=='still' else 'videoCraft') if key=='craft' else 'tasteSystem']+'\nUse the supplied decision schema. Cite the exact rule, explicit instruction, or artifact evidence in basis. Revise or reject contradictions. Only approve an artifact that passes.',json.dumps(context),schema=schema)
+                if receipt.get('decision') not in ('approve','revise','reject') or not all(isinstance(receipt.get(k),str) and receipt[k].strip() for k in ('reason','basis')):raise ValueError('Incomplete '+reviewer+' decision.')
+                receipt.update(profileRevision=policy['revision'],artifactHash=digest)
+                checks[key]=receipt
+                handoff(reviewer,owner,receipt['decision']+' · '+receipt['reason']+' · '+receipt['basis'])
+            if receipt['decision']!='approve':break
+        else:return
+        if receipt['decision']=='reject' or checks.get('reworked') or attempt:
+            raise ValueError(reviewer+' held shot '+str(i+1)+': '+receipt['reason'])
+        duty(owner,'Revising '+kind+' prompt · shot '+str(i+1))
+        replacement=crew_reply('You own the '+kind+' prompt. Return the complete revised prompt as message, retaining all unaffected canon.',json.dumps(dict(original=artifact,review=receipt,canon=canon)))
+        if not replacement.strip() or replacement==artifact:raise ValueError('Revision did not change the rejected artifact.')
+        checks['reworked']=True;prompts[i]=replacement;status('Revision saved for independent review')
+
+
 def prepare_floor(n,previous):
     productions=state.setdefault('preproduction',{})
     record=productions.setdefault(str(n),{})
     crew=cfg['departments']
     for index,department in enumerate(crew):
         role=department['id']
+        if role=='stills_prompt' and 'style' not in record and cfg.get('reviewPolicy'):style_bibles(record)
         if role in record:continue
+        if cfg.get('reviewPolicy') and role in ('taste','script_supervisor'):continue
         duty(role,department['title']+' · Film '+str(n))
         context=dict(film=n,material=cfg['plays'],previousFilm=previous and {'title':previous['title'],'lesson':previous.get('screening')},decisions=record)
-        instruction=department['job']+' Deliver your department’s actual decision for a two-shot short. Address the next department directly. Use the written scene and established casting, wardrobe and art direction. Keep your handoff under 150 words.'
+        instruction=department.get('skill','')+'\n'+department.get('constraints','')+'\n'+department['job']+' Deliver your department’s actual decision for a two-shot short. Address the next department directly. Use the written scene and established casting, wardrobe and art direction. Keep your handoff under 150 words.'
         properties={'message':{'type':'string'}}
         if role=='writer':
             instruction+=' Write a playable scene in Fountain format with a scene heading, action and any dialogue. Return title and script. For film two write a distinct story.'
@@ -402,9 +451,12 @@ def produce():
             state['films'].append(prepare_floor(n,previous) if cfg.get('departments') else plan(n,previous));status('Screenplay saved')
         film=state['films'][n-1]
         if 'boards' in film:
-            for i in range(2):photograph(film,i)
+            for i in range(2):
+                approve_artifact(film,i,'still')
+                photograph(film,i)
         shots=[]
         for i in range(2):
+            if 'boards' in film:approve_artifact(film,i,'video')
             duty('second_unit','Producing shot '+str(i+1)+' of '+film['title'])
             shots.append(render(film,i))
         movie=folder/f'Film {n}.mp4'

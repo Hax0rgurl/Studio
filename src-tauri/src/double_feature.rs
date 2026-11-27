@@ -71,6 +71,7 @@ pub fn double_feature_start(
     retry: Option<String>,
     renderer: Option<Value>,
     departments: Option<Vec<Value>>,
+    review_policy: Option<Value>,
 ) -> Result<String, String> {
     let _guard = START.lock().map_err(|e| e.to_string())?;
     let dir = library()?;
@@ -111,7 +112,7 @@ pub fn double_feature_start(
             .collect();
         fs::write(
             folder.join("settings.json"),
-            json!({"plays":shelf,"textModel":text_model,"renderer":renderer,"departments":departments}).to_string(),
+            json!({"plays":shelf,"textModel":text_model,"renderer":renderer,"departments":departments,"reviewPolicy":review_policy}).to_string(),
         )
         .map_err(|e| e.to_string())?;
         fs::write(
@@ -238,4 +239,44 @@ pub async fn studio_shot_preview(id:String, film:u8, shot:u8)->Result<String,Str
         if !output.status.success(){return Err("Preview encoding failed".into());}
         Ok(format!("data:video/mp4;base64,{}",String::from_utf8_lossy(&output.stdout).trim()))
     }).await.map_err(|e|e.to_string())?
+}
+
+#[tauri::command]
+pub async fn studio_production(action:String, data:Value, owner:String)->Result<Value,String>{
+    use std::io::Write;
+    tauri::async_runtime::spawn_blocking(move ||{
+        let definitions=WORKER.split("if __name__==").next().ok_or("Missing film adapters")?;
+        let script=format!("{}\n{}",definitions,include_str!("../double-feature/production.py"));
+        let mut child=Command::new(studio_python()?).args(["-c",&script]).stdin(Stdio::piped())
+            .stdout(Stdio::piped()).spawn().map_err(|e|e.to_string())?;
+        let payload=json!({"action":action,"data":data,"owner":format!("{}:{}",std::process::id(),owner)});
+        child.stdin.take().ok_or("Missing crew input")?.write_all(payload.to_string().as_bytes()).map_err(|e|e.to_string())?;
+        let output=child.wait_with_output().map_err(|e|e.to_string())?;
+        let reply:Value=serde_json::from_slice(&output.stdout).map_err(|_|"Studio adapter returned no readable receipt".to_string())?;
+        if let Some(error)=reply["error"].as_str(){return Err(error.into())}
+        Ok(reply["value"].clone())
+    }).await.map_err(|e|e.to_string())?
+}
+
+#[tauri::command]
+pub fn studio_producer_leader() -> Result<bool,String> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        use std::sync::OnceLock;
+        static LEADER: OnceLock<fs::File> = OnceLock::new();
+        if LEADER.get().is_some() {return Ok(true);}
+        let parent=library()?.parent().ok_or("Missing studio directory")?.to_owned();
+        let lock=fs::OpenOptions::new().create(true).read(true).write(true)
+            .open(parent.join(".producer.lock")).map_err(|e|e.to_string())?;
+        extern "C" {fn flock(fd:i32, operation:i32)->i32;}
+        // LOCK_EX | LOCK_NB. The OS releases this descriptor on process exit.
+        if unsafe {flock(lock.as_raw_fd(),2|4)} != 0 {
+            let error=std::io::Error::last_os_error();
+            if error.kind()==std::io::ErrorKind::WouldBlock {return Ok(false);}
+            return Err(error.to_string());
+        }
+        let _=LEADER.set(lock);
+    }
+    Ok(true)
 }

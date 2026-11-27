@@ -1,13 +1,8 @@
 # Agentic Movie Studio — one local movie system
 
-**Agentic Movie Studio accepts an idea or the screenplay already open, then runs one resumable production
-over one shared project.** The inherited screenplay parser and breakdown remain the canon; the real
-Cork Board and Slate run as connected modules; Ollama supplies the role-scoped creative
-work; the Agentic Movie Studio taste layer reviews it; PitchDeck routes approved work to independently
-selected still and video providers (with Phosphene as the built-in video adapter); Greenroom
-owns durable role assignments, exclusive execution claims, stable crew identity, and the production record.
+**Each film runs on one shared project.** The producer wakes on launch, restores its current booking, and calls the original department controller. Each department writes to the project that feeds the tabs. A second film starts in its own project after the first film’s screening.
 
-That sentence is the design, and it has two halves that are easy to confuse:
+For autonomous bookings Studio bundles the crew message store, local model runtime, rendering adapters, and editor. Qwen or a configured video plugin performs cloud generation. The native message store commits assignments, replies, and exclusive work claims to SQLite. Accepted provider requests have durable receipts. Existing productions created with external Greenroom, PitchDeck, and Phosphene retain their original connections. Earlier Double Feature movies remain available in the library.
 
 - **Modules stay whole applications.** A module is not a reimplementation and not a view
   written to look like the original — it is the actual app, its own real frontend, running

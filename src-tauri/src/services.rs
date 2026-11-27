@@ -276,7 +276,11 @@ fn start_service_if_needed(
 }
 
 fn launch_ollama(home: &Path) -> Result<(Child, PathBuf), String> {
-    let candidates = ollama_candidates(home);
+    let mut candidates = ollama_candidates(home);
+    let resources = std::env::current_exe().ok().and_then(|exe|exe.parent().map(|p|p.join("../Resources")));
+    if let Some(bundle)=resources.as_ref(){
+        candidates.insert(0,bundle.join("engine/ollama"));
+    }
     let executable = first_existing_file(&candidates).ok_or_else(|| {
         format!(
             "Ollama is offline and no existing executable was found in: {}",
@@ -287,7 +291,19 @@ fn launch_ollama(home: &Path) -> Result<(Child, PathBuf), String> {
     command
         .arg("serve")
         .env("OLLAMA_HOST", "127.0.0.1:11434");
+    if let Some(bundle)=resources.filter(|bundle|executable==bundle.join("engine/ollama")){
+        command.env("OLLAMA_MODELS",bundle.join("models")).env("OLLAMA_ORIGINS","tauri://localhost");
+    }
     spawn_detached(command, executable)
+}
+
+#[tauri::command]
+pub(crate) async fn studio_local_brain()->Result<ServiceStartResult,String>{
+    tauri::async_runtime::spawn_blocking(||{
+        let lock = START_STATE.get_or_init(|| Mutex::new(ServiceStarterState::default()));
+        let mut state = lock.lock().map_err(|_| "The model starter is busy.".to_string())?;
+        Ok(start_service_if_needed(SERVICES[0],&home_dir()?,&mut state))
+    }).await.map_err(|e|e.to_string())?
 }
 
 fn launch_greenroom(home: &Path) -> Result<(Child, PathBuf), String> {

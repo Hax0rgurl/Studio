@@ -4,6 +4,16 @@ Agentic Movie Studio is a local-first macOS filmmaking system that can take an i
 
 It is being rebuilt and expanded by **Abandoned Muse** as one connected application rather than a loose collection of tools.
 
+## Open the studio floor
+
+Save your Qwen Token Plan key in Studio. Opening Studio wakes the producer and starts the first double bill. Each short gets its own project, two five-second shots and two storyboard photographs. The selected crew model receives the creative material it needs. The photo and video providers use your account credits.
+
+In TasteOS, **Save explicit foundation** sets your standing direction for all films. Client Room sends a note to the current production or an individual department. For a crew original, the director pitches three stories and the producer can decline all three before photography. Their pitches and decision appear in Client Room. The story editor must cite the setup and payoff in the delivered screenplay and can return the pages to the writer. Imported screenplays keep the filmmaker’s text.
+
+Watch Studio Town for the active department and Client Room for its conversations. Send direction there, or use **Import script** to put a screenplay in the producer’s queue. The Dashboard lets you choose the model and renderer for future assignments and turn daily production on or off.
+
+Open **Export** for the finished cut. The editor screens the first film, sends a concrete adjustment to the director, and compares the second cut with frames from both films. The movies and render receipts are saved in `~/Movies/Agentic Movie Studio/Productions/`. Keep Studio open while the crew works. Reopening it recovers the saved assignment.
+
 ## What it does
 
 - Builds or imports a screenplay and keeps every revision in a local project library.

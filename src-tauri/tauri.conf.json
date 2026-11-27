@@ -22,7 +22,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$VIDEO/Agentic Movie Studio/Double Features/*/*.mp4", "$VIDEO/Agentic Movie Studio/Double Features/*/board-*.jpg"]
+        "scope": ["$VIDEO/Agentic Movie Studio/Productions/*/*.mp4", "$VIDEO/Agentic Movie Studio/Double Features/*/*.mp4", "$VIDEO/Agentic Movie Studio/Double Features/*/board-*.jpg"]
       }
     }
   },

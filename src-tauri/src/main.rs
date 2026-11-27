@@ -45,6 +45,8 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             initial_file,
+            double_feature::studio_production,
+            double_feature::studio_producer_leader,
             double_feature::studio_shot_preview,
             double_feature::studio_mcp_tools,
             double_feature::studio_mcp_forget,
@@ -55,6 +57,7 @@ fn main() {
             double_feature::double_feature_key_remove,
             double_feature::double_feature_play,
             services::local_services_health,
+            services::studio_local_brain,
             services::start_local_services,
             greenroom::greenroom_open_production_thread,
             greenroom::greenroom_post_role_step,
