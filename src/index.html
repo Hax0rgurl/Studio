@@ -2724,12 +2724,14 @@ function handleFile(file){
       importParsed(parsed,file.name,true);
     }).catch(e=>toast(String(e.message||e)));return;
   }
-  if(window.__TAURI__?.core && /\.(fountain|fdx|txt)$/i.test(file.name)){
+  if(window.__TAURI__?.core && /\.(fountain|fdx|txt|spmd|md)$/i.test(file.name)){
     file.text().then(text=>{
       const parsed=parseScript(text,file.name);
       if(parsed.scenes.length)importParsed(parsed,file.name,true);
-      else if(/\.txt$/i.test(file.name)&&text.trim()){
-        if(text.trim().length>400)offerAdaptation(text,file.name);else submitProduction(text);
+      else if(/\.(txt|md|spmd)$/i.test(file.name)&&text.trim().length>400){
+        offerAdaptation(text,file.name);
+      }else if(/\.txt$/i.test(file.name)&&text.trim()){
+        submitProduction(text);
       }else toast('No screenplay scenes found. Check for INT. or EXT. scene headings.');
     }).catch(e=>toast(String(e)));
     return;
@@ -2985,7 +2987,17 @@ function chooseStudioFile(types=studioFileTypes){
 }
 el('btnImport').addEventListener('click', ()=>chooseStudioFile('.fountain,.txt,.fdx,.spmd,.pdf,.md'));
 el('btnOpen').addEventListener('click', ()=>chooseStudioFile());
-el('fileInput').addEventListener('change', e=>{ if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value=''; });
+el('fileInput').addEventListener('change', e=>{
+  const picker=e.target, file=picker.files[0];
+  picker.value='';
+  if (!file) return;
+  // The native macOS picker can return files outside the HTML accept hint.
+  const types=picker.accept.split(',');
+  if (!types.some(ext=>file.name.toLowerCase().endsWith(ext))){
+    toast('Choose a file with one of these extensions: '+types.join(', ')); return;
+  }
+  handleFile(file);
+});
 el('btnSaveProj').addEventListener('click', ()=>{
   download((S.title||'project').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'_')+'.ams', JSON.stringify(serialize(),null,2), 'application/json');
   toast('Agentic Movie Studio project saved', true);
@@ -6341,8 +6353,15 @@ async function crewRun(roleId, ask){
     toast(out); return {ok:false,status:'failed',out};
   }
   if (CREW.busy) { toast('@' + CREW.busy + ' is still working.'); return {ok:false,status:'busy',out:'Another department is working.'}; }
-  if (canonicalWorkerLocked()) { toast('Another project worker is still running. Stop or finish it first.'); return {ok:false,status:'busy',out:'Another project worker is running.'}; }
   const pipelineOwned=!!CREW.calling;
+  if (pipelineOwned && productionState()?.booking && canonicalWorkerLocked()){
+    const owner=productionState();
+    while (canonicalWorkerLocked() && !CREW.cancel && productionState()===owner){
+      await new Promise(resolve=>setTimeout(resolve,500));
+    }
+    if (CREW.cancel || productionState()!==owner) return {ok:false,status:'cancelled',out:'Handoff interrupted before the department started.'};
+  }
+  if (canonicalWorkerLocked()) { toast('Another project worker is still running. Stop or finish it first.'); return {ok:false,status:'busy',out:'Another project worker is running.'}; }
   // A direct department run owns its own Stop lifecycle. Only crewCall keeps
   // cancellation set across the returned result so it can stop the sequence.
   if (!pipelineOwned) CREW.cancel=false;
@@ -6751,7 +6770,6 @@ async function crewCall(ask){
         productionCheckpoint(); toast(crewAttentionMessage(p)); return;
       }
       const result=await crewRun(id, ask);
-      const loopResult=crewLoopRecord(p,loopTicket,result);
       if (CREW.cancel){
         CREW.cancel=false;
         // crewRun checkpoints before awaiting the Greenroom provenance post.
@@ -6762,6 +6780,7 @@ async function crewCall(ask){
         p.status=hasQueued?'paused':'cancelled'; p.currentStep=''; productionCheckpoint();
         toast('Production stopped. Resume will continue at the next unfinished department.'); return;
       }
+      const loopResult=crewLoopRecord(p,loopTicket,result);
       if (!result || !result.ok){
         p.status='needs_attention'; p.error=(result&&result.out)||('The '+id+' step failed.');
         productionCheckpoint(); toast('Production needs attention at @'+(crewFind(id)||{}).at+'.'); return;

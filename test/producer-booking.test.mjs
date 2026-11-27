@@ -82,6 +82,26 @@ test('the producer respects a stopped production',async()=>{
   assert.equal(starts.length,0);
 });
 
+test('an older busy-worker hold wakes after the worker exits and preserves the original brief',async()=>{
+  const {ctx,run}=floor();
+  const book=run('bookFilms()'), error='Another project worker is running.';
+  const film={id:'current',booking:{id:book.id,number:1},status:'needs_attention',brief:'Keep the silence.',error};
+  ctx.productionState=()=>film;
+  let locked=true,resumes=0;
+  ctx.canonicalWorkerLocked=()=>locked;
+  ctx.crewResume=async()=>{resumes++;};
+  book.phase='held';book.error=error;ctx.book=book;run('saveBooking(book)');
+  await run('wakeProducer()');assert.equal(resumes,0);
+  locked=false; film.status='cancelled';
+  await run('wakeProducer()');assert.equal(resumes,0);
+  film.status='needs_attention';film.jobs={shot:{status:'unknown'}};
+  await run('wakeProducer()');assert.equal(resumes,0);
+  film.jobs={};
+  await run('wakeProducer()');assert.equal(resumes,1);
+  assert.equal(run('readBooking().phase'),'ready');
+  assert.equal(film.brief,'Keep the silence.');
+});
+
 test('a producer rejection keeps the floor in development without authorizing media',async()=>{
   const {ctx,run,starts}=floor();
   ctx.floorChat=async(model,role)=>JSON.stringify(role.startsWith('Director')

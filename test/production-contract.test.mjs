@@ -18,6 +18,27 @@ function loadFunction(start, end, name, context) {
   return context.__fn;
 }
 
+test('a booked handoff waits for a competing worker and honors Stop before claiming the role', async () => {
+  for (const stop of [false, true]) {
+    const production = {id:'film',booking:{id:'order'}};
+    let locked = true, release, accepted = 0;
+    const context = {
+      CREW:{calling:true}, ACTIVE:{p:'project', d:'draft'}, productionState:()=>production,
+      crewFind:()=>({id:'director',at:'director'}), canonicalWorkerLocked:()=>locked,
+      setTimeout:resolve=>{release=resolve;}, activeView:()=>'',crewApplyMutationLock(){},
+      tasteLoadSnapshot:async()=>{accepted++;},crewRunOwnerMatches:()=>false
+    };
+    const run = loadFunction('async function crewRun(roleId, ask)', 'async function crewFillMissingLook', 'crewRun', context);
+    const pending = run('director','');
+    assert.equal(accepted,0);
+    assert.equal(typeof release,'function');
+    context.CREW.cancel=stop;
+    locked=false;release();
+    await pending;
+    assert.equal(accepted,stop?0:1);
+  }
+});
+
 function providerStubs() {
   return {
     crewConnect: async () => ({ pitchdeck: { ok: true } }),

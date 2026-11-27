@@ -264,6 +264,13 @@ async function wakeProducer(){
     }
     const meeting=book['commission'+book.number];
     const ownsActiveFilm=active?.booking?.id===book.id && active.booking.number===book.number;
+    // Older releases recorded a busy, pre-assignment worker as a failed handoff.
+    if(ownsActiveFilm && ['ready','held'].includes(book.phase) && active.status==='needs_attention' &&
+       active.error==='Another project worker is running.' && (book.phase==='ready'||book.error===active.error) &&
+       !Object.keys(active.jobs||{}).length && !active.images && !active.expectedShotIds?.length){
+      book.phase='ready';delete book.error;saveBooking(book);
+      await crewResume();return;
+    }
     if(book.phase==='held' && !ownsActiveFilm && meeting && !meeting.choice &&
        /timed? out|connection reset|connection refused|temporarily unavailable|HTTP (?:429|502|503|504)\b/i.test(book.error||'')){
       if(!book.pitchRetryAt){
