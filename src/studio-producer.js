@@ -276,7 +276,7 @@ async function wakeProducer(){
     if(p.status==='needs_attention'&&!crewUnprovenJobs(p).length){
       const reason=p.error||'';
       const beforeShoot=!Object.keys(p.jobs||{}).length&&!p.images?.done;
-      const temporary=/another worker owns|timed out|temporarily unavailable|HTTP (429|50[0234])|connection reset/i.test(reason);
+      const temporary=/another worker owns|timed out|connection unavailable before submission|temporarily unavailable|HTTP (429|50[0234])|connection reset/i.test(reason);
       const correctable=beforeShoot && /returned|invalid|schema|incomplete|requested revision without|missing .*field|requires? .*scene|must (?:include|contain|return|use)/i.test(reason);
       const attempts=book.retries||{};
       const lastFailure=Object.keys(p.steps||{}).find(k=>p.steps[k].status==='failed')||'producer';

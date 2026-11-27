@@ -7183,6 +7183,28 @@ function dashboardScreenings(host){
     host.append(detail);
   }
 }
+async function reviewMissingPhoto(book){
+  const state=DB.projects.flatMap(pr=>pr.drafts.map(d=>d.state)).find(st=>st?.production?.booking?.id===book.id && st.production.booking.number===book.number);
+  if(!state)throw Error('Studio could not locate the held film in Projects.');
+  const production=state.production;
+  const rows=await floorCall('uncertain_photos',{runId:production.id});
+  if(!rows.length)return false;
+  const buttons=rows.map(row=>{
+    const shot=state.scenes.flatMap(scene=>scene.shots).find(sh=>sh.id===row.shotId);
+    return {label:'Authorize one attempt · '+(shot?.num||row.shotId),onClick:async()=>{
+      closeModal();
+      try{
+        const current=readBooking();
+        if(current?.id!==book.id||current.number!==book.number||current.phase!=='held')throw Error('The booking changed. Reopen it in Dashboard.');
+        await floorCall('authorize_photo_retry',{runId:production.id,...row,approved:true});
+        current.phase='ready';current.directedResume=true;delete current.error;saveBooking(current);
+        await wakeProducer();
+      }catch(error){toast(String(error.message||error));}
+    }};
+  });
+  openModal('Missing storyboard photo · '+state.title,'<p>Studio has no image or provider confirmation for this attempt. If Qwen already counted it, another attempt can use an extra image credit. Check your provider history before authorizing a replacement.</p>',[{label:'Keep on hold'},...buttons]);
+  return true;
+}
 function doubleFeatureControls(){
   clearInterval(doubleFeatureTimer);
   const daily=el('dfDaily');
@@ -7193,7 +7215,7 @@ function doubleFeatureControls(){
   const showBooking=()=>{
     const book=readBooking(),active=book&&!['held','complete'].includes(book.phase);
     state.textContent=!book?'Producer is opening the floor.':book.phase==='complete'?'Screening complete':book.phase==='held'?'Producer waiting · '+book.error:'Film '+book.number+' of '+(book.count||2);
-    button.textContent=book?.phase==='held'?'Retry this booking':active?'Crew is working':'Book two shorts · 4 storyboard photos and 4 video shots';
+    button.textContent=book?.phase==='held'?(/Storyboard rendering failed: Submission interrupted before provider receipt/.test(book.error||'')?'Review missing photo':'Retry this booking'):active?'Crew is working':'Book two shorts · 4 storyboard photos and 4 video shots';
     button.disabled=submitting||!!active;
     dashboardScreenings(screenings);
   };
@@ -7253,6 +7275,7 @@ function doubleFeatureControls(){
     submitting=true;showBooking();
     try{
       const old=readBooking();
+      if(old?.phase==='held' && /Storyboard rendering failed: Submission interrupted before provider receipt/.test(old.error||'') && await reviewMissingPhoto(old))return;
       if(old?.phase==='held'){old.phase='ready';old.directedResume=true;delete old.error;saveBooking(old);}
       else bookFilms((el('crewAsk')?.value||'').trim());
       await wakeProducer();await refresh();}

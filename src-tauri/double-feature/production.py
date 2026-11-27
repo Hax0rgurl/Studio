@@ -1,4 +1,7 @@
 """Bundled adapters for the shared Studio producer. One transaction per crew handoff."""
+from contextlib import contextmanager
+from http.client import HTTPSConnection
+from urllib.request import HTTPSHandler, HTTPRedirectHandler, build_opener
 import hashlib
 import sqlite3
 import uuid
@@ -10,6 +13,83 @@ def safe_id(value):
     if not re.fullmatch(r'[a-zA-Z0-9_.-]{1,125}', value) or value in ('.','..'):
         raise ValueError('Invalid production identifier')
     return value
+
+def reserve_submission(receipt, evidence):
+    with receipt.open('x') as marker:
+        json.dump(dict(evidence, submitting=True, submissionId=str(uuid.uuid4())), marker)
+        marker.flush()
+        os.fsync(marker.fileno())
+
+
+def qwen_admission(url, body, headers, reserve):
+    # urllib still handles the system proxy. Its CONNECT tunnel and TLS
+    # handshake finish before the generation request can leave this Mac.
+    class Connection(HTTPSConnection):
+        def connect(self):
+            try:
+                super().connect()
+            except OSError as error:
+                raise ConnectionError('Connection unavailable before submission. No generation request was sent.') from error
+            try:
+                reserve()
+            except BaseException:
+                self.close()
+                raise
+
+    class AdmissionHandler(HTTPSHandler):
+        def https_open(self, req):
+            return self.do_open(Connection, req, context=self._context)
+
+    class NoRedirect(HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
+    opener = build_opener(AdmissionHandler(), NoRedirect())
+    req = Request(url, data=json.dumps(body).encode(), headers={'Content-Type':'application/json', **headers})
+    try:
+        with opener.open(req, timeout=180) as response:
+            return json.load(response)
+    except HTTPError as error:
+        raise RuntimeError(f'{urlsplit(url).hostname} returned HTTP {error.code}') from None
+
+
+@contextmanager
+def shot_lock(receipt):
+    with receipt.with_suffix('.lock').open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError('Another worker owns this shot submission. Try again after its receipt arrives.') from None
+        yield
+
+
+def uncertain_photo(receipt):
+    if not receipt.is_file():
+        return None
+    raw = receipt.read_bytes()
+    record = json.loads(raw)
+    if not record.get('submitting') or record.get('url') or record.get('id') or receipt.with_suffix('.jpg').exists():
+        return None
+    return dict(receipt=receipt.name, shotId=record['shotId'], digest=hashlib.sha256(raw).hexdigest())
+
+
+def photo_recovery(action, data):
+    folder = MEDIA / safe_id(data['runId'])
+    if action=='uncertain_photos':
+        return [row for receipt in sorted(folder.glob('still-*.json')) if (row:=uncertain_photo(receipt))]
+    name = safe_id(data['receipt'])
+    if not name.startswith('still-') or not name.endswith('.json') or data.get('approved') is not True:
+        raise ValueError('Select and authorize one missing storyboard photo.')
+    receipt = folder / name
+    with shot_lock(receipt):
+        row = uncertain_photo(receipt)
+        if not row or row['digest']!=data['digest'] or row['shotId']!=data['shotId']:
+            raise ValueError('This shot receipt changed. Refresh the booking before authorizing another attempt.')
+        archive = folder / 'unconfirmed-attempts'
+        archive.mkdir(exist_ok=True)
+        receipt.rename(archive / (row['digest']+'.json'))
+    return True
+
 
 def room(action, r, owner):
     MEDIA.mkdir(parents=True,exist_ok=True)
@@ -72,6 +152,7 @@ def prompt_fingerprint(prompt):
 
 def adapter(call):
     action=call['action'];r=call['data']
+    if action in ('uncertain_photos','authorize_photo_retry'):return photo_recovery(action,r)
     if action.startswith('room/'):return room(action[5:],r,call['owner'])
     if action=='health':
         MEDIA.mkdir(parents=True,exist_ok=True)
@@ -151,32 +232,35 @@ def adapter(call):
         header,encoded=spec['imageDataUrl'].split(',',1)
         if not header.startswith('data:image/') or not header.endswith(';base64'):raise ValueError('Missing approved storyboard photo')
         evidence['frameSha256']=hashlib.sha256(base64.b64decode(encoded,validate=True)).hexdigest()
-    if not receipt.exists():
-        with receipt.open('x') as f:json.dump(dict(evidence,submitting=True),f)
-        if still:
-            reply=request(BASE+'/api/v1/services/aigc/multimodal-generation/generation',dict(model='qwen-image-3.0-pro',input={'messages':[{'role':'user','content':[{'text':spec['prompt']}]}]},parameters={'size':'1280*720'}),headers)
-            save(receipt,dict(evidence,url=reply['output']['choices'][0]['message']['content'][0]['image']))
-        elif client:
-            args={**plugin.get('args',{}),plugin['prompt']:spec['prompt'],plugin['frameArg']:spec['imageDataUrl']}
-            reply=client.call(plugin['tool'],args)
-            job=dict(video=field(reply,plugin['video']),id=field(reply,plugin['job']) if plugin.get('job') else None)
-            if not job['video'] and not (job['id'] and plugin.get('poll')):raise ValueError('Missing renderer receipt')
-            k=str(uuid.uuid4());save(path/(k+'.plugin.json'),job);save(receipt,dict(evidence,id=k))
-        else:
-            reply=request(BASE+'/api/v1/services/aigc/video-generation/video-synthesis',dict(model=MODEL,input={'prompt':spec['prompt'],'media':[{'type':'first_frame','url':spec['imageDataUrl']}]},parameters={'resolution':'720P','ratio':'16:9','duration':5}),{**headers,'X-DashScope-Async':'enable'})
-            save(receipt,dict(evidence,id=reply['output']['task_id']))
-    record=json.loads(receipt.read_text())
-    if record.get('fingerprint',fingerprint)!=fingerprint:raise ValueError('A different approved prompt already owns this attempt.')
-    if not still and record.get('frameSha256',evidence['frameSha256'])!=evidence['frameSha256']:raise ValueError('The storyboard photo changed after submission.')
-    if record.get('submitting'):raise ValueError('Submission interrupted before provider receipt. Check provider history.')
-    if not still:return dict(results=[record])
-    frame=receipt.with_suffix('.jpg')
-    if not frame.exists():
-        if urlsplit(record['url']).scheme!='https':raise ValueError('Invalid image URL')
-        with urlopen(record['url'],timeout=150) as resp:
-            subprocess.run([FF,'-v','error','-y','-i','pipe:0','-frames:v','1',str(frame.with_suffix('.tmp.jpg'))],input=resp.read(),check=True)
-        frame.with_suffix('.tmp.jpg').replace(frame)
-    return dict(imageDataUrl='data:image/jpeg;base64,'+base64.b64encode(frame.read_bytes()).decode(),outputPath=str(frame))
+    with shot_lock(receipt):
+        if not receipt.exists():
+            def reserve():
+                reserve_submission(receipt, evidence)
+            if still:
+                reply=qwen_admission(BASE+'/api/v1/services/aigc/multimodal-generation/generation',dict(model='qwen-image-3.0-pro',input={'messages':[{'role':'user','content':[{'text':spec['prompt']}]}]},parameters={'size':'1280*720'}),headers,reserve)
+                save(receipt,dict(evidence,url=reply['output']['choices'][0]['message']['content'][0]['image']))
+            elif client:
+                reserve()
+                args={**plugin.get('args',{}),plugin['prompt']:spec['prompt'],plugin['frameArg']:spec['imageDataUrl']}
+                reply=client.call(plugin['tool'],args)
+                job=dict(video=field(reply,plugin['video']),id=field(reply,plugin['job']) if plugin.get('job') else None)
+                if not job['video'] and not (job['id'] and plugin.get('poll')):raise ValueError('Missing renderer receipt')
+                k=str(uuid.uuid4());save(path/(k+'.plugin.json'),job);save(receipt,dict(evidence,id=k))
+            else:
+                reply=qwen_admission(BASE+'/api/v1/services/aigc/video-generation/video-synthesis',dict(model=MODEL,input={'prompt':spec['prompt'],'media':[{'type':'first_frame','url':spec['imageDataUrl']}]},parameters={'resolution':'720P','ratio':'16:9','duration':5}),{**headers,'X-DashScope-Async':'enable'},reserve)
+                save(receipt,dict(evidence,id=reply['output']['task_id']))
+        record=json.loads(receipt.read_text())
+        if record.get('fingerprint',fingerprint)!=fingerprint:raise ValueError('A different approved prompt already owns this attempt.')
+        if not still and record.get('frameSha256',evidence['frameSha256'])!=evidence['frameSha256']:raise ValueError('The storyboard photo changed after submission.')
+        if record.get('submitting'):raise ValueError('Submission interrupted before provider receipt. Check provider history.')
+        if not still:return dict(results=[record])
+        frame=receipt.with_suffix('.jpg')
+        if not frame.exists():
+            if urlsplit(record['url']).scheme!='https':raise ValueError('Invalid image URL')
+            with urlopen(record['url'],timeout=150) as resp:
+                subprocess.run([FF,'-v','error','-y','-i','pipe:0','-frames:v','1',str(frame.with_suffix('.tmp.jpg'))],input=resp.read(),check=True)
+            frame.with_suffix('.tmp.jpg').replace(frame)
+        return dict(imageDataUrl='data:image/jpeg;base64,'+base64.b64encode(frame.read_bytes()).decode(),outputPath=str(frame))
 
 try:print(json.dumps({'value':adapter(json.load(sys.stdin))}))
 except Exception as error:print(json.dumps({'error':str(error)[:500]}))
