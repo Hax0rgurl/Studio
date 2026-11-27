@@ -69,15 +69,24 @@
       root.addEventListener && root.addEventListener('resize', () => this.resize());
       this.canvas.addEventListener('pointermove', event => this.pointerMove(event));
       this.canvas.addEventListener('pointerdown', event => {
-        this.drag = {x:event.clientX,y:event.clientY,panX:this.pan.x,panY:this.pan.y,moved:false};
+        if(event.button!==0 || !event.isPrimary)return;
+        this.drag = {id:event.pointerId,x:event.clientX,y:event.clientY,panX:this.pan.x,panY:this.pan.y,moved:false};
         this.canvas.setPointerCapture && this.canvas.setPointerCapture(event.pointerId);
       });
       this.canvas.addEventListener('pointerup', event => this.pointerUp(event));
       this.canvas.addEventListener('pointerleave', () => { this.hoverBuildingId=''; this.hoverRoleId=''; this.draw(); });
-      this.canvas.addEventListener('wheel', event => {
-        event.preventDefault();
-        this.zoomBy(event.deltaY < 0 ? 1.14 : 0.88);
-      }, {passive:false});
+      this.canvas.addEventListener('lostpointercapture', () => { this.drag=null; });
+      this.canvas.addEventListener('pointercancel', () => { this.drag=null; });
+      this.canvas.addEventListener('wheel', event => { if(event.ctrlKey) event.preventDefault(); }, {passive:false});
+      this.canvas.addEventListener('gesturestart', event => event.preventDefault(), {passive:false});
+      this.canvas.addEventListener('keydown', event => {
+        const steps={ArrowLeft:[64,0],ArrowRight:[-64,0],ArrowUp:[0,64],ArrowDown:[0,-64]};
+        const step=steps[event.key];
+        if(this.zoom>1 && step){
+          event.preventDefault();
+          this.pan.x+=step[0];this.pan.y+=step[1];this.draw();
+        }
+      });
     }
 
     resize() {
@@ -119,8 +128,13 @@
       this.raf = requestAnimationFrame(next => this.loop(next));
     }
 
-    fit() { this.zoom=1; this.pan={x:0,y:0}; this.draw(); }
-    zoomBy(amount) { this.zoom=Math.max(0.75,Math.min(3.2,this.zoom*amount)); this.draw(); }
+    setZoom(zoom) {
+      const ratio=zoom/this.zoom;
+      this.pan={x:this.pan.x*ratio,y:this.pan.y*ratio};
+      this.zoom=zoom;
+      this.canvas.style.cursor=zoom>1?'grab':'default';
+      this.draw();
+    }
     selectRole(roleId) { this.selectedRoleId=String(roleId||''); this.draw(); }
 
     transform() {
@@ -128,6 +142,10 @@
       const width = this.canvas.width / dpr, height = this.canvas.height / dpr;
       const base = Math.min(width / this.layout.map.width, height / this.layout.map.height);
       const scale = base * this.zoom;
+      const maxX=Math.max(0,(this.layout.map.width*scale-width)/2);
+      const maxY=Math.max(0,(this.layout.map.height*scale-height)/2);
+      this.pan.x=maxX ? Math.max(-maxX,Math.min(maxX,this.pan.x)) : 0;
+      this.pan.y=maxY ? Math.max(-maxY,Math.min(maxY,this.pan.y)) : 0;
       const tx = (width - this.layout.map.width * scale) / 2 + this.pan.x;
       const ty = (height - this.layout.map.height * scale) / 2 + this.pan.y;
       this.viewport = {dpr,width,height,scale,tx,ty};
@@ -141,20 +159,26 @@
     }
 
     pointerMove(event) {
-      if (this.drag && (event.buttons & 1)) {
+      if (this.drag && this.drag.id===event.pointerId && (event.buttons & 1)) {
         const dx=event.clientX-this.drag.x,dy=event.clientY-this.drag.y;
         if (Math.abs(dx)+Math.abs(dy)>3) this.drag.moved=true;
-        this.pan={x:this.drag.panX+dx,y:this.drag.panY+dy}; this.draw(); return;
+        if(this.zoom>1 && this.drag.moved){
+          this.canvas.style.cursor='grabbing';
+          this.pan={x:this.drag.panX+dx,y:this.drag.panY+dy};this.draw();
+        }
+        return;
       }
       const hit = this.hitTest(this.worldPoint(event));
       this.hoverRoleId = hit.roleId || '';
       this.hoverBuildingId = hit.buildingId || '';
-      this.canvas.style.cursor = hit.roleId || hit.buildingId ? 'pointer' : 'grab';
+      this.canvas.style.cursor = hit.roleId || hit.buildingId ? 'pointer' : (this.zoom>1?'grab':'default');
       this.draw();
     }
 
     pointerUp(event) {
+      if(this.drag?.id!==event.pointerId)return;
       const wasDrag=this.drag; this.drag=null;
+      this.canvas.style.cursor=this.zoom>1?'grab':'default';
       if (!wasDrag || wasDrag.moved) return;
       const hit=this.hitTest(this.worldPoint(event));
       if (hit.roleId && this.options.onAgent) this.options.onAgent(hit.roleId);

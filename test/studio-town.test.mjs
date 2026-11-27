@@ -198,8 +198,25 @@ test('Town UI provides DOM-based access, exact status, review, direction, and sk
   assert.match(controller,/setInspectorOpen\(open\)/);
   assert.match(controller,/studio\.town\.inspector\.open/);
   assert.match(controller,/this\.inspectorOpen=false/,'the town map must start full-width until the filmmaker opens details');
-  assert.match(css,/studio-town-workspace\.inspector-open\{grid-template-columns:minmax\(0,1fr\) 330px\}/);
+  assert.match(css,/\.studio-town-inspector\s*\{\s*position:absolute/,'details must overlay the map without resizing it');
   assert.match(css,/studio-town-inspector\[hidden\]\{display:none\}/);
   assert.doesNotMatch(controller,/Math\.random|ambient chatter|wander/i);
   assert.match(html,/crewConnect\(\)\.then\(\(\)=>\{[\s\S]{0,320}activeView\(\)==='town'/);
+});
+
+test('overview contains the whole map and zoomed panning stops at its edges',()=>{
+  const ctx={};ctx.globalThis=ctx;
+  vm.runInNewContext(fs.readFileSync(path.join(root,'src/modules/studio-town/town-renderer.js'),'utf8'),ctx);
+  const renderer=Object.create(ctx.StudioTownRenderer.TownRenderer.prototype);
+  Object.assign(renderer,{layout:{map:{width:1600,height:900}},viewport:{dpr:2},canvas:{width:1800,height:1200,style:{}},pan:{x:0,y:0},zoom:1});
+  renderer.draw=()=>renderer.transform();
+  renderer.setZoom(2);
+  renderer.pan={x:9999,y:-9999};
+  const close=renderer.transform();
+  assert.equal(close.tx,0);
+  assert.equal(close.ty+900*close.scale,close.height);
+  renderer.setZoom(1);
+  const whole=renderer.transform();
+  assert.equal(renderer.pan.x,0);assert.equal(renderer.pan.y,0);
+  assert.ok(whole.tx>=0 && whole.ty>=0 && whole.tx+1600*whole.scale<=whole.width && whole.ty+900*whole.scale<=whole.height);
 });

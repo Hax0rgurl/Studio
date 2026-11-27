@@ -407,7 +407,7 @@
 </style>
 <link rel="stylesheet" href="./cinematic-polish.css">
 <link rel="stylesheet" href="./modules/studio-town/town.css">
-<style>.town-observe{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,29%);gap:14px;align-items:start}.town-observe #townMonitor{padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px}.town-observe #townMonitor:empty{display:none}.town-observe #townWrap{min-width:0}@media(max-width:1100px){.town-observe{display:flex;flex-direction:column-reverse}.town-observe>*{width:100%}.town-observe video{max-height:200px}}</style></head>
+</head>
 <body>
 <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -594,8 +594,7 @@
 
     <!-- STUDIO TOWN — a real-time view over the same canonical project -->
     <div class="view" id="view-town">
-      <div class="view-head"><h2>Studio Town</h2><span class="meta">The autonomous crew at work. Every movement, message and status comes from a real production event.</span></div>
-      <p id="townCrewStatus" role="status"></p><span id="townFilmNav"></span><button class="btn small" onclick="nav('crew')">Open production dashboard</button><div class="town-observe"><div id="townWrap"></div><aside id="townMonitor" aria-label="Latest footage"></aside></div>
+      <div id="townWrap"></div>
     </div>
 
     <!-- CLIENT ROOM — human direction, review, and durable Greenroom record -->
@@ -7613,8 +7612,8 @@ function townEnsureController(){
   return STUDIO_TOWN_CONTROLLER;
 }
 function renderTown(){
-  clearInterval(townRunTimer);refreshTownRun();townRunTimer=setInterval(refreshTownRun,3000);
   const controller=townEnsureController();
+  clearInterval(townRunTimer);refreshTownRun();townRunTimer=setInterval(refreshTownRun,3000);
   if(controller){controller.setActive(true);controller.refresh();}
 }
 function clientTranscriptHtml(entry){
