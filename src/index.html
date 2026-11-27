@@ -2460,7 +2460,10 @@ function openModal(title, bodyHtml, buttons){
   });
   el('modal').classList.add('open');
 }
-function closeModal(){ el('modal').classList.remove('open','settings-open'); }
+function closeModal(){
+  el('screenedCutPlayer')?.pause();
+  el('modal').classList.remove('open','settings-open');
+}
 el('modalClose').addEventListener('click', closeModal);
 el('modal').addEventListener('click', e=>{ if (e.target===el('modal')) closeModal(); });
 
@@ -7181,6 +7184,23 @@ function studioMonitor(host,run){
     if(host.isConnected&&host.dataset.shot===key){video.src=src;video.muted=true;video.hidden=false;video.play().catch(()=>{});}
   }).catch(()=>{if(host.dataset.shot===key){delete host.dataset.shot;description.textContent='Preview unavailable. The original shot is saved.';}});
 }
+function watchScreenedCut(row,second=null){
+  const project=DB.projects.find(pr=>pr.id===row.projectId);
+  const state=project?.drafts.find(d=>d.id===row.draftId)?.state;
+  const cut=state?.cut;
+  const source=cut?.productionRunId===row.runId && (cut.mediaUrl||(cut.outputPath&&window.__TAURI__?.core?.convertFileSrc?.(cut.outputPath)));
+  if(!source){toast('Studio could not locate the finished cut for '+row.title+'.');return;}
+  openModal(row.title,'<video id="screenedCutPlayer" controls playsinline style="display:block;width:100%;max-height:65vh;background:#000"></video><p class="auto-note" id="screenedCutStatus" role="status"></p>');
+  const video=el('screenedCutPlayer'),status=el('screenedCutStatus');
+  video.addEventListener('error',()=>{status.textContent='Studio could not play the saved cut'+(cut.outputPath?' at '+cut.outputPath:'')+'.';});
+  if(Number.isFinite(second)){
+    video.addEventListener('loadedmetadata',()=>{video.currentTime=second;},{once:true});
+    status.textContent='Frame cited by the editor at '+second+' seconds.';
+  }
+  video.src=source;
+  if(!Number.isFinite(second))video.play().catch(error=>{if(error.name==='NotAllowedError')status.textContent='Press Play to watch.';});
+  video.focus();
+}
 function dashboardScreenings(host){
   const rows=studioScreenings();
   const signature=JSON.stringify(rows);
@@ -7192,10 +7212,18 @@ function dashboardScreenings(host){
   for(const row of rows){
     const detail=document.createElement('details');
     const label=document.createElement('summary');label.textContent=row.title;detail.append(label);
-    for(const [caption,value] of [['What the editor saw',row.review.observation],['Change on screen',row.review.verdict],['Evidence',row.review.evidence],['Next film',row.review.lesson]]){
+    for(const [caption,value] of [['What the editor saw',row.review.observation],['Compared with',row.review.comparedWith?.title],['Change on screen',row.review.verdict],['Evidence',row.review.evidence],['Next film',row.review.lesson]]){
       if(!value)continue;
       const line=document.createElement('p'),name=document.createElement('strong');
       name.textContent=caption+'. ';line.append(name,String(value));detail.append(line);
+    }
+    const prior=row.review.comparedWith&&rows.find(other=>other.runId===row.review.comparedWith.runId);
+    for(const [film,second] of [[prior,row.review.earlierSecond],[row,row.review.currentSecond]]){
+      if(!film||!Number.isFinite(second))continue;
+      const cue=document.createElement('button');cue.className='btn small';
+      cue.textContent=film.title+' · '+second+' s';
+      cue.title='See the frame cited by the editor';
+      cue.onclick=()=>watchScreenedCut(film,second);detail.append(cue);
     }
     for(const note of row.filmmakerNotes||[]){
       const line=document.createElement('p'),name=document.createElement('strong');
@@ -7205,6 +7233,7 @@ function dashboardScreenings(host){
     for(const [view,caption] of [['export','Watch cut'],['scenes','Script'],['boards','Storyboard'],['client','Crew chat']]){
       const link=document.createElement('button');link.className='btn small';link.textContent=caption;
       link.onclick=()=>{
+        if(view==='export'){watchScreenedCut(row);return;}
         if(ACTIVE.p!==row.projectId||ACTIVE.d!==row.draftId)openDraft(row.projectId,row.draftId);
         if(ACTIVE.p===row.projectId&&ACTIVE.d===row.draftId)nav(view);
       };detail.append(link);
@@ -11397,14 +11426,14 @@ async function boardVision(shotId){
 }
 
 /** Ollama's native API takes base64 images on the message. */
-async function aiVisionChat(system, prompt, images, selectedModel, temperature=0.2){
+async function aiVisionChat(system, prompt, images, selectedModel, temperature=0.2, schema=null){
   const model=selectedModel || typeof floorProduction==='function' && floorProduction()?.textModel;
-  if(model && model!=='qwen3.5:latest')return floorChat(model,system,prompt,images);
+  if(model && model!=='qwen3.5:latest')return floorChat(model,system,prompt,images,true,{temperature,schema});
   if (AI.kind !== 'ollama') throw new Error('Reading images needs Ollama.');
   const res = await fetch(AI.base + '/api/chat', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
-      model: model||AI.model, stream:false, format:'json', ...(AI.noThink?{think:false}:{}),
+      model: model||AI.model, stream:false, format:schema||'json', ...(AI.noThink?{think:false}:{}),
       options:{ temperature, num_ctx:AI.numCtx, num_predict:4096 },
       messages:[{role:'system',content:system},{role:'user',content:prompt,images:images}],
     }),

@@ -150,6 +150,12 @@ def prompt_fingerprint(prompt):
         value = ((value ^ unit) * 16777619) & 0xffffffff
     return f'fnv1a-{value:08x}'
 
+def qwen_headers():
+    token = credential(b'Studio.QwenTokenPlan')
+    if not token:
+        raise ValueError('Add your Qwen Token Plan key in Settings')
+    return {'Authorization':'Bearer '+token}
+
 def adapter(call):
     action=call['action'];r=call['data']
     if action in ('uncertain_photos','authorize_photo_retry'):return photo_recovery(action,r)
@@ -158,19 +164,17 @@ def adapter(call):
         MEDIA.mkdir(parents=True,exist_ok=True)
         with sqlite3.connect(MEDIA/'crew.sqlite') as db:db.execute('select 1')
         return True
-    token=credential(b'Studio.QwenTokenPlan')
-    if not token:raise ValueError('Add your Qwen Token Plan key in Settings')
-    headers={'Authorization':'Bearer '+token}
     if action=='chat':
         body={k:r[k] for k in ('messages','model','temperature','max_tokens') if k in r}
         if body['model'] not in ('qwen3.8-max','qwen4-max'):raise ValueError('Unknown crew model')
         if r.get('json'):body['response_format']={'type':'json_object'}
-        return request(BASE+'/compatible-mode/v1/chat/completions',{**body,'enable_thinking':False},headers,timeout=600)['choices'][0]['message']['content']
+        return request(BASE+'/compatible-mode/v1/chat/completions',{**body,'enable_thinking':False},qwen_headers(),timeout=600)['choices'][0]['message']['content']
     FF=str(Path(sys.executable).absolute().parents[2]/'ffmpeg')
     def folder(run):
         path=MEDIA/safe_id(run);path.mkdir(parents=True,exist_ok=True);return path
     if action=='screen':
-        path=folder(r['runId'])/'cut.mp4'
+        path=MEDIA/safe_id(r['runId'])/'cut.mp4'
+        if not path.is_file():raise ValueError('The finished cut is missing from this Mac')
         info=subprocess.run([FF,'-hide_banner','-i',str(path)],capture_output=True,text=True)
         stamp=re.search(r'Duration: (\d+):(\d+):([\d.]+)',info.stderr)
         if not stamp:raise ValueError('The cut has no readable duration')
@@ -205,7 +209,7 @@ def adapter(call):
                         elif str(reply.get('status','')).lower() in ('failed','error','cancelled'):
                             jobs.append(dict(id=k,status='failed',error='Plugin render failed'));continue
                     out={'task_status':'SUCCEEDED' if url else 'RUNNING','video_url':url}
-                else:out=request(BASE+'/api/v1/tasks/'+k,headers=headers)['output']
+                else:out=request(BASE+'/api/v1/tasks/'+k,headers=qwen_headers())['output']
                 phase=out['task_status']
                 if phase=='SUCCEEDED':
                     url=out['video_url']
@@ -237,7 +241,7 @@ def adapter(call):
             def reserve():
                 reserve_submission(receipt, evidence)
             if still:
-                reply=qwen_admission(BASE+'/api/v1/services/aigc/multimodal-generation/generation',dict(model='qwen-image-3.0-pro',input={'messages':[{'role':'user','content':[{'text':spec['prompt']}]}]},parameters={'size':'1280*720'}),headers,reserve)
+                reply=qwen_admission(BASE+'/api/v1/services/aigc/multimodal-generation/generation',dict(model='qwen-image-3.0-pro',input={'messages':[{'role':'user','content':[{'text':spec['prompt']}]}]},parameters={'size':'1280*720'}),qwen_headers(),reserve)
                 save(receipt,dict(evidence,url=reply['output']['choices'][0]['message']['content'][0]['image']))
             elif client:
                 reserve()
@@ -247,7 +251,7 @@ def adapter(call):
                 if not job['video'] and not (job['id'] and plugin.get('poll')):raise ValueError('Missing renderer receipt')
                 k=str(uuid.uuid4());save(path/(k+'.plugin.json'),job);save(receipt,dict(evidence,id=k))
             else:
-                reply=qwen_admission(BASE+'/api/v1/services/aigc/video-generation/video-synthesis',dict(model=MODEL,input={'prompt':spec['prompt'],'media':[{'type':'first_frame','url':spec['imageDataUrl']}]},parameters={'resolution':'720P','ratio':'16:9','duration':5}),{**headers,'X-DashScope-Async':'enable'},reserve)
+                reply=qwen_admission(BASE+'/api/v1/services/aigc/video-generation/video-synthesis',dict(model=MODEL,input={'prompt':spec['prompt'],'media':[{'type':'first_frame','url':spec['imageDataUrl']}]},parameters={'resolution':'720P','ratio':'16:9','duration':5}),{**qwen_headers(),'X-DashScope-Async':'enable'},reserve)
                 save(receipt,dict(evidence,id=reply['output']['task_id']))
         record=json.loads(receipt.read_text())
         if record.get('fingerprint',fingerprint)!=fingerprint:raise ValueError('A different approved prompt already owns this attempt.')

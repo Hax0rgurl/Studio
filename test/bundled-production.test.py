@@ -76,6 +76,23 @@ class ProductionAdapters(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'changed'):
             recovery('authorize_photo_retry',args)
 
+    def test_cached_take_and_missing_local_cut_work_without_qwen_credentials(self):
+        folder = runtime['MEDIA'] / 'film'
+        folder.mkdir()
+        take = folder / 'shot.mp4'
+        take.write_bytes(b'cached')
+        call = {'action':'/api/video/jobs','data':{'runId':'film','ids':['shot']}}
+        with patch.dict(runtime, credential=Mock(side_effect=AssertionError('Unexpected key lookup'))):
+            jobs = runtime['adapter'](call)
+            self.assertEqual(jobs['jobs'][0]['outputPath'], str(take))
+            with self.assertRaisesRegex(ValueError, 'finished cut is missing'):
+                runtime['adapter']({'action':'screen','data':{'runId':'other'}})
+            self.assertFalse((runtime['MEDIA']/'other').exists())
+        take.unlink()
+        with patch.dict(runtime, credential=lambda service: None, request=Mock(side_effect=AssertionError('Unexpected request'))):
+            with self.assertRaisesRegex(ValueError, 'Qwen Token Plan key'):
+                runtime['adapter'](call)
+
     def test_review_gate_and_idempotent_video(self):
         calls = []
         def request(url, data, headers, reserve):

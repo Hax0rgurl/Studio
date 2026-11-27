@@ -14,6 +14,7 @@ function floor(){
   vm.createContext(ctx);
   vm.runInContext(producer,ctx);
   ctx.aiParseJson=JSON.parse;
+  ctx.screeningSheet=async sample=>sample.images.join(',');
   ctx.floorChat=async (model,role)=>JSON.stringify(role.startsWith('Director')?{pitches:['A','B','C'].map(title=>({title,opening:'Setup',ending:'Payoff',whyWatch:'A reversal'}))}:{index:1,reason:'The second ending resolves the opening question.',setupQuote:'Setup',payoffQuote:'Payoff',blockingGap:''});
   return {ctx,starts,run:source=>vm.runInContext(source,ctx)};
 }
@@ -192,5 +193,38 @@ test('the written beats must support the commissioning decision and any blocking
     await run('wakeProducer()');
     assert.equal(starts.length,0);
     assert.ok(run('readBooking().commission1.rejection').includes(expected));
+  }
+});
+
+test('daily screenings compare the cut with a source from its own brief and record missing evidence',async()=>{
+  for (const missing of [false,true]){
+    const {ctx,run}=floor(),book=run('bookFilms()');
+    book.count=1;ctx.saveBooking(book);
+    const prior={title:'Before',runId:'prior',review:{currentSecond:4,observation:'The face was obscured.',lesson:'Hold the reveal.'},filmmakerNotes:[{text:'Keep the face in focus.'}]};
+    const p={id:'today',brief:'Apply the focus note.',status:'complete',booking:{id:book.id,number:1,screeningSources:[prior]}};
+    const ids=[];
+    Object.assign(ctx,{ACTIVE:{p:'project',d:'draft'},S:{title:'Today',cut:{productionRunId:p.id},scenes:[]},productionState:()=>p,
+      floorCall:async(action,{runId})=>{
+        ids.push(runId);
+        if(missing&&runId==='prior')throw Error('Film unavailable.');
+        return {seconds:[1,4,6,9],images:[1,2,3,4].map(n=>runId+n)};
+      },
+      floorChat:async(model,role,prompt,images)=>{
+        assert.equal(images.length,1);
+        if(!missing){
+          assert.equal(images[0],'today1,today2,today3,today4');
+          assert.match(prompt,/The face was obscured/);
+          assert.match(prompt,/Keep the face in focus/);
+        }
+        return JSON.stringify({currentSecond:9,earlierSecond:4,observation:'At 9s the face is sharp.',nextAction:'Test focus through the turn.',successCheck:'The eye stays legible.',verdict:'partial',evidence:'Both cuts show the face.'});
+      },
+      productionCheckpoint:()=>true,crewSendConversation:async()=>({}),crewFinishConversation:async()=>{}});
+    await run('wakeProducer()');
+    assert.deepEqual(ids,['today','prior']);
+    assert.equal(p.screening.comparedWith.runId,'prior');
+    assert.match(p.screening.lesson,/Test focus through the turn.*eye stays legible/);
+    assert.equal(p.screening.verdict,missing?'unproven':'partial');
+    if(missing)assert.match(p.screening.evidence,/unavailable/);
+    assert.equal(run('readBooking().phase'),'complete');
   }
 });

@@ -81,6 +81,27 @@ function screeningBrief(rows, pitching=false){
   return '\nEarlier screenings from this studio. Treat these as craft experiments. The filmmaker’s own notes take precedence over the editor’s interpretation of that film. Treat them as feedback on that specific work. The current direction and supplied material take priority. Apply a relevant lesson to a specific beat, or explain why it does not fit. Preserve uncertainty about earlier results.\n'+
     JSON.stringify(rows.map(({title,review,filmmakerNotes})=>({title,filmmakerNotes,observation:pitching?undefined:review.observation,nextTest:review.lesson,verdict:review.verdict,evidence:pitching?undefined:review.evidence})));
 }
+async function screeningSheet(sample){
+  const images=await Promise.all(sample.images.map(async data=>{
+    const image=new Image();
+    image.src='data:image/jpeg;base64,'+data;
+    await image.decode();
+    return image;
+  }));
+  const canvas=document.createElement('canvas'),width=480,height=270,label=34;
+  canvas.width=width*2;canvas.height=(height+label)*2;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#111';ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.font='bold 21px sans-serif';ctx.fillStyle='#fff';
+  images.forEach((image,j)=>{
+    const scale=Math.min(width/image.naturalWidth,height/image.naturalHeight);
+    const w=image.naturalWidth*scale,h=image.naturalHeight*scale;
+    const x=(j%2)*width,y=Math.floor(j/2)*(height+label);
+    ctx.fillText(sample.seconds[j]+' s',x+10,y+24);
+    ctx.drawImage(image,x+(width-w)/2,y+label+(height-h)/2,w,h);
+  });
+  return canvas.toDataURL('image/jpeg',0.90).split(',')[1];
+}
 async function commissionOriginal(book,foundation){
   const key='commission'+book.number;
   const existing=book[key];
@@ -265,23 +286,70 @@ async function wakeProducer(){
           return result;
         };
         const current=await sample(p.id);
-        const prior=book.number===2?book.films[0]:null;
-        const previous=prior?await sample(prior.runId):null;
-        const content='Filmmaker direction: '+foundation+'\nFilm brief: '+p.brief+'\nThe screenplay editor expected: '+JSON.stringify(p.writerWork?.review?.audience||{})+
-          '\nRead the opening and payoff as a viewer. Identify what is legible or confusing in the sampled images. Cite a supplied time for the observation. Give one concrete, testable adjustment for the next director in lesson. Stills cannot establish audio, audience retention, or what happened between samples.'+
-          (prior?'\nFirst four images: '+prior.title+' at '+previous.seconds.join(', ')+' seconds. Its review: '+JSON.stringify(prior.review)+'. Next four: this film at '+current.seconds.join(', ')+' seconds. Compare the intended change against both sets. Return JSON with observation, lesson, verdict (visible, partial or unproven), and evidence citing both films.':
-          '\nThis film at '+current.seconds.join(', ')+' seconds. Return JSON with observation and lesson.');
-        const images=previous?[...previous.images,...current.images]:current.images;
+        const companion=book.number===2?book.films[0]:null;
+        const prior=companion||(p.booking.screeningSources||[]).find(row=>row.runId&&row.runId!==p.id);
+        let previous=null,unavailable='';
+        if(prior){
+          try {previous=await sample(prior.runId);}
+          catch(error){
+            if(companion)throw error;
+            unavailable=String(error?.message||error);
+          }
+        }
         if(!sameFilm())return;
-        const raw=book.textModel==='qwen3.5:latest'?await aiVisionChat('Screening editor',content,images,book.textModel):await floorChat(book.textModel,'You are the screening editor. Describe only visible evidence.',content,images);
+        const local=book.textModel==='qwen3.5:latest';
+        let earlierObservation=prior?.review?.observation||'',earlierSecond=prior?.review?.currentSecond;
+        if(previous&&!previous.seconds.includes(earlierSecond)){
+          earlierSecond=null;
+          if(local){
+            const schema={type:'object',properties:{second:{type:'number',enum:previous.seconds},detail:{type:'string'}},required:['second','detail'],additionalProperties:false};
+            const result=aiParseJson(await aiVisionChat('Screening editor','These four timed panels come from one film. Select one panel showing a turning point and describe exactly what is visible in it in one sentence.',[await screeningSheet(previous)],book.textModel,0.2,schema));
+            if(previous.seconds.includes(result?.second)&&typeof result.detail==='string'&&result.detail.trim()){
+              earlierSecond=result.second;earlierObservation=result.detail;
+            }
+          }
+        }
+        if(!sameFilm())return;
+        const images=[await screeningSheet(current)];
+        const content='All four panels are from the current film, '+S.title+'. The time is printed above each panel. Read them like a page. Describe an object or gesture visible at one supplied time. Judge whether the hook and payoff are legible. Give the next director one specific experiment. Stills cannot prove camera settings, motion between frames, sound or audience retention.'+
+          (previous?' The editor of the earlier film, '+prior.title+', recorded: '+earlierObservation+
+            '. Previous lesson to test: '+(prior.review?.lesson||'')+'. Filmmaker feedback on that film: '+JSON.stringify(prior.filmmakerNotes||[])+
+            '. The earlier account belongs to a different film. Compare the visible outcome in this film against that account. Include a reason; use partial when only part is visible, and unproven when the evidence cannot answer.':'');
+        if(!sameFilm())return;
+        const fields={
+          currentSecond:{type:'number',enum:current.seconds,description:'Time printed on the current film panel being cited.'},
+          observation:{type:'string',description:'One concrete detail directly visible in the chosen current panel. Exclude offscreen actions.'},
+          nextAction:{type:'string',description:'Direct the next shoot in one imperative sentence: change something specific in blocking, framing, timing or staging.'},
+          successCheck:{type:'string',description:'A visible result a viewer should be able to point to if the experiment succeeds.'}
+        };
+        if(previous){
+          fields.verdict={type:'string',enum:['visible','partial','unproven']};
+          fields.evidence={type:'string',description:'Identify what the current frame supports relative to the earlier editor’s account. Distinguish what the frames show from how the shot may have been made.'};
+        }
+        const schema={type:'object',properties:fields,required:Object.keys(fields),additionalProperties:false};
+        const role='You are the screening editor. Describe only visible evidence.';
+        const raw=book.textModel==='qwen3.5:latest'?await aiVisionChat(role,content,images,book.textModel,0.2,schema):
+          await floorChat(book.textModel,role,content,images,true,{schema});
         review=aiParseJson(raw);
         const hasText=k=>typeof review?.[k]==='string' && review[k].trim();
-        if(!hasText('observation')||!hasText('lesson')||(prior&&(!hasText('evidence')||!['visible','partial','unproven'].includes(review.verdict))))throw Error('The screening returned incomplete evidence.');
         if(!sameFilm())return;
+        if(!current.seconds.includes(review?.currentSecond))throw Error('The editor must cite a time from the sampled frames.');
+        if(!hasText('observation')||!hasText('nextAction')||!hasText('successCheck')||(previous&&(!hasText('evidence')||!['visible','partial','unproven'].includes(review.verdict))))throw Error('The screening returned incomplete evidence.');
+        review.lesson=review.nextAction.trim()+' Check the result: '+review.successCheck.trim();
+        if(prior){
+          review.comparedWith={runId:prior.runId,title:prior.title};
+          if(previous&&Number.isFinite(earlierSecond))review.earlierSecond=earlierSecond;
+          else {
+            delete review.earlierSecond;
+            review.verdict='unproven';
+            if(!unavailable)review.evidence='The earlier review has no verified frame time. '+review.evidence;
+          }
+          if(unavailable){review.verdict='unproven';review.evidence='Studio could not screen the earlier cut. '+unavailable;}
+        }
         p.screening=review;
         if(!productionCheckpoint()){delete p.screening;throw Error('Could not save the screening.');}
       }
-      const note=Object.values(review).join('\n');
+      const note=[review.observation,review.comparedWith&&('Compared with '+review.comparedWith.title),review.verdict,review.evidence,review.lesson].filter(Boolean).join('\n');
       const event=await crewSendConversation({eventId:'screen_'+p.id,eventType:'reply',intent:'fyi',fromRoleId:'editor',toRoleId:'director',summary:'The editor screened '+S.title,details:note,actionRequested:'Use this screening as evidence in the next film.'});
       await crewFinishConversation(event,'ack');
       if(!sameFilm())return;
