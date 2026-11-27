@@ -17,6 +17,51 @@ from urllib.request import Request, urlopen
 
 ROOT = Path.home() / 'Movies' / 'Agentic Movie Studio' / 'Double Features'
 MODEL = 'wan3.0-video'
+VIDEO_RESOLUTION = '480P'
+BOARD_SIZE = '848*480'
+
+def plugin_480_options(plugin):
+    # Use the renderer's configured parameter spelling and value type.
+    args = dict(plugin.get('args') or {})
+    sized = False
+    for key in ('parameters', 'input'):
+        if isinstance(args.get(key), dict):
+            inner, confirmed = _limit_dimensions(args[key])
+            args[key] = inner
+            sized |= confirmed
+    args, top_sized = _limit_dimensions(args)
+    if not (sized or top_sized):
+        raise ValueError('This renderer needs an explicit 480p resolution or width and height in its tool options. No generation request was sent.')
+    return args
+
+def _limit_dimensions(options):
+    result = dict(options)
+    sized = False
+    if 'resolution' in result:
+        value = result['resolution']
+        if type(value) is int:
+            result['resolution'] = 480
+        elif isinstance(value, str) and re.fullmatch(r'[0-9]+[pP]', value):
+            result['resolution'] = '480' + value[-1]
+        else:
+            raise ValueError('Unrecognized renderer resolution. Configure its 480p option before shooting.')
+        sized = True
+    if 'width' in result or 'height' in result:
+        w, h = result.get('width'), result.get('height')
+        if type(w) is not int or type(h) is not int or min(w, h) <= 0:
+            raise ValueError('Configure both renderer dimensions before shooting at 480p.')
+        factor = 480 / min(w, h)
+        result.update(width=2*round(w*factor/2), height=2*round(h*factor/2))
+        sized = True
+    if 'size' in result:
+        m = re.fullmatch(r'([1-9][0-9]*)([x*])([1-9][0-9]*)', str(result['size']))
+        if not m:
+            raise ValueError('Configure a pixel size for the 480p renderer.')
+        dims, _ = _limit_dimensions({'width':int(m[1]), 'height':int(m[3])})
+        result['size'] = str(dims['width']) + m[2] + str(dims['height'])
+        sized = True
+    return result, sized
+
 
 def save(path, value):
     tmp = path.with_suffix('.tmp')
@@ -250,7 +295,7 @@ def plugin_render(film,i,clip):
     client=VideoAPI(p) if p.get('kind')=='api' else Plugin(p['url'])
     if not job.get('id') and not job.get('video'):
         if job.get('submitted'):raise ValueError('Check the plugin job history before resubmitting this shot.')
-        args={**p.get('args',{}),p['prompt']:film['shots'][i]}
+        args={**plugin_480_options(p),p['prompt']:film['shots'][i]}
         if 'boards' in film:args[p['frameArg']]=first_frame(film,i)
         job['submitted']=True;status('Submitting to '+p['name'])
         result=client.call(p['tool'],args)
@@ -359,7 +404,7 @@ def photograph(film,i):
         if board.get('requested'):raise RuntimeError('Storyboard submission interrupted. Check the image provider history before resubmitting.')
         board['requested']=True;save(folder/'run.json',state)
         try:
-            out=request(base+'/api/v1/services/aigc/multimodal-generation/generation',dict(model='qwen-image-3.0-pro',input={'messages':[{'role':'user','content':[{'text':film['stillPrompts'][i]}]}]},parameters={'size':'1280*720'}),auth)
+            out=request(base+'/api/v1/services/aigc/multimodal-generation/generation',dict(model='qwen-image-3.0-pro',input={'messages':[{'role':'user','content':[{'text':film['stillPrompts'][i]}]}]},parameters={'size':BOARD_SIZE}),auth)
         except RuntimeError as e:
             if any(code in str(e) for code in ('HTTP 400','HTTP 401','HTTP 403')):board['requested']=False
             raise
@@ -387,7 +432,7 @@ def render(film,i):
         if 'boards' in film:video_input['media']=[{'type':'first_frame','url':first_frame(film,i)}]
         job['submitted']=True;status('Submitting '+clip.stem)
         try:
-            result=request(base+'/api/v1/services/aigc/video-generation/video-synthesis',dict(model=MODEL,input=video_input,parameters={'resolution':'720P','ratio':'16:9','duration':5}),{**auth,'X-DashScope-Async':'enable'})
+            result=request(base+'/api/v1/services/aigc/video-generation/video-synthesis',dict(model=MODEL,input=video_input,parameters={'resolution':VIDEO_RESOLUTION,'ratio':'16:9','duration':5}),{**auth,'X-DashScope-Async':'enable'})
         except RuntimeError as error:
             if 'HTTP 401' in str(error) or 'HTTP 403' in str(error):
                 job['submitted']=False

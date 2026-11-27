@@ -235,6 +235,7 @@ def adapter(call):
     receipt=path/(('still-' if still else 'video-')+ident+'.json')
     fingerprint=spec['review']['promptFingerprint']
     evidence=dict(fingerprint=fingerprint,shotId=spec['studioShotId'],provider=r['providerId'],model=spec.get('model') or r.get('model'),review=spec['review'])
+    evidence['size' if still else 'resolution'] = BOARD_SIZE if still else VIDEO_RESOLUTION
     if not still:
         header,encoded=spec['imageDataUrl'].split(',',1)
         if not header.startswith('data:image/') or not header.endswith(';base64'):raise ValueError('Missing approved storyboard photo')
@@ -244,17 +245,17 @@ def adapter(call):
             def reserve():
                 reserve_submission(receipt, evidence)
             if still:
-                reply=qwen_admission(BASE+'/api/v1/services/aigc/multimodal-generation/generation',dict(model='qwen-image-3.0-pro',input={'messages':[{'role':'user','content':[{'text':spec['prompt']}]}]},parameters={'size':'1280*720'}),qwen_headers(),reserve)
+                reply=qwen_admission(BASE+'/api/v1/services/aigc/multimodal-generation/generation',dict(model='qwen-image-3.0-pro',input={'messages':[{'role':'user','content':[{'text':spec['prompt']}]}]},parameters={'size':BOARD_SIZE}),qwen_headers(),reserve)
                 save(receipt,dict(evidence,url=reply['output']['choices'][0]['message']['content'][0]['image']))
             elif client:
+                args={**plugin_480_options(plugin),plugin['prompt']:spec['prompt'],plugin['frameArg']:spec['imageDataUrl']}
                 reserve()
-                args={**plugin.get('args',{}),plugin['prompt']:spec['prompt'],plugin['frameArg']:spec['imageDataUrl']}
                 reply=client.call(plugin['tool'],args)
                 job=dict(video=field(reply,plugin['video']),id=field(reply,plugin['job']) if plugin.get('job') else None)
                 if not job['video'] and not (job['id'] and plugin.get('poll')):raise ValueError('Missing renderer receipt')
                 k=str(uuid.uuid4());save(path/(k+'.plugin.json'),job);save(receipt,dict(evidence,id=k))
             else:
-                reply=qwen_admission(BASE+'/api/v1/services/aigc/video-generation/video-synthesis',dict(model=MODEL,input={'prompt':spec['prompt'],'media':[{'type':'first_frame','url':spec['imageDataUrl']}]},parameters={'resolution':'720P','ratio':'16:9','duration':5}),{**qwen_headers(),'X-DashScope-Async':'enable'},reserve)
+                reply=qwen_admission(BASE+'/api/v1/services/aigc/video-generation/video-synthesis',dict(model=MODEL,input={'prompt':spec['prompt'],'media':[{'type':'first_frame','url':spec['imageDataUrl']}]},parameters={'resolution':VIDEO_RESOLUTION,'ratio':'16:9','duration':5}),{**qwen_headers(),'X-DashScope-Async':'enable'},reserve)
                 save(receipt,dict(evidence,id=reply['output']['task_id']))
         record=json.loads(receipt.read_text())
         if record.get('fingerprint',fingerprint)!=fingerprint:raise ValueError('A different approved prompt already owns this attempt.')

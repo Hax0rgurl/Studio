@@ -93,6 +93,26 @@ class ProductionAdapters(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Qwen Token Plan key'):
                 runtime['adapter'](call)
 
+    def test_plugin_submission_requires_explicit_480p_options(self):
+        options = runtime['plugin_480_options']
+        self.assertEqual(options({'args':{'parameters':{'resolution':'1080P'},'seed':4}}),
+                         {'parameters':{'resolution':'480P'},'seed':4})
+        self.assertEqual(options({'args':{'width':720,'height':1280}}), {'width':480,'height':854})
+        with self.assertRaisesRegex(ValueError, 'No generation request'):
+            options({'args':{'seed':4}})
+        with self.assertRaisesRegex(ValueError, 'Unrecognized renderer resolution'):
+            options({'args':{'resolution':'auto'}})
+
+    def test_storyboard_request_is_480_pixels_tall(self):
+        sender = Mock(side_effect=TimeoutError('test intercepted the request'))
+        spec = {'runId':'film','studioShotId':'shot','providerId':'studio-qwen-image','prompt':'Frame',
+                'billingApproval':{'approved':True,'providerId':'studio-qwen-image'},
+                'review':{'gate':'approved','craft':{'verdict':'pass'},
+                          'promptFingerprint':runtime['prompt_fingerprint']('Frame')}}
+        with patch.dict(runtime,qwen_admission=sender), self.assertRaises(TimeoutError):
+            runtime['adapter']({'action':'/api/image/generate','data':spec})
+        self.assertEqual(sender.call_args.args[1]['parameters']['size'], '848*480')
+
     def test_review_gate_and_idempotent_video(self):
         calls = []
         def request(url, data, headers, reserve):
@@ -118,6 +138,8 @@ class ProductionAdapters(unittest.TestCase):
         first = adapter(payload)
         self.assertEqual(first, adapter(payload))
         self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]['parameters']['resolution'], '480P')
+        self.assertEqual(first['results'][0]['resolution'], '480P')
         self.assertEqual(calls[0]['input']['media'][0]['url'], shot['imageDataUrl'])
 
 if __name__ == '__main__':

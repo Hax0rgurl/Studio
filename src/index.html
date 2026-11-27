@@ -3576,6 +3576,8 @@ async function crewFetchJson(path, opts){
   if(typeof studioDesktop==='function' && studioDesktop() && opts?.body && ['/api/image/generate','/api/video/queue-batch','/api/video/jobs','/api/video/assemble'].includes(path)){
     const data=JSON.parse(opts.body);
     const receipt=floorProduction(),provider=String(data.providerId||'');
+    if(['/api/video/queue-batch','/api/image/generate'].includes(path) && provider && !provider.startsWith('studio-'))
+      throw Error('Select a built-in Studio provider or a configured 480p renderer before spending credits.');
     if((!provider && receipt) || provider.startsWith('studio-')){
       let renderer=null;
       if(provider.startsWith('studio-plugin-')){
@@ -6258,7 +6260,7 @@ async function crewVideo(role, ask){
       model:selection.model||'', review:videoReviewEnvelope(sh),
       imageDataUrl,
       label:(S.title||'studio')+' sc'+sc.num+' sh'+sh.num,
-      quality:'draft', frames:Math.round(seconds*24)+1, width:640, height:352
+      quality:'draft', frames:Math.round(seconds*24)+1, width:848, height:480, resolution:'480P'
     };
     // Persist the exact external-attempt intent before making the request.
     // If the response is lost, Resume repeats this same attempt and
@@ -11570,7 +11572,7 @@ async function boardQueueVideoOnce(shotId, options){
         billingApproval:videoBillingApproval(selection),shots:[{
         studioShotId:sh.id,attempt,prompt,imageDataUrl,label,quality:'draft',model:selection.model||'',review,
         frames:Math.round(Math.max(1,Number((sh.prompt&&sh.prompt.seconds)||PL.seconds||5))*24)+1,
-        width:640,height:352
+        width:848,height:480,resolution:'480P'
       }]})
     });
   }catch(e){

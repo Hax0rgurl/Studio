@@ -36,7 +36,7 @@ function floorProviders(renderer=null){
   if(renderer&&!plugins.some(entry=>entry.url===renderer.url))plugins.push(renderer);
   const video=(id,name,model,plugin)=>({id,name,plugin,mediaKinds:['video'],models:[{id:model}],capabilities:{imageToVideo:true,minSeconds:5,maxSeconds:5,defaultClipSeconds:5}});
   return [
-    video('studio-wan','Wan 3','wan3.0-video',null),
+    video('studio-wan','Wan 3 · 480p','wan3.0-video',null),
     ...plugins.filter(p=>p.frameArg).map(p=>video(pluginProviderId(p),p.name,p.tool,p)),
     {id:'studio-qwen-image',name:'Qwen Image',mediaKinds:['image'],models:[{id:'qwen-image-3.0-pro'}],capabilities:{textToImage:true}}
   ].map(p=>({...p,configured:true,requiresBillingApproval:true}));
