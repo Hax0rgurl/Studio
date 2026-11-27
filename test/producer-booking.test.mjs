@@ -480,3 +480,15 @@ test('producer interprets a plain-language rejection before another department w
   await run('wakeProducer()');assert.equal(note.producerReading.action,'reject');
   assert.equal(starts.length,0);await run('wakeProducer()');assert.equal(film.status,'superseded');
 });
+
+test('producer records real errors, scheduled retries and recovery once per transition',()=>{
+  const {run,ctx}=floor();
+  const book=run('bookFilms()'),production={id:'film',booking:{id:book.id,number:1}};
+  ctx.productionState=()=>production;
+  book.error='Renderer busy';book.retryAt=Date.now()+30000;
+  ctx.saveBooking(book);ctx.saveBooking(book);
+  delete book.retryAt;delete book.error;
+  ctx.saveBooking(book);
+  assert.deepEqual(Array.from(production.activityLog,e=>e.status),['error','retry scheduled','retrying']);
+  assert.deepEqual(Array.from(ctx.readBooking().activityLog,e=>e.runId),['film','film','film']);
+});

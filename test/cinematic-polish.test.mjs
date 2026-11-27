@@ -32,7 +32,7 @@ test('keyboard, reduced-motion, loading, field, and disabled states remain expli
   assert.match(css, /input::placeholder/);
   assert.match(css, /:disabled/);
   assert.match(css, /::-webkit-scrollbar-thumb:hover/);
-  for (const label of ['Projects', 'Make a Film', 'Script', 'TasteOS', 'Boards', 'Export', 'Help &amp; About']) {
+  for (const label of ['Projects', 'Current film and crew chat', 'Script', 'TasteOS', 'Boards', 'Export', 'Help &amp; About']) {
     assert.match(html, new RegExp(`title="${label}"`));
   }
 });

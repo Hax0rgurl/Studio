@@ -13,6 +13,28 @@ function saveBooking(book){
     for(const note of book.pitchNotes||[])notes.set(note.id,note);
     book.pitchNotes=Array.from(notes.values());
   }
+  const sameBooking=stored?.id===book.id;
+  book.activityLog=sameBooking?(stored.activityLog||[]):[];
+  const events=[];
+  if(book.error && (!sameBooking || book.error!==stored.error || book.number!==stored.number))
+    events.push(['error',book.error]);
+  for(const [field,task] of [['retryAt','the department handoff'],['pitchRetryAt','the pitch meeting']]){
+    if(book[field] && book[field]!==stored?.[field])
+      events.push(['retry scheduled','The producer scheduled another attempt at '+task+' for '+new Date(book[field]).toLocaleTimeString()+'.']);
+    else if(!book[field] && sameBooking && stored[field] && book.number===stored.number && book.phase==='ready')
+      events.push(['retrying','The producer is retrying '+task+'.']);
+  }
+  if(sameBooking && stored.phase==='held' && book.phase==='ready' && !stored.pitchRetryAt)
+    events.push(['handoff','The producer reopened the booking to continue from the last checkpoint.']);
+  const run=events.length && typeof productionState==='function' && productionState();
+  for(const [status,text] of events){
+    const row={id:'booking_'+crypto.randomUUID(),number:book.number,who:'@producer',kind:'activity',at:new Date().toISOString(),status,text};
+    if(run?.booking?.id===book.id && run.booking.number===book.number){
+      row.runId=run.id;
+      (run.activityLog||(run.activityLog=[])).push(row);
+    }
+    book.activityLog.push(row);
+  }
   localStorage.setItem(billKey,JSON.stringify(book));
   window.dispatchEvent?.(new Event('studio-booking-changed'));
 }
@@ -95,7 +117,10 @@ async function readFilmmakerDirection(p,book,note){
     note.producerReading={action:decision.action,reply:decision.reply,at:new Date().toISOString()};
     delete note.retryAt;delete note.readError;
   }catch(error){
+    if(productionState()!==p)return;
     note.readError=String(error.message||error);note.retryAt=Date.now()+30000;
+    if(typeof crewLogActivity==='function')crewLogActivity(p,'@producer','retry scheduled',
+      'Could not read your direction. '+note.readError+' Retrying at '+new Date(note.retryAt).toLocaleTimeString()+'.');
   }
   if(productionState()===p && !productionCheckpoint()){
     delete note.producerReading;

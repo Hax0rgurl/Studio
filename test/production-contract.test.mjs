@@ -1513,3 +1513,25 @@ test('a bible retry validates substantive content and resumes at the missing ent
   await assert.rejects(run({id:'prop_master',at:'prop-master'},'props',''),/network/);
   fail=false;assert.equal((await run({id:'prop_master',at:'prop-master'},'props','')).status,'done');assert.deepEqual(calls,['door','key','key']);
 });
+
+test('Dashboard follows the booked film through screening and releases it to Projects afterward',()=>{
+  const visible=loadFunction('function dashboardOwnsFilm','function renderDashboardFloor','dashboardOwnsFilm',{studioDesktop:()=>true});
+  const booking={id:'double-bill',number:2,phase:'ready'};
+  const film={status:'running',booking:{id:booking.id,number:2}};
+  assert.equal(visible(film,booking),true);
+  assert.equal(visible({...film,booking:{id:booking.id,number:1}},booking),false);
+  assert.equal(visible({...film,status:'superseded'},booking),false);
+  assert.equal(visible({...film,status:'complete'},booking),true);
+  assert.equal(visible({...film,status:'complete'},{...booking,phase:'complete'}),false);
+  assert.equal(visible(null,null),false);
+});
+
+test('error and recovery transitions survive later checkpoints without duplicate updates',()=>{
+  const ctx={uid:()=>crypto.randomUUID()};
+  const record=loadFunction('function crewLogActivity','function productionCheckpoint','crewRecordStatus',ctx);
+  const p={status:'rendering',pollError:'Connection lost',updatedAt:new Date().toISOString()};
+  record(p);record(p);
+  p.pollError='';record(p);record(p);
+  assert.deepEqual(Array.from(p.activityLog,row=>row.status),['rendering','error','cleared']);
+  assert.equal(p.activityLog[1].text,'Connection lost');
+});

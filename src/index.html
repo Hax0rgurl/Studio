@@ -466,7 +466,7 @@
     <button class="nav-btn" data-view="projects" title="Projects"><span class="ic">⌂</span><span class="lbl">Projects</span></button>
     <div class="nav-sec">Production</div>
     <button class="nav-btn" data-view="town" title="Studio Town"><span class="ic">♟</span><span class="lbl">Studio Town</span></button>
-    <button class="nav-btn" data-view="crew" title="Make a Film"><span class="ic">◉</span><span class="lbl">Dashboard</span></button>
+    <button class="nav-btn" data-view="crew" title="Current film and crew chat"><span class="ic">◉</span><span class="lbl">Dashboard</span></button>
     <button class="nav-btn" data-view="client" title="Client Room"><span class="ic">☷</span><span class="lbl">Client Room</span></button>
 <div class="nav-sec">Develop</div>
     <button class="nav-btn" data-view="cards" title="Cards"><span class="ic">▥</span><span class="lbl">Cards</span></button>
@@ -2424,7 +2424,7 @@ function renderTimeline(){
 const HELP_TOPICS = [
   ['🚀 Quick start', `
     <ol style="margin-left:18px;line-height:1.9">
-      <li>Open <b>Make a Film</b>. Give the crew an idea, or import/open an existing screenplay first.</li>
+      <li>Open <b>Settings → Production</b>. Give the crew an idea, or import/open an existing screenplay first.</li>
       <li>For a bare idea, choose the target length and let the agents write to it. For an existing screenplay, use <b>Make the current script</b>: the target is ignored and the screenplay’s own length is preserved.</li>
       <li>The screenplay engine parses and breaks down the script; the crew fills bibles, Look, coverage and prompts; your taste layer reviews them.</li>
       <li>The selected image provider renders each approved storyboard photograph. The selected video renderer animates that frame. A finished clip becomes a take, and the editor assembles the cut. The autonomous crew can use Studio’s bundled Qwen and Wan connections.</li>
@@ -3290,7 +3290,7 @@ function crewApplyMutationLock(){
     view.classList.toggle('production-readonly',readOnly);
     view.querySelectorAll('input,textarea,select,button').forEach(control=>{
       const exportSafe=view.id==='view-export' && control.id!=='expPitchDeck';
-      const reviewSafe=exportSafe || control.matches('[data-review-flag],[data-review-note],[data-review-approve],[data-board-review],[data-town-ui],[data-town-direction],#sceneSearch,#charFilter,#locFilter,#bibleSearch,#boardFilter,#takeFilter,[data-bopen],[data-bedit],[data-bprompt],[data-bdown],[data-tkprompt]');
+      const reviewSafe=exportSafe || control.matches('[data-watch-cut],[data-review-flag],[data-review-note],[data-review-approve],[data-board-review],[data-town-ui],[data-town-direction],#sceneSearch,#charFilter,#locFilter,#bibleSearch,#boardFilter,#takeFilter,[data-bopen],[data-bedit],[data-bprompt],[data-bdown],[data-tkprompt]');
       if (readOnly&&!reviewSafe&&!control.disabled){
         control.disabled=true; control.dataset.crewReadOnly='1';
       }else if ((!readOnly||reviewSafe)&&control.dataset.crewReadOnly==='1'){
@@ -3992,7 +3992,12 @@ async function crewProcessShotReworks(p){
 }
 function crewTranscriptEntries(p){
   if (!p) return [];
-  const entries=[];
+  const entries=[...(p.activityLog||[])];
+  const booking=typeof readBooking==='function' && readBooking();
+  if(p.booking && booking?.id===p.booking.id){
+    const ids=new Set(entries.map(row=>row.id));
+    entries.push(...(booking.activityLog||[]).filter(row=>!ids.has(row.id) && row.number===p.booking.number && (!row.runId || row.runId===p.id)));
+  }
   crewClientNotes(p).forEach(note=>entries.push({
     id:note.id||uid(), at:note.at||'',
     who:note.targetRoleId?'You → @'+String((crewFind(note.targetRoleId)||{}).at||note.targetRoleId):'You → crew',
@@ -4004,6 +4009,12 @@ function crewTranscriptEntries(p){
       who:'@producer → You',status:reading.action,text:reading.reply});
   }
   const collaboration=crewCollaborationState(p);
+  const seen=new Set((collaboration?.events||[]).map(event=>event.id));
+  for(const m of p.greenroomMessages||[]){
+    if(!m.eventId||seen.has(m.eventId))continue;
+    entries.push({id:m.eventId,roleId:m.author,who:'@'+m.author,kind:'conversation',status:'sent',at:m.createdAt,
+      text:[m.summary,m.details,m.actionRequested].filter(Boolean).join('\n\n')});
+  }
   (collaboration&&collaboration.events||[]).forEach(event=>{
     if (!event) return;
     const text=[event.summary,event.text,event.actionRequested?'Requested action: '+event.actionRequested:''].filter(Boolean).join('\n\n');
@@ -4016,18 +4027,40 @@ function crewTranscriptEntries(p){
     if (!step || (!step.out && step.status!=='running' && !step.error)) return;
     const role=crewFind(roleId)||{};
     entries.push({id:'step_'+roleId,roleId,at:step.updatedAt||step.startedAt||'',who:'@'+(role.at||roleId),kind:'agent',
-      status:step.status||'waiting',text:String(step.out||step.error||(step.status==='running'?'Work is in progress; no checkpointed artifact exists yet.':'No checkpointed artifact.')),
+      status:step.status||'waiting',text:String(step.error||step.out||(step.status==='running'?'Work is in progress; no checkpointed artifact exists yet.':'No checkpointed artifact.')),
       artifact:step.artifact||null,review:step.review||null});
   });
   if (p.currentStep && !(p.steps&&p.steps[p.currentStep]&&p.steps[p.currentStep].status==='running')){
     const role=crewFind(p.currentStep)||{};
     entries.push({id:'current_'+p.currentStep,roleId:p.currentStep,at:p.updatedAt||'',who:'@'+(role.at||p.currentStep),kind:'agent',status:'working',text:'Work is in progress; the Client Room will show the artifact after its safe checkpoint.'});
   }
-  return entries.sort((a,b)=>String(a.at||'').localeCompare(String(b.at||'')));
+  for(const [who,reason] of [['Production',p.error],['Video renderer',p.pollError],['Crew room',p.greenroomError],['@producer',booking?.id===p.booking?.id && booking?.number===p.booking?.number && booking?.error]]){
+    if(reason && !entries.some(entry=>entry.text===reason))entries.push({at:p.updatedAt,kind:'activity',status:'error',who,text:reason});
+  }
+  return entries.sort((a,b)=>(Date.parse(a.at)||0)-(Date.parse(b.at)||0));
+}
+function crewLogActivity(p,who,status,text,at=new Date().toISOString()){
+  if(!p||!text)return;
+  (p.activityLog||(p.activityLog=[])).push({id:'activity_'+uid(),at,who,kind:'activity',status,text:String(text)});
+}
+function crewRecordStatus(p){
+  const previous=p.activityState||{},stamp=p.updatedAt;
+  const state={status:p.status,error:p.error||'',poll:p.pollError||'',room:p.greenroomError||'',jobs:{}};
+  if(state.status!==previous.status)crewLogActivity(p,'Studio',state.status,'Production '+String(state.status||'starting').replace(/_/g,' ')+'.',stamp);
+  for(const [key,label] of [['error','Production'],['poll','Video renderer'],['room','Crew room']]){
+    if(state[key]!==previous[key] && (state[key]||previous[key]))crewLogActivity(p,label,state[key]?'error':'cleared',state[key]||'The previous error cleared.',stamp);
+  }
+  for(const [shot,job] of Object.entries(p.jobs||{})){
+    if(!job)continue;
+    const summary=[job.status,job.error].filter(Boolean).join(' · ');
+    state.jobs[shot]=summary;
+    if(summary && previous.jobs?.[shot]!==summary)crewLogActivity(p,'Video renderer',job.status,(job.label||shot)+' · '+summary,stamp);
+  }
+  p.activityState=state;
 }
 function productionCheckpoint(){
   const p = productionState();
-  if (p) p.updatedAt = new Date().toISOString();
+  if (p){p.updatedAt=new Date().toISOString();crewRecordStatus(p);}
   const saved=persistNow();
   crewApplyMutationLock();
   const view=activeView();
@@ -4042,6 +4075,10 @@ function productionStep(roleId, status, out, error, artifact){
   if (!p) return true;
   p.steps = p.steps||{};
   const old = p.steps[roleId]||{};
+  if(old.updatedAt && (old.out||old.error||old.status==='running') &&
+      !['waiting','skipped'].includes(old.status) && (old.status!==status||old.out!==out||old.error!==error)){
+    crewLogActivity(p,'@'+(crewFind(roleId)?.at||roleId),old.status,old.error||old.out||'Department started work.',old.updatedAt);
+  }
   p.steps[roleId] = Object.assign({}, old, {
     status, out:String(out||'').slice(0,12000), error:String(error||''),
     updatedAt:new Date().toISOString()
@@ -4133,7 +4170,7 @@ function crewMergeRecord(detail){
     CREW.last[roleId]={at:remoteAt||new Date().toISOString(),ask:'Greenroom provenance',out:String(out||'').slice(0,12000)};
     merged++;
   }
-  p.greenroomMessages=p.greenroomMessages.slice(-500);
+
   p.greenroomMessageCount=detail.messages.length;
   if (merged) productionCheckpoint();
   return merged;
@@ -4259,7 +4296,7 @@ async function crewSendConversation(input){
       actionRequested:String(input.actionRequested||'').trim(),causedByEventId:String(input.causedByEventId||''),
       artifacts:Array.isArray(input.artifacts)?input.artifacts.slice(0,100):[],workId:String(input.workId||''),
       status:'prepared',createdAt:new Date().toISOString()};
-    state.events.push(event); state.events=state.events.slice(-500);
+    state.events.push(event);
     if (productionCheckpoint()===false) throw new Error('The Greenroom conversation intent could not be saved before sending.');
   }
   if (event.acknowledgedAt || (event.deliveryId && ['claimed','acknowledged'].includes(event.status))) return event;
@@ -4363,6 +4400,7 @@ async function crewFinalizeSeminarReceipts(session){
 async function crewJsonAgentCall(role,user,options,validate){
   const base=Object.assign({},options||{}), maxAttempts=Math.max(1,Math.min(3,Number(base.maxRepairAttempts)||3));
   delete base.maxRepairAttempts;
+  const owner=typeof productionState==='function' && productionState();
   const workload=String(base.workloadId||('department.'+String(role&&role.id||'agent')));
   const artifact=String(base.artifactType||base.schemaName||'structured artifact');
   let prompt=String(user||''), raw='', lastError=null;
@@ -4384,6 +4422,11 @@ async function crewJsonAgentCall(role,user,options,validate){
       return typeof validate==='function'?validate(parsed):parsed;
     }catch(error){
       lastError=error;
+      if(owner && owner===productionState() && typeof crewLogActivity==='function'){
+        crewLogActivity(owner,'@'+(role.at||role.id),'validation error',
+          artifact+' · '+String(error.message||error)+(attempt+1<maxAttempts?' · Retrying with the validator feedback.':' · Repair attempts exhausted.'));
+        productionCheckpoint();
+      }
       if (attempt+1>=maxAttempts) break;
       prompt=String(user||'')+'\n\n=== REQUIRED SELF-REPAIR PASS '+(attempt+1)+' OF '+(maxAttempts-1)+' ===\n'
         +'Your prior response failed the application validator. Diagnose and repair the JSON envelope yourself before returning it. '
@@ -7288,7 +7331,7 @@ async function crewResume(){
   const held=heldPhotoBooking(p);
   if (held){
     try {
-      if (!await reviewMissingPhoto(held)) toast('Studio could not find a pending photo attempt. Check the booking in Dashboard.');
+      if (!await reviewMissingPhoto(held)) toast('Studio could not find a pending photo attempt. Check the booking in Settings → Production.');
     } catch(error){toast(String(error.message||error));}
     return;
   }
@@ -7353,7 +7396,7 @@ function pluginSettings(){
       const token=el('agentSecret').value.trim();
       if(token)await crewInvoke('double_feature_key',{endpoint:proposed.url,token});
       localStorage.setItem('studio.mcp.video',JSON.stringify([...studioPlugins().filter(p=>p.url!==proposed.url),proposed]));
-      el('agentSecret').value='';rows();feedback.textContent='Added '+proposed.name+'. Choose it in Dashboard → Double feature → Video renderer.';invalidate();
+      el('agentSecret').value='';rows();feedback.textContent='Added '+proposed.name+'. Choose it in Settings → Production → Video renderer.';invalidate();
     }catch(e){feedback.textContent=String(e);}
   };
   function args(){
@@ -7376,7 +7419,7 @@ function pluginSettings(){
       const plugin={url,name:val('pluginName'),tool:tools.value,prompt:prompt.value,frameArg:val('pluginFrameArg'),args,video:val('pluginVideo'),poll:val('pluginPoll'),job:val('pluginJob'),jobArg:val('pluginJobArg')};
       if(plugin.poll&&(!discovered.some(t=>t.name===plugin.poll)||!plugin.job||!plugin.jobArg))throw Error('Choose an available status tool and both job fields.');
       if(val('pluginToken'))await crewInvoke('double_feature_key',{endpoint:url,token:val('pluginToken')});
-      el('pluginToken').value='';localStorage.setItem('studio.mcp.video',JSON.stringify([...studioPlugins().filter(x=>x.url!==url),plugin]));rows();status.textContent='Saved. Choose this plugin under Double feature.';
+      el('pluginToken').value='';localStorage.setItem('studio.mcp.video',JSON.stringify([...studioPlugins().filter(x=>x.url!==url),plugin]));rows();status.textContent='Saved. Choose this plugin in Settings → Production → Video renderer.';
     }catch(e){status.textContent=String(e);}
   };rows();
 }
@@ -7543,7 +7586,7 @@ function dashboardScreenings(host){
         if(ACTIVE.p===row.projectId&&ACTIVE.d===row.draftId)nav(view);
       };detail.append(link);
     }
-    const play=document.createElement('button');play.className='btn small';play.textContent='Watch cut';
+    const play=document.createElement('button');play.className='btn small';play.textContent='Watch cut';play.dataset.watchCut='';
     play.setAttribute('aria-label','Watch '+row.title);play.onclick=()=>watchScreenedCut(row);
     entry.append(detail,play);host.append(entry);
   }
@@ -7565,7 +7608,7 @@ async function loadLegacyCuts(runs){
       for(const f of r.films||[]){
         const label=document.createElement('p');label.textContent=f.title+' · '+f.source;block.append(label);
         if(f.file){
-          const play=document.createElement('button');play.className='btn small';play.textContent='Watch film '+f.number;
+          const play=document.createElement('button');play.className='btn small';play.textContent='Watch film '+f.number;play.dataset.watchCut='';
           play.onclick=()=>crewInvoke('double_feature_play',{id:r.id,number:f.number}).catch(e=>toast(String(e)));block.append(play);
         }
         if(f.appliedLesson||f.screening){
@@ -7589,7 +7632,7 @@ async function reviewMissingPhoto(book){
       closeModal();
       try{
         const current=readBooking();
-        if(current?.id!==book.id||current.number!==book.number||current.phase!=='held')throw Error('The booking changed. Reopen it in Dashboard.');
+        if(current?.id!==book.id||current.number!==book.number||current.phase!=='held')throw Error('The booking changed. Reopen it in Settings → Production.');
         await floorCall('authorize_photo_retry',{runId:production.id,...row,approved:true});
         current.phase='ready';current.directedResume=true;delete current.error;saveBooking(current);
         await wakeProducer();
@@ -7626,6 +7669,7 @@ function showClientPitchMeeting(){
 }
 window.addEventListener('studio-booking-changed',()=>{
   if(activeView()==='client')showClientPitchMeeting();
+  if(activeView()==='crew')queueMicrotask(renderCrew);
 });
 function doubleFeatureControls(){
   clearInterval(doubleFeatureTimer);
@@ -7635,6 +7679,7 @@ function doubleFeatureControls(){
   const names=el('dfNames'),button=el('dfStart'),state=el('dfBookingState');
   let submitting=false;
   const showBooking=()=>{
+    if(!state.isConnected)return;
     const book=readBooking(),active=book&&!['held','complete'].includes(book.phase);
     state.textContent=!book?'Producer is opening the floor.':book.phase==='complete'?'Screening complete':book.phase==='held'?(bookingNeedsPhotoDecision(book)?'Photography is on hold. Qwen has not confirmed the storyboard photo.':'Producer waiting · '+book.error):'Film '+book.number+' of '+(book.count||2);
     if(book?.phase==='held'&&book.pitchRetryAt){
@@ -7686,15 +7731,63 @@ function doubleFeatureControls(){
   };
   doubleFeatureTimer=setInterval(()=>{if(state.isConnected)showBooking();else clearInterval(doubleFeatureTimer);},4000);
 }
+function dashboardOwnsFilm(p,book){
+  if(!p || ['complete','superseded','cancelled'].includes(p.status)){
+    // A finished cut is still on the floor until the producer files its screening.
+    return p?.status==='complete' && !!p.booking && !!book && book.phase!=='complete' &&
+      p.booking.id===book?.id && p.booking.number===book.number;
+  }
+  if(p.booking)return !!book && book.id===p.booking.id && book.number===p.booking.number && book.phase!=='complete';
+  return !p.supersededBooking && (['running','starting','rendering','assembling'].includes(p.status) || !book || book.phase==='complete' || !studioDesktop());
+}
+function renderDashboardFloor(w,book){
+  const panel=document.createElement('section');
+  panel.className='ai-panel';
+  const current=book && book.phase!=='complete';
+  const other=current && DB.projects.flatMap(project=>project.drafts).map(draft=>draft.state)
+    .find(state=>state?.production?.booking?.id===book.id && state.production.booking.number===book.number);
+  const heading=document.createElement('h4');
+  heading.textContent=other?.title || (current?'On the studio floor':'No film in production');
+  panel.append(heading);
+  const meeting=current && book['commission'+book.number];
+  if(current){
+    const status=document.createElement('p');
+    status.textContent=other?.production?.currentStep?'Working now · @'+other.production.currentStep:
+      (meeting?pitchMeetingLabel(meeting):'The producer is preparing film '+book.number+'.');
+    panel.append(status);
+    const entries=other?crewTranscriptEntries(other.production):[];
+    const ids=new Set(entries.map(entry=>entry.id));
+    entries.push(...(book.activityLog||[]).filter(entry=>entry.number===book.number && (!entry.runId || entry.runId===other?.production?.id) && !ids.has(entry.id)));
+    if(book.error && !entries.some(entry=>entry.text===book.error))
+      entries.push({who:'@producer',status:'on hold',text:book.error});
+    if(!other && meeting){
+      const details=document.createElement('details');
+      details.innerHTML='<summary></summary><div></div>';
+      showPitchMeeting(details,meeting,book.id+'/'+book.number,'',(book.pitchNotes||[]).filter(n=>n.number===book.number));
+      panel.append(details);
+    }
+    const feed=document.createElement('div');feed.className='crew-transcript';feed.id='crewTranscript';
+    feed.innerHTML=entries.sort((a,b)=>(Date.parse(b.at)||0)-(Date.parse(a.at)||0)).map(entry=>clientTranscriptHtml({...entry,artifact:null})).join('');
+    panel.append(feed);
+  }
+  for(const child of [...w.children])if(child.id!=='productionSetupControls')child.remove();
+  w.prepend(panel);
+}
 function renderCrew(){
   const w = el('crewWrap'); if (!w) return;
-  const openMeeting=w.querySelector('#dfMeeting[open]')?.dataset.meeting;
+  const setupHost=el('settingsProductionControls');
+  const openMeeting=el('dfMeeting')?.open && el('dfMeeting').dataset.meeting;
+  const chat=el('crewTranscript');
+  const chatOffset=chat?.scrollTop||0;
   const expanded=new Set(Array.from(w.querySelectorAll('details[data-dashboard][open]'),node=>node.id));
   const owner=JSON.stringify([ACTIVE.p,ACTIVE.d,productionState()?.id]);
   const inputs=w.dataset.directionOwner===owner?['crewAsk','crewClientDirection'].map(id=>el(id)).filter(Boolean).map(field=>({
     id:field.id,value:field.value,focused:field===document.activeElement,start:field.selectionStart,end:field.selectionEnd
   })):[];
+  const sameFilm=w.dataset.directionOwner===owner;
   w.dataset.directionOwner=owner;
+  const setupKey=el('dfToken')?.value||'';
+  setupHost?.replaceChildren();
   crewApplyMutationLock();
   const p=productionState(), svc=CREW.services||{}, steps=(p&&p.steps)||{};
   const badge=(name,key,detail)=>{
@@ -7777,8 +7870,10 @@ function renderCrew(){
 
   const newFilmControls=h;
   h='';
-  if (p){
+  if (dashboardOwnsFilm(p,readBooking())){
     const statusLabel=String(p.status||'idle').replace(/_/g,' ');
+    const held=readBooking();
+    const onHold=p.booking && held?.id===p.booking.id && held.number===p.booking.number && held.phase==='held';
     const pct=Math.round((finished/Math.max(1,CREW_PIPELINE.length))*100);
     const transcript=crewTranscriptEntries(p).reverse();
     h+='<div class="ai-panel" style="margin-bottom:14px;max-width:1120px">'
@@ -7791,18 +7886,19 @@ function renderCrew(){
       + '</div><div class="ai-prog" style="margin-top:11px"><i style="width:'+pct+'%"></i></div>'
       + (p.currentStep?'<div class="auto-note" id="crewLiveActivity" style="margin-top:8px">'+esc(crewLiveActivityText(p.currentStep))+'</div>':'')
       + (p.error?'<div class="crit bad" style="margin-top:10px"><div class="crit-head">needs attention</div>'+esc(crewAttentionMessage(p))+'</div>':'')
+      + (onHold && !held.pitchRetryAt && !held.retryAt?'<div class="auto-note">The producer has the film on hold. No retry is scheduled.</div>':'')
       + (p.pollError?'<div class="auto-note" style="margin-top:8px">Last render check: '+esc(p.pollError)+'</div>':'')
       + '</div>';
 
     h+='<div id="dashboardActions" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px"><button class="btn primary" id="dashboardClient">Open Client Room</button></div>';
     h+='<div class="ai-panel" style="margin-bottom:14px;max-width:1120px">'
-      +'<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap"><h4 style="margin:0" title="Actual checkpointed department output, newest first">Latest crew messages</h4>'
+      +'<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap"><h4 style="margin:0" title="Actual checkpointed department output, newest first">Production chat</h4>'
       +'<div class="tb-spacer"></div>'
       +'<button class="btn small" id="crewRefreshRecord">Refresh Greenroom record</button></div>'
       +'<div class="crew-transcript" id="crewTranscript">'
-      +(transcript.length ? transcript.slice(0,3).map(entry=>'<div class="crew-message '+esc(entry.kind||'agent')+'">'
+      +(transcript.length ? transcript.map(entry=>'<div class="crew-message '+esc(entry.kind||'agent')+'">'
         +'<div class="who"><b>'+esc(entry.who)+'</b><span class="ai-badge '+(entry.status==='done'?'ok':(entry.status==='failed'?'err':''))+'">'+esc(entry.status||'update')+'</span>'
-        +(entry.at?'<span>'+esc(fmtDate(entry.at))+'</span>':'')+'</div>'
+        +(entry.at?'<span>'+esc(new Date(entry.at).toLocaleString())+'</span>':'')+'</div>'
         +'<div class="body">'+esc(entry.text||'')+'</div>'
         +(entry.artifact?'<details style="margin-top:9px"><summary class="btn small" style="display:inline-flex;cursor:pointer">View '+esc(entry.artifact.label||'artifact')+'</summary>'
           +'<pre style="white-space:pre-wrap;word-break:break-word;max-height:440px;overflow:auto;font:11.5px/1.55 var(--mono);margin:10px 0 0">'+esc(crewArtifactText(entry.artifact))+'</pre></details>':'')
@@ -7830,7 +7926,7 @@ function renderCrew(){
         }).join('')+'</details>';
   }
 
-  if (S.cut && (S.cut.mediaUrl||S.cut.outputPath)){
+  if (dashboardOwnsFilm(p,readBooking()) && S.cut && (S.cut.mediaUrl||S.cut.outputPath)){
     const src=S.cut.mediaUrl||'';
     h+='<div class="ai-panel" style="max-width:1120px;margin-bottom:14px"><h4>Finished movie</h4>'
       +(src?'<video controls preload="metadata" src="'+esc(src)+'" style="display:block;width:100%;max-height:520px;background:#000;border-radius:9px;margin-top:10px"></video>':'')
@@ -7855,9 +7951,8 @@ function renderCrew(){
     h+='</div>';
   });
   h+='</details>';
-  w.innerHTML = h+'<details class="ai-panel" data-dashboard id="dashboardSetup"><summary>Production setup and bookings</summary><p id="dfBookingState" role="status"></p><label><input type="checkbox" id="dfDaily"> Produce one short each day after this booking, using the selected credits</label><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Start crew · 4 storyboard photos and 4 video shots</button> <button class="btn" id="dfShelve" hidden>Shelve premise and get new pitches</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><details hidden id="dfMeeting" style="margin:8px 0"><summary>Pitch meeting</summary><div style="white-space:pre-line;margin-top:8px"></div></details>'+newFilmControls+'</details>';
+  w.innerHTML = h+'<section id="productionSetupControls" hidden><h4>Production setup and bookings</h4><p id="dfBookingState" role="status"></p><label><input type="checkbox" id="dfDaily"> Produce one short each day after this booking, using the selected credits</label><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Start crew · 4 storyboard photos and 4 video shots</button> <button class="btn" id="dfShelve" hidden>Shelve premise and get new pitches</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><details hidden id="dfMeeting" style="margin:8px 0"><summary>Pitch meeting</summary><div style="white-space:pre-line;margin-top:8px"></div></details>'+newFilmControls+'</section>';
   for(const id of expanded){const section=el(id);if(section)section.open=true;}
-  if(!p)el('dashboardSetup').open=true;
   const actions=el('dashboardActions');
   if(actions){
     for(const id of ['crewStop','crewRetryUnproven','crewRevise',...(['paused','cancelled','needs_attention'].includes(p.status)?['crewResume']:[])]){
@@ -7865,6 +7960,7 @@ function renderCrew(){
     }
     el('dashboardClient').onclick=()=>nav('client');
   }
+  el('productionSetupControls').append(el('crewDepartmentControls'));
   for(const draft of inputs){
     const field=el(draft.id);
     if(!field)continue;
@@ -7874,9 +7970,10 @@ function renderCrew(){
       field.setSelectionRange(draft.start,draft.end);
     }
   }
-  doubleFeatureControls();
-  if(openMeeting && el('dfMeeting').dataset.meeting===openMeeting)el('dfMeeting').open=true;
-  if(readBooking()?.phase==='held' && actions)actions.append(el('dfStart'));
+  if(setupHost)doubleFeatureControls();
+  if(setupHost && setupKey)el('dfToken').value=setupKey;
+  if(setupHost && openMeeting && el('dfMeeting').dataset.meeting===openMeeting)el('dfMeeting').open=true;
+
 
   const on = (id, ev, fn)=>{ const n = el(id); if (n) n.addEventListener(ev, fn); };
   const departmentControls=el('crewDepartmentControls');
@@ -8022,6 +8119,17 @@ function renderCrew(){
       +'<pre style="white-space:pre-wrap;word-break:break-word;font:12px/1.55 var(--mono);margin:0">'+esc(book.content)+'</pre>',
       [{label:'Close'}]);
   }));
+  if(setupHost){
+    const controls=el('productionSetupControls');
+    setupHost.append(controls);
+    controls.hidden=false;
+  }else{
+    el('productionSetupControls').remove();
+    clearInterval(doubleFeatureTimer);
+  }
+  const book=readBooking();
+  if(!dashboardOwnsFilm(p,book))renderDashboardFloor(w,book);
+  if(sameFilm && chatOffset && el('crewTranscript'))el('crewTranscript').scrollTop=chatOffset;
   if (!CREW._pinged){
     CREW._pinged=true;
     crewConnect().then(()=>{ renderCrew(); });
@@ -8060,7 +8168,7 @@ async function refreshTownRun(){
       STUDIO_TOWN_CONTROLLER?.refresh();return;
     }
     townRun=latest.find(r=>!String(r.status).startsWith('Stopped')&&r.status!=='Complete')||latest[0]||null;
-    el('townCrewStatus').textContent=townRun?townRun.status:'The crew is ready. Start a film in the dashboard.';
+    el('townCrewStatus').textContent=townRun?townRun.status:'The crew is ready. Book a film in Settings → Production.';
     const links=el('townFilmNav');if(townRun?.films?.length&&links.dataset.run!==townRun.id){
       links.dataset.run=townRun.id;links.replaceChildren();
       for(const [view,label] of [['scenes','Script'],['boards','Storyboard'],['client','Crew chat']]){
@@ -8149,7 +8257,7 @@ function renderTown(){
 function clientTranscriptHtml(entry){
   return '<article class="crew-message '+esc(entry.kind||'agent')+'">'
     +'<div class="who"><b>'+esc(entry.who)+'</b><span class="ai-badge '+(entry.status==='done'?'ok':(entry.status==='failed'?'err':''))+'">'+esc(entry.status||'update')+'</span>'
-    +(entry.at?'<span>'+esc(fmtDate(entry.at))+'</span>':'')+'</div>'
+    +(entry.at?'<span>'+esc(new Date(entry.at).toLocaleString())+'</span>':'')+'</div>'
     +'<div class="body">'+esc(entry.text||'')+'</div>'
     +(entry.artifact?'<details style="margin-top:9px"><summary class="btn small" style="display:inline-flex;cursor:pointer">View '+esc(entry.artifact.label||'artifact')+'</summary>'
       +'<pre style="white-space:pre-wrap;word-break:break-word;max-height:440px;overflow:auto;font:11.5px/1.55 var(--mono);margin:10px 0 0">'+esc(crewArtifactText(entry.artifact))+'</pre></details>':'')
@@ -8257,7 +8365,7 @@ function renderClientRoom(){
     +'<button class="btn small" data-town-ui id="clientRefresh">Refresh Greenroom record</button><button class="btn small" data-town-ui id="clientTown">Open Studio Town</button></div>'
     +(p?'<div class="auto-note" style="margin-top:9px">'+esc(S.title||'Untitled')+' · '+esc(String(p.status||'idle').replace(/_/g,' '))
       +(current?' · working now: @'+esc(current.at):'')+(p.greenroomMessageCount?' · '+Number(p.greenroomMessageCount)+' Greenroom messages':'')+'</div>'
-      :'<div class="auto-note" style="margin-top:9px">No active production. Start one from the Dashboard, or run a department from Studio Town.</div>')+'</div>'
+      :'<div class="auto-note" style="margin-top:9px">No active production. Book a film in Settings → Production, or run a department from Studio Town.</div>')+'</div>'
     +'<div class="ai-panel" style="max-width:1120px;margin-bottom:14px"><h4 style="margin-top:0">'+(inMeeting?'Your direction for the upcoming film':'Your direction'+(p?' for '+esc(S.title||'this film'):''))+'</h4>'
     +'<div class="client-direction-grid"><label class="bd-f"><span>Send to</span><select data-town-direction id="clientTarget"'+(!p&&!inMeeting?' disabled':'')+'><option value="">Entire crew</option>'+roleOptions+'</select></label>'
     +'<label class="bd-f"><span>Direction</span><textarea data-town-direction id="clientDirection" rows="3" placeholder="'+(p?.status==='complete'?'What worked or fell short in the finished film?':p?'What should this department keep or change at its next checkpoint?':'Give the producer a film idea.')+'"></textarea></label></div>'
@@ -9246,7 +9354,7 @@ function crewLiveActivityText(roleId){
   if (live.phase==='thinking') return '@'+(role.at||roleId)+' is reasoning locally'+(count?' · '+count.toLocaleString()+' reasoning characters processed':'')+'.';
   if (live.phase==='drafting') return '@'+(role.at||roleId)+' is drafting the handoff · '+count.toLocaleString()+' model characters received. The artifact appears after validation and its safe checkpoint.';
   if (live.phase==='validating') return '@'+(role.at||roleId)+' finished drafting · validating and checkpointing '+count.toLocaleString()+' characters before the next agent starts.';
-  return '@'+(role.at||roleId)+' is contacting the selected local model.';
+  return '@'+(role.at||roleId)+' is contacting the crew model.';
 }
 function crewLiveActivity(opts,phase,characters,force){
   const roleId=String((opts&&opts.roleId)||'');
@@ -10379,6 +10487,7 @@ function settingsPanelHtml(initialTab){
   return '<div class="settings-shell">'
     +'<div class="settings-nav">'
       +'<button class="settings-tab'+on('general')+'" data-settings-tab="general">⌂ General</button>'
+      +'<button class="settings-tab'+on('production')+'" data-settings-tab="production">Production</button>'
       +'<button class="settings-tab'+on('ai')+'" data-settings-tab="ai">◉ AI &amp; agents</button>'
       +'<button class="settings-tab'+on('media')+'" data-settings-tab="media">▦ Media APIs</button>'
       +'<button class="settings-tab'+on('services')+'" data-settings-tab="services">⚙ Services &amp; extensions</button>'
@@ -10392,6 +10501,7 @@ function settingsPanelHtml(initialTab){
           +'</select></label></div>'
         +'<div class="settings-card"><h5>Project files</h5>'+settingsProjectFilesHtml()+'<div class="auto-note" style="margin-top:9px">Canonical portable format: <b>.ams</b>. Legacy .studio and .scriptbreak files remain readable. Projects and media stay on this device unless an explicitly configured remote provider is used.</div></div>'
       +'</section>'
+      +'<section class="settings-panel'+on('production')+'" data-settings-panel="production"><div id="settingsProductionControls"></div></section>'
       +'<section class="settings-panel'+on('ai')+'" data-settings-panel="ai"><h4>AI &amp; agents</h4>'
         +'<div class="settings-intro">Choose the text-model server and model used by the crew. Model names are discovered, never hard-coded.</div>'
         +'<div class="settings-card"><div class="settings-grid">'
@@ -10439,6 +10549,7 @@ function settingsWire(initialTab){
     document.querySelectorAll('[data-settings-panel]').forEach(node=>node.classList.toggle('on',node.dataset.settingsPanel===key));
   };
   document.querySelectorAll('[data-settings-tab]').forEach(node=>node.addEventListener('click',()=>switchTab(node.dataset.settingsTab)));
+  renderCrew();
   switchTab(initialTab||'general');
   const refreshModel=(kind)=>{
     const select=el('settings'+kind+'Provider');
@@ -11599,7 +11710,7 @@ async function boardQueueVideoOnce(shotId, options){
     return false;
   }
   if (provider.requiresBillingApproval&&!selection.billingApproved){
-    if (!opts.quiet) toast('Approve paid API submissions in Make a Film before rendering with '+provider.name+'.');
+    if (!opts.quiet) toast('Approve paid API submissions in Settings → Production before rendering with '+provider.name+'.');
     return false;
   }
   const review=videoReviewEnvelope(sh);
