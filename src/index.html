@@ -7285,6 +7285,19 @@ function doubleFeatureControls(){
     const book=readBooking(),active=book&&!['held','complete'].includes(book.phase);
     state.textContent=!book?'Producer is opening the floor.':book.phase==='complete'?'Screening complete':book.phase==='held'?(bookingNeedsPhotoDecision(book)?'Photography is on hold. Qwen has not confirmed the storyboard photo.':'Producer waiting · '+book.error):'Film '+book.number+' of '+(book.count||2);
     button.textContent=book?.phase==='held'?(bookingNeedsPhotoDecision(book)?'Review missing photo':'Retry this booking'):active?'Crew is working':'Book two shorts · 4 storyboard photos and 4 video shots';
+    const meeting=book?.['commission'+book.number], details=el('dfMeeting');
+    const meetingId=meeting?book.id+'/'+book.number:'';
+    if(details.dataset.meeting!==meetingId)details.open=false;
+    details.dataset.meeting=meetingId;
+    details.hidden=!meeting;
+    if(meeting){
+      const label=meeting.choice?'Producer selected '+meeting.choice.title:meeting.stage==='voting'?'Producer reviewing pitches':meeting.stage==='pitching'?'Director developing pitches':'Director revising pitches';
+      details.querySelector('summary').textContent=label;
+      const note=meeting.rejection||meeting.reason;
+      details.querySelector('div').innerHTML=(note?'<p>'+esc(note)+'</p>':'')+
+        (meeting.postingEvidence?'<p>Publishing brief: “'+esc(meeting.postingEvidence)+'” '+esc(meeting.postingReason||'')+'</p>':'')+
+        (meeting.pitches||[]).map(p=>'<div class="pl-shot"><strong>'+esc(p.title)+'</strong><p>'+esc(p.opening)+'</p><p>'+esc(p.ending)+'</p></div>').join('');
+    }
     button.disabled=submitting||!!active;
     dashboardScreenings(screenings);
   };
@@ -7354,6 +7367,7 @@ function doubleFeatureControls(){
 }
 function renderCrew(){
   const w = el('crewWrap'); if (!w) return;
+  const openMeeting=w.querySelector('#dfMeeting[open]')?.dataset.meeting;
   const openScreenings=new Set(Array.from(w.querySelectorAll('[data-screening-run][open]'),node=>node.dataset.screeningRun));
   const owner=JSON.stringify([ACTIVE.p,ACTIVE.d,productionState()?.id]);
   const inputs=w.dataset.directionOwner===owner?['crewAsk','crewClientDirection'].map(id=>el(id)).filter(Boolean).map(field=>({
@@ -7519,7 +7533,7 @@ function renderCrew(){
     h+='</div>';
   });
   h+='</details>';
-  w.innerHTML = '<section class="ai-panel" style="max-width:1120px;margin-bottom:14px"><div id="dashboardMonitor"></div><h4>Double feature</h4><p id="dfBookingState" role="status"></p><label><input type="checkbox" id="dfDaily"> Produce one short each day after this booking, using the selected credits</label><p>Follow the director’s brief through script, casting, wardrobe, photography, storyboard and final cut.</p><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Start crew · 4 storyboard photos and 4 video shots</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><div id="dfScreenings"></div><div id="dfRuns"></div></section>'+h;
+  w.innerHTML = '<section class="ai-panel" style="max-width:1120px;margin-bottom:14px"><div id="dashboardMonitor"></div><h4>Double feature</h4><p id="dfBookingState" role="status"></p><label><input type="checkbox" id="dfDaily"> Produce one short each day after this booking, using the selected credits</label><p>Follow the director’s brief through script, casting, wardrobe, photography, storyboard and final cut.</p><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Start crew · 4 storyboard photos and 4 video shots</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><details hidden id="dfMeeting" style="margin:8px 0"><summary>Pitch meeting</summary><div style="white-space:pre-line;margin-top:8px"></div></details><div id="dfScreenings"></div><div id="dfRuns"></div></section>'+h;
   for(const draft of inputs){
     const field=el(draft.id);
     if(!field)continue;
@@ -7530,6 +7544,7 @@ function renderCrew(){
     }
   }
   doubleFeatureControls();
+  if(openMeeting && el('dfMeeting').dataset.meeting===openMeeting)el('dfMeeting').open=true;
   w.querySelectorAll('[data-screening-run]').forEach(node=>{node.open=openScreenings.has(node.dataset.screeningRun);});
 
   const on = (id, ev, fn)=>{ const n = el(id); if (n) n.addEventListener(ev, fn); };

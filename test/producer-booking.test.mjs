@@ -233,20 +233,22 @@ test('publishing taste excludes listed subjects before the vote and requires evi
   const {ctx,run}=floor(), seen=[];
   ctx.localStorage.setItem('studio.taste.publishing.v1',JSON.stringify({brief:'I post observational comedy about work.',excluded:['wedding']}));
   const pitches=['Wedding march','Night shift','Welder'].map(title=>({title,opening:'Everyone clocks in.',ending:'One card stays behind.',whyWatch:'The last card is the boss.'}));
-  let cited='not the filmmaker';
+  let cited='not the filmmaker',directorCalls=0;
   ctx.floorChat=async(_,role,prompt)=>{
-    if(role.startsWith('Director'))return JSON.stringify({pitches});
+    if(role.startsWith('Director')){directorCalls++;return JSON.stringify({pitches});}
     seen.push(JSON.parse(prompt.slice(prompt.lastIndexOf('\n')+1)));
     return JSON.stringify({index:1,reason:'Labor is invisible.',setupQuote:'clocks in',payoffQuote:'stays behind',blockingGap:'',postingEvidence:cited,postingReason:'The abandoned timecard makes overtime visible.'});
   };
   const book=run('bookFilms()');
   assert.equal((await ctx.commissionOriginal(book,'')).choice,null);
   cited='observational comedy about work';
-  assert.equal((await ctx.commissionOriginal(book,'')).choice.title,'Night shift');
+  assert.equal((await ctx.commissionOriginal(run('readBooking()'),'')).choice.title,'Night shift');
+  assert.equal(directorCalls,1,'A corrected producer citation must reuse the saved pitches, including after reload');
   assert.deepEqual(seen[0].map(x=>x.index),[1,2]);
   ctx.localStorage.setItem('studio.taste.publishing.v1',JSON.stringify({brief:'Changed.',excluded:['wedding','night shift','welder']}));
   assert.equal((await ctx.commissionOriginal(book,'')).choice,null);
   assert.equal(seen.length,2);
+  assert.equal(directorCalls,2,'A new publishing brief requires fresh pitches');
 });
 
 test('local commissioning requests a structured slate and a ballot tied to personal taste',async()=>{
@@ -267,4 +269,30 @@ test('local commissioning requests a structured slate and a ballot tied to perso
   assert.deepEqual(Array.from(calls[0].schema.properties.pitches.items.required),['title','opening','ending','whyWatch']);
   assert.ok(calls[1].schema.required.includes('postingEvidence'));
   assert.match(calls[1].prompt,/One sound that catches my ear/);
+});
+
+test('the director revises the rejected story with the producer’s note and hands accepted pages to the writer',async()=>{
+  const {ctx,run,starts}=floor();
+  let drafts=0;
+  ctx.floorChat=async(_,role,prompt)=>{
+    if(role.startsWith('Director')){
+      if(++drafts===2){
+        assert.match(prompt,/The last bulb goes out/);
+        assert.match(prompt,/Establish who controls the light/);
+      }
+      const opening=drafts===1?'A bell sounds.':'A clerk holds the light switch.';
+      return JSON.stringify({pitches:['The bill','After hours','Relay'].map(title=>({
+        title,opening,ending:'The last bulb goes out.',whyWatch:'The clerk decides who gets to stay.'}))});
+    }
+    return JSON.stringify(drafts===1?{index:-1,reason:'Establish who controls the light.'}:
+      {index:0,reason:'Closing the shop becomes a deliberate choice.',setupQuote:'holds the light switch',
+        payoffQuote:'last bulb goes out',blockingGap:''});
+  };
+  await run('wakeProducer()');
+  assert.equal(starts.length,0);
+  assert.equal(run('readBooking().commission1.stage'),'rewrite');
+  await run('wakeProducer()');
+  assert.equal(starts.length,1);
+  assert.match(starts[0][1],/A clerk holds the light switch/);
+  assert.equal(starts[0][2].booking.commission.stage,'approved');
 });
