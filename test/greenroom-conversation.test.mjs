@@ -16,7 +16,7 @@ test('creative departments consult peers while formal reviewers and tool agents 
   const context=between('function crewContext', '/* ---------- production state + trusted local service bridge ---------- */');
   const run=between('async function crewRun', 'async function crewFillMissingLook');
   assert.match(context,/GREENROOM PEER CONSULTATIONS AND HANDOFFS/);
-  assert.match(context,/crewCollaborationContext\(role\)/);
+  assert.match(context,/crewCollaborationContext\(role,developing\)/);
   assert.match(source,/const CREW_DIRECT_EXECUTION_ROLES=new Set\(\['producer','story_review','script_supervisor','taste','stills_prompt','stills','key_grip','composer','prompt_writer','second_unit','editor'\]\)/);
   assert.match(source,/const CREW_TOOL_ONLY_ROLES=new Set\(\['stills','second_unit','editor'\]\)/);
   assert.match(run,/const needsAI = crewUsesLocalModel\(role,a\)/);

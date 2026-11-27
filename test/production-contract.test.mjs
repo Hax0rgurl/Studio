@@ -37,16 +37,28 @@ test('desktop service checks use the bundle in blank, shelved and active project
   for (const production of [null,{status:'superseded'}, {supersededBooking:{textModel:'qwen4-max'}}, {booking:{textModel:'qwen3.8-max'}}]){
     context.S.production=production;
     for(const hasKey of [false,true]){
-      context.CREW.startResults=[{outcome:'error',detail:'stale launcher failure'}];
       context.hasKey=hasKey;
       const status=await context.crewEnsureServices();
       assert.ok(status.greenroom.ok && status.pitchdeck.ok);
       assert.equal(status.ollama.ok,hasKey);
       assert.ok(context.CREW.providers.every(provider=>provider.configured===hasKey));
-      assert.equal(context.CREW.startResults.length,0);
     }
   }
   assert.equal(calls.length,8);
+});
+
+test('only a selected offline local model can launch, and its own error reaches the caller', async () => {
+  const commands=[];
+  const context={CREW:{},AI:{status:'off'},studioDesktop:()=>true,crewModelInUse:()=>'qwen3.5:latest',
+    crewInvoke:async command=>{commands.push(command);return {outcome:'error',detail:'Model could not open.'};},
+    crewConnect:async()=>({}),aiConnect:async()=>{context.AI.status='on';}};
+  const ensure=loadFunction('async function crewEnsureServices','function productionState','crewEnsureServices',context);
+  await assert.rejects(ensure(),/Model could not open/);
+  context.crewInvoke=async command=>{commands.push(command);return {outcome:'started'};};
+  await Promise.all([ensure(),ensure()]);
+  await ensure();
+  context.studioDesktop=()=>false;context.AI.status='off';await ensure();
+  assert.deepEqual(commands,['studio_local_brain','studio_local_brain']);
 });
 
 test('a booked handoff waits for a competing worker and honors Stop before claiming the role', async () => {
@@ -1371,4 +1383,69 @@ test('a follow-up review accounts for the prior findings and cites what the view
   validate(last,{resolved:[1]},[linked],pages);
   assert.equal(linked.evidence,'The bell stays silent.');
   assert.doesNotThrow(()=>validate(last,{resolved:[1,2]},[],pages));
+});
+
+test('a new objection to unchanged writing cites a revision or filmmaker direction', () => {
+  const pages=[{scene:'1',slug:'EXT. YARD',text:'The gate is open.'},{scene:'2',slug:'INT. HALL',text:'He locks the chain.'}];
+  const ctx={CREW_SCREENPLAY_REVIEW_SCHEMA:{required:[],properties:{problems:{items:{required:[],properties:{evidence:{}}}}}}};
+  vm.createContext(ctx);
+  vm.runInContext(bodyBetween('function crewProgressHash','function crewProgressFingerprint')+
+    bodyBetween('function crewFollowupReview','async function crewReviewScreenplay'),ctx);
+  const lastReview={reviewedAt:'then',pagesHash:'draft1',sceneHashes:{1:ctx.crewProgressHash(JSON.stringify([pages[0].slug,pages[0].text]))},
+    problems:[{severity:'major',sceneNumber:2,issue:'No one secures the chain.'}]};
+  const follow=ctx.crewFollowupReview({lastReview,revisionHistory:[{sceneNumber:2,review:lastReview,prior:{blocks:[{text:'He drops the chain.'}]}}]},pages,['Use the same gate in both scenes.']);
+  assert.equal(follow.citations['scene-1-line-1'].change,'unchanged');
+  assert.equal(follow.citations['scene-2-line-1'].change,'changed');
+  const note=()=>({sceneNumber:1,evidence:'scene-1-line-1',priorFinding:0,viewerConsequence:'The locked chain changes how the audience reads the open gate.'});
+  assert.throws(()=>ctx.crewCheckFollowupReview(follow,{resolved:[1]},[note()],pages),/reopens unchanged/);
+  for(const [ref,expected] of [['scene-2-line-1','He locks the chain.'],['removed-2-1','He drops the chain.'],['direction-1','Use the same gate in both scenes.']]){
+    const item={...note(),reopenSource:ref};
+    ctx.crewCheckFollowupReview(follow,{resolved:[1]},[item],pages);
+    assert.equal(item.reopenEvidence.text,expected);
+  }
+  assert.throws(()=>ctx.crewCheckFollowupReview(follow,{resolved:[1]},[{...note(),evidence:'scene-2-line-1'}],pages),/from scene 1/);
+});
+
+test('only new story direction invalidates an existing screenplay signoff', () => {
+  const ctx={S:{scenes:[{num:1,slug:'INT. ROOM',text:'The man laughs.',shots:[]}]},CREW_BIBLE_PHASE:['prop_master'],CREW_VISUAL_PREP_PHASE:[]};
+  vm.createContext(ctx);
+  vm.runInContext(bodyBetween('function crewScreenplayPages','function crewFollowupReview')+
+    bodyBetween('function crewProgressHash','function crewProgressFingerprint')+
+    bodyBetween('function crewRoleFinished','const CREW_PRODUCER_DECISION_BASE'),ctx);
+  const review={verdict:'pass',reviewedPages:true,pagesHash:ctx.crewProgressHash(JSON.stringify(ctx.crewScreenplayPages())),directionHash:ctx.crewProgressHash('[]')};
+  const p={mode:'idea',writerWork:{plan:{},review},steps:Object.fromEntries(['director','story_editor','writer','story_review'].map(x=>[x,{status:'done'}]))};
+  p.clientNotes=[{targetRoleId:'gaffer',text:'Keep the practical on.'}];
+  assert.deepEqual(Array.from(ctx.crewReadyRoles(p)),['prop_master']);
+  p.clientNotes.push({targetRoleId:'writer',text:'She hears him before she sees him.'});
+  assert.deepEqual(Array.from(ctx.crewReadyRoles(p)),['story_review']);
+});
+
+test('development gets filmmaker canon and director intent before the production departments', () => {
+  const p={id:'film',mode:'idea'};
+  const ctx={S:{title:'Set',bible:'The room exists.',scenes:[],look:{tone:'deliberate',lighting:'proposal light',wardrobe:'user coat'},
+      lookSrc:{tone:'crew:director',lighting:'crew:gaffer',wardrobe:'user'},bibles:{props:{
+        tool:{desc:'obsolete dimensions',src:'crew:prop-master'},key:{desc:'filmmaker brass key',src:'user'},box:{desc:'earlier auto seed',auto:true}}}},
+    AI:{numCtx:8192},LOOK_FIELDS:['tone','lighting','wardrobe'].map(k=>({k,label:k})),productionState:()=>p,
+    crewClientNotes:()=>[],crewCollaborationContext:(_role,developing)=>developing?'writer handoff':'all departments'};
+  const context=loadFunction('function filmmakerBibleEntry','/* ---------- production state','crewContext',ctx);
+  for(const role of ['writer','story_review','story_editor']){
+    const text=context({id:role});assert.match(text,/filmmaker brass key/);assert.match(text,/user coat/);
+    assert.match(text,/deliberate/);assert.match(text,/writer handoff/);
+    assert.doesNotMatch(text,/obsolete dimensions|earlier auto seed|proposal light/);
+  }
+  const production=context({id:'prompt_writer'});
+  assert.match(production,/obsolete dimensions/);assert.match(production,/proposal light/);
+});
+
+
+test('a returning prop master keeps a filmmaker-authored entry intact',async()=>{
+  const entry={desc:'The bent brass key is taped to her sleeve.',canon:'filmmaker annotation'};
+  const ctx={productionState:()=>({}),S:{bibles:{props:{key:entry}}},autoBibles(){},crewBibleNames:()=>['key'],
+    crewArtifactRef:(_kind,_title,_view,_summary,meta)=>meta};
+  vm.createContext(ctx);
+  vm.runInContext(bodyBetween('function filmmakerBibleEntry','function crewContext')+
+    bodyBetween('async function crewBibleJob','async function crewDataUrlBlob'),ctx);
+  const result=await ctx.crewBibleJob({title:'Prop master'},'props','');
+  assert.equal(result.status,'skipped');assert.equal(result.artifact.preserved,1);
+  assert.equal(ctx.S.bibles.props.key,entry);
 });

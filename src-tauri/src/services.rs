@@ -16,43 +16,12 @@ struct ServiceSpec {
     health_path: &'static str,
 }
 
-const SERVICES: [ServiceSpec; 4] = [
-    ServiceSpec {
-        id: "ollama",
-        name: "Ollama",
-        port: 11_434,
-        health_path: "/api/tags",
-    },
-    ServiceSpec {
-        id: "pitchdeck",
-        name: "PitchDeck",
-        port: 5_179,
-        health_path: "/api/status",
-    },
-    ServiceSpec {
-        id: "phosphene",
-        name: "Phosphene",
-        port: 8_198,
-        health_path: "/status",
-    },
-    ServiceSpec {
-        id: "greenroom",
-        name: "Greenroom",
-        port: 8_830,
-        health_path: "/health",
-    },
-];
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ServiceHealth {
-    id: &'static str,
-    name: &'static str,
-    port: u16,
-    endpoint: String,
-    reachable: bool,
-    detail: String,
-}
+const LOCAL_MODEL: ServiceSpec = ServiceSpec {
+    id: "ollama",
+    name: "Ollama",
+    port: 11_434,
+    health_path: "/api/tags",
+};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,65 +46,9 @@ struct WarmingProcess {
 
 static START_STATE: OnceLock<Mutex<ServiceStarterState>> = OnceLock::new();
 
-#[tauri::command]
-pub(crate) fn local_services_health() -> Vec<ServiceHealth> {
-    SERVICES.iter().copied().map(check_service).collect()
-}
-
-#[tauri::command]
-pub(crate) fn start_local_services() -> Result<Vec<ServiceStartResult>, String> {
-    let lock = START_STATE.get_or_init(|| Mutex::new(ServiceStarterState::default()));
-    let mut state = lock
-        .lock()
-        .map_err(|_| "The local service starter lock was poisoned.".to_string())?;
-    let home = home_dir()?;
-
-    Ok(SERVICES
-        .iter()
-        .copied()
-        .map(|service| start_service_if_needed(service, &home, &mut state))
-        .collect())
-}
-
-fn check_service(service: ServiceSpec) -> ServiceHealth {
-    check_service_with_timeout(service, Duration::from_millis(900))
-}
-
-fn check_service_with_timeout(service: ServiceSpec, timeout: Duration) -> ServiceHealth {
-    let response = local_http::request(
-        service.port,
-        "GET",
-        service.health_path,
-        &[],
-        None,
-        timeout,
-    );
-    match response {
-        Ok(response) if (200..300).contains(&response.status) => ServiceHealth {
-            id: service.id,
-            name: service.name,
-            port: service.port,
-            endpoint: format!("http://127.0.0.1:{}{}", service.port, service.health_path),
-            reachable: true,
-            detail: format!("HTTP {}", response.status),
-        },
-        Ok(response) => ServiceHealth {
-            id: service.id,
-            name: service.name,
-            port: service.port,
-            endpoint: format!("http://127.0.0.1:{}{}", service.port, service.health_path),
-            reachable: false,
-            detail: format!("Health endpoint returned HTTP {}", response.status),
-        },
-        Err(error) => ServiceHealth {
-            id: service.id,
-            name: service.name,
-            port: service.port,
-            endpoint: format!("http://127.0.0.1:{}{}", service.port, service.health_path),
-            reachable: false,
-            detail: error,
-        },
-    }
+fn reachable(service: ServiceSpec, timeout: Duration) -> bool {
+    local_http::request(service.port, "GET", service.health_path, &[], None, timeout)
+        .is_ok_and(|response| (200..300).contains(&response.status))
 }
 
 fn warming_service_result(
@@ -174,13 +87,12 @@ fn warming_service_result(
     }
 }
 
-fn start_service_if_needed(
-    service: ServiceSpec,
+fn start_local_model_if_needed(
     home: &Path,
     state: &mut ServiceStarterState,
 ) -> ServiceStartResult {
-    let initial = check_service_with_timeout(service, Duration::from_millis(350));
-    if initial.reachable {
+    let service = LOCAL_MODEL;
+    if reachable(service, Duration::from_millis(350)) {
         state.warming.remove(service.id);
         return ServiceStartResult {
             id: service.id,
@@ -196,15 +108,7 @@ fn start_service_if_needed(
         return result;
     }
 
-    let launch = match service.id {
-        "ollama" => launch_ollama(home),
-        "pitchdeck" => launch_pitchdeck(home),
-        "phosphene" => launch_phosphene(home),
-        "greenroom" => launch_greenroom(home),
-        _ => Err("Unknown local service.".to_string()),
-    };
-
-    let (mut child, source) = match launch {
+    let (mut child, source) = match launch_ollama(home) {
         Ok(value) => value,
         Err(error) => {
             return ServiceStartResult {
@@ -243,7 +147,7 @@ fn start_service_if_needed(
             }
             Ok(None) => {}
         }
-        if check_service_with_timeout(service, Duration::from_millis(250)).reachable {
+        if reachable(service, Duration::from_millis(250)) {
             return ServiceStartResult {
                 id: service.id,
                 name: service.name,
@@ -302,107 +206,8 @@ pub(crate) async fn studio_local_brain()->Result<ServiceStartResult,String>{
     tauri::async_runtime::spawn_blocking(||{
         let lock = START_STATE.get_or_init(|| Mutex::new(ServiceStarterState::default()));
         let mut state = lock.lock().map_err(|_| "The model starter is busy.".to_string())?;
-        Ok(start_service_if_needed(SERVICES[0],&home_dir()?,&mut state))
+        Ok(start_local_model_if_needed(&home_dir()?,&mut state))
     }).await.map_err(|e|e.to_string())?
-}
-
-fn launch_greenroom(home: &Path) -> Result<(Child, PathBuf), String> {
-    let candidates = greenroom_candidates(home);
-    let install = greenroom_install(home).ok_or_else(|| {
-        format!(
-            "Greenroom is offline and no complete existing install was found in: {}",
-            display_candidates(&candidates)
-        )
-    })?;
-    let script = install.join("start.sh");
-    let mut command = Command::new(&script);
-    command.current_dir(&install).env("PORT", "8830");
-    spawn_detached(command, script)
-}
-
-fn launch_pitchdeck(home: &Path) -> Result<(Child, PathBuf), String> {
-    let install_candidates = pitchdeck_candidates(home);
-    let install = first_install_with(&install_candidates, &["server/index.js", "node_modules"])
-        .ok_or_else(|| {
-            format!(
-                "PitchDeck is offline and no complete existing install was found in: {}",
-                display_candidates(&install_candidates)
-            )
-        })?;
-    let node_candidates = pinokio_node_candidates(home);
-    let node = first_existing_file(&node_candidates).ok_or_else(|| {
-        format!(
-            "PitchDeck exists, but no existing Node executable was found in: {}",
-            display_candidates(&node_candidates)
-        )
-    })?;
-
-    let mut command = Command::new(&node);
-    command
-        .arg(install.join("server/index.js"))
-        .current_dir(&install)
-        .env("PORT", "5179")
-        .env("DIRECTORS_CONSOLE_STATIC", "1")
-        .env("NODE_ENV", "production")
-        .env("OLLAMA_URL", "http://127.0.0.1:11434")
-        .env("PHOSPHENE_URL", "http://127.0.0.1:8198");
-    spawn_detached(command, node)
-}
-
-fn launch_phosphene(home: &Path) -> Result<(Child, PathBuf), String> {
-    let candidates = phosphene_candidates(home);
-    let install = first_install_with(
-        &candidates,
-        &[
-            "mlx_ltx_panel.py",
-            "ltx-2-mlx/env/bin/python3.11",
-            "ltx-2-mlx/env/lib/python3.11/site-packages/certifi/cacert.pem",
-            "mlx_models/ltx-2.3-mlx-q4",
-            "mlx_models/gemma-3-12b-it-4bit",
-        ],
-    )
-    .ok_or_else(|| {
-        format!(
-            "Phosphene is offline and no complete existing install was found in: {}",
-            display_candidates(&candidates)
-        )
-    })?;
-    let python_candidates = [
-        install.join("ltx-2-mlx/env/bin/python3.11"),
-        install.join("ltx-2-mlx/env/bin/python"),
-    ];
-    let python = first_existing_file(&python_candidates)
-        .ok_or_else(|| "Phosphene's existing Python environment is missing.".to_string())?;
-    let cert_bundle = install.join("ltx-2-mlx/env/lib/python3.11/site-packages/certifi/cacert.pem");
-    let ffmpeg_candidates = phosphene_ffmpeg_candidates(home);
-    let ffmpeg = first_existing_file(&ffmpeg_candidates).ok_or_else(|| {
-        format!(
-            "Phosphene exists, but no existing ffmpeg executable was found in: {}",
-            display_candidates(&ffmpeg_candidates)
-        )
-    })?;
-    let child_path = executable_path_with_parent_first(&ffmpeg)?;
-
-    let mut command = Command::new(&python);
-    command
-        .arg(install.join("mlx_ltx_panel.py"))
-        .current_dir(&install)
-        .env("LTX_PORT", "8198")
-        .env("LTX_MODEL", install.join("mlx_models/ltx-2.3-mlx-q4"))
-        .env("LTX_MODEL_HQ", install.join("mlx_models/ltx-2.3-mlx-q8"))
-        .env("LTX_GEMMA", install.join("mlx_models/gemma-3-12b-it-4bit"))
-        .env("LTX_MODELS_DIR", install.join("mlx_models"))
-        .env("LTX_Q8_LOCAL", install.join("mlx_models/ltx-2.3-mlx-q8"))
-        .env(
-            "LTX_HELPER_PYTHON",
-            install.join("ltx-2-mlx/env/bin/python3.11"),
-        )
-        .env("HF_HOME", install.join("cache/HF_HOME"))
-        .env("LTX_FFMPEG", &ffmpeg)
-        .env("PATH", child_path)
-        .env("SSL_CERT_FILE", &cert_bundle)
-        .env("REQUESTS_CA_BUNDLE", cert_bundle);
-    spawn_detached(command, python)
 }
 
 fn spawn_detached(mut command: Command, source: PathBuf) -> Result<(Child, PathBuf), String> {
@@ -432,58 +237,6 @@ pub(crate) fn greenroom_install(home: &Path) -> Option<PathBuf> {
             "filmcrew/crew.json",
         ],
     )
-}
-
-fn pitchdeck_candidates(home: &Path) -> Vec<PathBuf> {
-    vec![
-        home.join("Documents/ CODEX BRAIN/Compiled Apps/PitchDeck"),
-        home.join("Downloads/PitchDeck"),
-    ]
-}
-
-fn phosphene_candidates(home: &Path) -> Vec<PathBuf> {
-    vec![
-        home.join("pinokio/api/phosphene.git"),
-        home.join("Documents/ CODEX BRAIN/Compiled Apps/Phosphene"),
-        home.join("Downloads/phosphene.git"),
-    ]
-}
-
-fn pinokio_node_candidates(home: &Path) -> Vec<PathBuf> {
-    vec![
-        home.join("pinokio/bin/miniforge/bin/node"),
-        PathBuf::from("/opt/homebrew/bin/node"),
-        PathBuf::from("/usr/local/bin/node"),
-    ]
-}
-
-fn phosphene_ffmpeg_candidates(home: &Path) -> Vec<PathBuf> {
-    let mut candidates = vec![
-        home.join("pinokio/bin/homebrew/bin/ffmpeg"),
-        home.join("pinokio/bin/ffmpeg-env/bin/ffmpeg"),
-        PathBuf::from("/opt/homebrew/bin/ffmpeg"),
-        PathBuf::from("/usr/local/bin/ffmpeg"),
-    ];
-    if let Some(path) = executable_from_path("ffmpeg") {
-        candidates.push(path);
-    }
-    candidates
-}
-
-fn executable_path_with_parent_first(executable: &Path) -> Result<OsString, String> {
-    let parent = executable
-        .parent()
-        .ok_or_else(|| format!("Executable has no parent directory: {}", executable.display()))?;
-    let mut directories = vec![parent.to_path_buf()];
-    if let Some(current) = std::env::var_os("PATH") {
-        for directory in std::env::split_paths(&current) {
-            if !directories.contains(&directory) {
-                directories.push(directory);
-            }
-        }
-    }
-    std::env::join_paths(directories)
-        .map_err(|error| format!("Could not build the local-service PATH: {error}"))
 }
 
 fn ollama_candidates(home: &Path) -> Vec<PathBuf> {
@@ -540,8 +293,8 @@ pub(crate) fn home_dir() -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        executable_path_with_parent_first, first_install_with, greenroom_candidates,
-        phosphene_ffmpeg_candidates, warming_service_result, ServiceSpec, ServiceStarterState,
+        first_install_with, greenroom_candidates,
+        warming_service_result, ServiceSpec, ServiceStarterState,
         WarmingProcess,
     };
     use std::fs;
@@ -591,18 +344,11 @@ mod tests {
     }
 
     #[test]
-    fn phosphene_launch_prefers_existing_pinokio_ffmpeg_and_puts_it_on_path() {
-        let home = PathBuf::from("/Users/Muse");
-        let candidates = phosphene_ffmpeg_candidates(&home);
-        assert_eq!(
-            candidates[0],
-            PathBuf::from("/Users/Muse/pinokio/bin/homebrew/bin/ffmpeg")
-        );
-        let path = executable_path_with_parent_first(&candidates[0]).unwrap();
-        assert_eq!(
-            std::env::split_paths(&path).next().unwrap(),
-            PathBuf::from("/Users/Muse/pinokio/bin/homebrew/bin")
-        );
+    fn desktop_registers_only_the_local_model_launcher() {
+        let commands = include_str!("main.rs");
+        let services: Vec<_> = commands.lines().map(str::trim)
+            .filter(|line| line.starts_with("services::")).collect();
+        assert_eq!(services, ["services::studio_local_brain,"]);
     }
 
     #[test]
