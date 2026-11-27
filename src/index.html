@@ -525,6 +525,7 @@
     <div class="view" id="view-projects">
       <div class="view-head"><h2>Projects</h2><span class="meta">Every project and draft lives on this device. Import a new script or a new draft of an existing one.</span></div>
       <div id="projectsWrap"></div>
+      <details id="projectScreeningArchive" class="ai-panel"><summary>Past films and screenings</summary><div id="projectScreenings"></div><div id="projectLegacyCuts"></div></details>
     </div>
 
     <!-- SCENES -->
@@ -2599,6 +2600,11 @@ function draftStats(st){
   return `${(st.scenes||[]).length} sc · ${(e/8).toFixed(1)} pg`;
 }
 function renderProjects(){
+  const archive=el('projectScreeningArchive');
+  if(archive){
+    const refresh=()=>{if(archive.open){dashboardScreenings(el('projectScreenings'));loadLegacyCuts(el('projectLegacyCuts'));}};
+    archive.ontoggle=refresh;refresh();
+  }
   const w = el('projectsWrap');
   if (!DB.projects.length){
     w.innerHTML = `<div class="empty"><h3>No projects yet</h3><p>Import a screenplay (top right) and it becomes your first project. Import later drafts into the same project to track and compare versions.</p></div>`;
@@ -7542,6 +7548,35 @@ function dashboardScreenings(host){
     entry.append(detail,play);host.append(entry);
   }
 }
+async function loadLegacyCuts(runs){
+  if(!studioDesktop())return;
+  try{
+    const rows=await crewInvoke('double_feature_library');
+    if(!runs.isConnected)return;
+    const blocks=rows.filter(r=>(r.films||[]).some(f=>f.file)).map(r=>{
+      const block=document.createElement('section');
+      const line=document.createElement('p');line.textContent=r.status;block.append(line);
+      if(r.films?.length){
+        for(const [view,label] of [['scenes','Script'],['boards','Storyboard'],['client','Crew chat']]){
+          const link=document.createElement('button');link.className='btn small';link.textContent=label;
+          link.onclick=()=>{const project=filmProject(r);if(project){if(activeDraft())persistNow();openDraft(project.id,project.drafts[0].id);nav(view);}};block.append(link);
+        }
+      }
+      for(const f of r.films||[]){
+        const label=document.createElement('p');label.textContent=f.title+' · '+f.source;block.append(label);
+        if(f.file){
+          const play=document.createElement('button');play.className='btn small';play.textContent='Watch film '+f.number;
+          play.onclick=()=>crewInvoke('double_feature_play',{id:r.id,number:f.number}).catch(e=>toast(String(e)));block.append(play);
+        }
+        if(f.appliedLesson||f.screening){
+          const note=document.createElement('p');note.className='auto-note';const review=f.screening||{};
+          note.textContent=[f.appliedLesson,review.observation,review.lesson,review.verdict,review.reason].filter(Boolean).join(' ');block.append(note);
+        }
+      }
+      return block;
+    });runs.replaceChildren(...blocks);
+  }catch(e){runs.textContent=String(e);}
+}
 async function reviewMissingPhoto(book){
   const state=DB.projects.flatMap(pr=>pr.drafts.map(d=>d.state)).find(st=>st?.production?.booking?.id===book.id && st.production.booking.number===book.number);
   if(!state)throw Error('Studio could not locate the held film in Projects.');
@@ -7597,7 +7632,7 @@ function doubleFeatureControls(){
   const daily=el('dfDaily');
   daily.checked=localStorage.getItem('studio.producer.daily')!=='off';
   daily.onchange=()=>localStorage.setItem('studio.producer.daily',daily.checked?'on':'off');
-  const names=el('dfNames'),runs=el('dfRuns'),button=el('dfStart'),state=el('dfBookingState'),screenings=el('dfScreenings');
+  const names=el('dfNames'),button=el('dfStart'),state=el('dfBookingState');
   let submitting=false;
   const showBooking=()=>{
     const book=readBooking(),active=book&&!['held','complete'].includes(book.phase);
@@ -7611,7 +7646,7 @@ function doubleFeatureControls(){
     button.disabled=submitting||!!active;
     el('dfShelve').hidden=!canShelveOriginal(productionState(),book);
     el('dfShelve').disabled=!!productionState()?.shelveRequestedAt;
-    dashboardScreenings(screenings);
+
   };
   el('dfShelve').onclick=()=>{
     const film=productionState();
@@ -7639,39 +7674,6 @@ function doubleFeatureControls(){
       localStorage.setItem('studio.plays.v1',JSON.stringify(entries)); showShelf();
     }catch(e){toast(String(e));}
   };
-  const refresh=async()=>{
-    if(!runs.isConnected)return;
-    showBooking();
-    try{
-      const rows=await crewInvoke('double_feature_library');
-      if(!runs.isConnected)return;
-      const recent=rows.slice().sort((a,b)=>(b.modified||0)-(a.modified||0));
-      if(floorProduction())el('dashboardMonitor').textContent=[S.title,productionState().currentStep||productionState().status,crewAttentionMessage(productionState())].filter(Boolean).join(' · ');
-      else studioMonitor(el('dashboardMonitor'),recent.find(r=>!String(r.status).startsWith('Stopped'))||recent[0]);
-      const blocks=rows.filter(r=>(r.films||[]).some(f=>f.file)).map(r=>{
-        const block=document.createElement('section');
-        const line=document.createElement('p');line.textContent=r.status;block.append(line);
-        if(r.films?.length){
-          for(const [view,label] of [['scenes','Script'],['boards','Storyboard'],['client','Crew chat']]){
-            const link=document.createElement('button');link.className='btn small';link.textContent=label;
-            link.onclick=()=>{const project=filmProject(r);if(project){if(activeDraft())persistNow();openDraft(project.id,project.drafts[0].id);nav(view);}};block.append(link);
-          }
-        }
-        for(const f of r.films||[]){
-          const label=document.createElement('p');label.textContent=f.title+' · '+f.source;block.append(label);
-          if(f.file){
-            const play=document.createElement('button');play.className='btn small';play.textContent='Watch film '+f.number;
-            play.onclick=()=>crewInvoke('double_feature_play',{id:r.id,number:f.number}).catch(e=>toast(String(e)));block.append(play);
-          }
-          if(f.appliedLesson||f.screening){
-            const note=document.createElement('p');note.className='auto-note';const review=f.screening||{};
-            note.textContent=[f.appliedLesson,review.observation,review.lesson,review.verdict,review.reason].filter(Boolean).join(' ');block.append(note);
-          }
-        }
-        return block;
-      });runs.replaceChildren(...blocks);
-    }catch(e){runs.textContent=String(e);}
-  };
   button.onclick=async()=>{
     submitting=true;showBooking();
     try{
@@ -7679,15 +7681,15 @@ function doubleFeatureControls(){
       if(bookingNeedsPhotoDecision(old) && await reviewMissingPhoto(old))return;
       if(old?.phase==='held'){old.phase='ready';old.directedResume=true;delete old.error;delete old.pitchRetryAt;saveBooking(old);}
       else bookFilms((el('crewAsk')?.value||'').trim());
-      await wakeProducer();await refresh();}
+      await wakeProducer();showBooking();}
     catch(e){toast(String(e));}finally{submitting=false;showBooking();}
   };
-  refresh();doubleFeatureTimer=setInterval(refresh,4000);
+  doubleFeatureTimer=setInterval(()=>{if(state.isConnected)showBooking();else clearInterval(doubleFeatureTimer);},4000);
 }
 function renderCrew(){
   const w = el('crewWrap'); if (!w) return;
   const openMeeting=w.querySelector('#dfMeeting[open]')?.dataset.meeting;
-  const openScreenings=new Set(Array.from(w.querySelectorAll('[data-screening-run][open]'),node=>node.dataset.screeningRun));
+  const expanded=new Set(Array.from(w.querySelectorAll('details[data-dashboard][open]'),node=>node.id));
   const owner=JSON.stringify([ACTIVE.p,ACTIVE.d,productionState()?.id]);
   const inputs=w.dataset.directionOwner===owner?['crewAsk','crewClientDirection'].map(id=>el(id)).filter(Boolean).map(field=>({
     id:field.id,value:field.value,focused:field===document.activeElement,start:field.selectionStart,end:field.selectionEnd
@@ -7773,6 +7775,8 @@ function renderCrew(){
     + '<div class="auto-note" style="margin-top:10px"><b>Idea:</b> agents invent a screenplay. <b>Source:</b> agents research the document, choose a film form, build a visual treatment, then write a new screenplay. <b>Current script:</b> the screenplay body and length stay untouched; only explicit heading repair may normalize scene headings for parsing.</div>'
     + '</div>';
 
+  const newFilmControls=h;
+  h='';
   if (p){
     const statusLabel=String(p.status||'idle').replace(/_/g,' ');
     const pct=Math.round((finished/Math.max(1,CREW_PIPELINE.length))*100);
@@ -7790,12 +7794,13 @@ function renderCrew(){
       + (p.pollError?'<div class="auto-note" style="margin-top:8px">Last render check: '+esc(p.pollError)+'</div>':'')
       + '</div>';
 
+    h+='<div id="dashboardActions" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px"><button class="btn primary" id="dashboardClient">Open Client Room</button></div>';
     h+='<div class="ai-panel" style="margin-bottom:14px;max-width:1120px">'
-      +'<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap"><h4 style="margin:0">Client room</h4>'
-      +'<span class="ai-stat">Actual checkpointed department output · agents work in sequence</span><div class="tb-spacer"></div>'
+      +'<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap"><h4 style="margin:0" title="Actual checkpointed department output, newest first">Latest crew messages</h4>'
+      +'<div class="tb-spacer"></div>'
       +'<button class="btn small" id="crewRefreshRecord">Refresh Greenroom record</button></div>'
       +'<div class="crew-transcript" id="crewTranscript">'
-      +(transcript.length ? transcript.map(entry=>'<div class="crew-message '+esc(entry.kind||'agent')+'">'
+      +(transcript.length ? transcript.slice(0,3).map(entry=>'<div class="crew-message '+esc(entry.kind||'agent')+'">'
         +'<div class="who"><b>'+esc(entry.who)+'</b><span class="ai-badge '+(entry.status==='done'?'ok':(entry.status==='failed'?'err':''))+'">'+esc(entry.status||'update')+'</span>'
         +(entry.at?'<span>'+esc(fmtDate(entry.at))+'</span>':'')+'</div>'
         +'<div class="body">'+esc(entry.text||'')+'</div>'
@@ -7810,19 +7815,19 @@ function renderCrew(){
         : '<div class="auto-note" style="padding:12px 0">No department has spoken yet. As each department checkpoints its work, the real output appears here.</div>')
       +'</div>'
       +'<label class="bd-f" style="margin-top:12px"><span>Your direction to the working crew</span>'
-      +'<textarea id="crewClientDirection" rows="3" placeholder="Keep the kitchen practical and ordinary. Shot 7 feels too polished; make the next pass harsher and closer."></textarea></label>'
+      +'<textarea id="crewClientDirection" rows="3" placeholder="Give the crew direction for this film."></textarea></label>'
       +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><button class="btn primary" id="crewSendDirection">'+(p.status==='complete'?'Save screening note':'Send direction')+'</button>'
       +'<span class="auto-note">'+(p.status==='complete'?'Your note accompanies this film when the crew reviews earlier work.':'Saved in this production and included in every department brief from the next checkpoint forward.')+'</span></div>'
       +'</div>';
 
-    h+='<div class="pl-shot" style="padding:0;overflow:hidden;max-width:1120px;margin-bottom:14px">'
+    h+='<details id="dashboardProgress" data-dashboard class="ai-panel"><summary>Department progress</summary>'
       + CREW_PIPELINE.map(id=>{
           const r=crewFind(id), st=steps[id]||{}, isBusy=CREW.busy===(r&&r.at);
           const label=isBusy?'working':(st.status||'waiting');
           return '<div style="display:grid;grid-template-columns:170px 95px 1fr;gap:10px;align-items:start;padding:9px 12px;border-bottom:1px solid var(--line)">'
             + '<b>@'+esc((r&&r.at)||id)+'</b><span class="ai-badge '+(label==='done'?'ok':(label==='failed'?'err':''))+'">'+esc(label)+'</span>'
             + '<span class="auto-note" style="white-space:pre-wrap">'+esc(String(st.out||(label==='working'?'Work is in progress; no checkpoint yet.':'No checkpointed artifact yet.')).slice(0,260))+'</span></div>';
-        }).join('')+'</div>';
+        }).join('')+'</details>';
   }
 
   if (S.cut && (S.cut.mediaUrl||S.cut.outputPath)){
@@ -7850,7 +7855,16 @@ function renderCrew(){
     h+='</div>';
   });
   h+='</details>';
-  w.innerHTML = '<section class="ai-panel" style="max-width:1120px;margin-bottom:14px"><div id="dashboardMonitor"></div><h4>Double feature</h4><p id="dfBookingState" role="status"></p><label><input type="checkbox" id="dfDaily"> Produce one short each day after this booking, using the selected credits</label><p>Follow the director’s brief through script, casting, wardrobe, photography, storyboard and final cut.</p><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Start crew · 4 storyboard photos and 4 video shots</button> <button class="btn" id="dfShelve" hidden>Shelve premise and get new pitches</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><details hidden id="dfMeeting" style="margin:8px 0"><summary>Pitch meeting</summary><div style="white-space:pre-line;margin-top:8px"></div></details><div id="dfScreenings"></div><div id="dfRuns"></div></section>'+h;
+  w.innerHTML = h+'<details class="ai-panel" data-dashboard id="dashboardSetup"><summary>Production setup and bookings</summary><p id="dfBookingState" role="status"></p><label><input type="checkbox" id="dfDaily"> Produce one short each day after this booking, using the selected credits</label><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Start crew · 4 storyboard photos and 4 video shots</button> <button class="btn" id="dfShelve" hidden>Shelve premise and get new pitches</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><details hidden id="dfMeeting" style="margin:8px 0"><summary>Pitch meeting</summary><div style="white-space:pre-line;margin-top:8px"></div></details>'+newFilmControls+'</details>';
+  for(const id of expanded){const section=el(id);if(section)section.open=true;}
+  if(!p)el('dashboardSetup').open=true;
+  const actions=el('dashboardActions');
+  if(actions){
+    for(const id of ['crewStop','crewRetryUnproven','crewRevise',...(['paused','cancelled','needs_attention'].includes(p.status)?['crewResume']:[])]){
+      const action=el(id);if(action)actions.append(action);
+    }
+    el('dashboardClient').onclick=()=>nav('client');
+  }
   for(const draft of inputs){
     const field=el(draft.id);
     if(!field)continue;
@@ -7862,7 +7876,7 @@ function renderCrew(){
   }
   doubleFeatureControls();
   if(openMeeting && el('dfMeeting').dataset.meeting===openMeeting)el('dfMeeting').open=true;
-  w.querySelectorAll('[data-screening-run]').forEach(node=>{node.open=openScreenings.has(node.dataset.screeningRun);});
+  if(readBooking()?.phase==='held' && actions)actions.append(el('dfStart'));
 
   const on = (id, ev, fn)=>{ const n = el(id); if (n) n.addEventListener(ev, fn); };
   const departmentControls=el('crewDepartmentControls');
