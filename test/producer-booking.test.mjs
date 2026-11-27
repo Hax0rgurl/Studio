@@ -103,6 +103,47 @@ test('shelving an unshot original preserves the draft and requests different pit
   assert.notEqual(starts[0][2].booking.commission.choice.title,old.title);
 });
 
+test('the producer can recommission an undirected original only after two enacted rehearsals fail review',async()=>{
+  for(const choice of ['restage','repitch']){
+    const {ctx,run,starts}=floor(),book=run('bookFilms()');
+    const review=revisionPass=>({revisionPass,verdict:'revise',problems:[{sceneNumber:1,severity:'major',issue:'The hand opens after the door is gone.'}]});
+    const w={stagingNotes:[{sceneNumber:1,at:'first'},{sceneNumber:1,at:'second'}],reviews:[review(1),review(2)],revisionHistory:[]};
+    w.review=w.reviews[1];
+    const p={id:'held-story',status:'running',mode:'idea',steps:{writer:{status:'done'},dp:{status:'waiting'}},
+      booking:{id:book.id,number:book.number,fromSource:false,commission:{choice:{title:'Original',opening:'A hand.',ending:'A door.'}}},writerWork:w};
+    let calls=0;
+    Object.assign(ctx,{p,productionState:()=>p,crewScreenplayDirection:()=>[],crewFind:id=>({id}),crewContext:()=>'',crewScreenplayPages:()=>[],
+      productionCheckpoint:()=>true,crewJsonAgentCall:async(role,prompt,opt,validate)=>{
+        assert.equal(role.id,'producer');calls++;
+        assert.throws(()=>validate({choice,finding:'invented evidence',reason:'reason',nextAction:'stage it'}));
+        return validate({choice,finding:'door is gone',reason:'The reveal cannot be seen.',nextAction:'Start from the audible latch.'});
+      }});
+    w.revisionHistory.push({sceneNumber:1,review:review(0),stagingAt:'first'});await run('crewDevelopmentMeeting(p)');assert.equal(calls,0);
+    w.revisionHistory.push({sceneNumber:1,review:review(1),stagingAt:'second'});
+    await run('crewDevelopmentMeeting(p)');await run('crewDevelopmentMeeting(p)');
+    assert.equal(calls,1);assert.equal(w.producerMeetings.length,1);assert.equal(w.review.verdict,'revise');
+    if(choice==='restage'){assert.ok(!p.shelveRequestedAt);continue;}
+    assert.equal(p.shelveRequestedBy,'producer');p.status='paused';await run('wakeProducer()');
+    assert.equal(p.status,'superseded');assert.match(p.supersededReason,/producer/);
+    const kept=run('readBooking().shelvedOriginals')[p.id];assert.equal(kept.by,'producer');assert.equal(kept.reason,w.producerMeetings[0].reason);
+    assert.equal(starts.length,0);await run('wakeProducer()');assert.equal(starts.length,1);
+    assert.equal(starts[0][2].booking.id,book.id);assert.equal(starts[0][2].booking.number,1);
+  }
+});
+
+test('the producer preserves supplied material, new direction, stopped films and photography',()=>{
+  const {ctx,run}=floor(),book=run('bookFilms()');
+  const p={mode:'idea',status:'running',booking:{id:book.id,number:1,fromSource:false,commission:{choice:{title:'Original'}}}};
+  ctx.book=book;ctx.p=p;
+  const eligible=()=>run('producerOwnsPremise(p,book)');
+  assert.equal(eligible(),true);
+  for(const [obj,key,value] of [[p,'status','cancelled'],[book,'direction','Keep this opening'],[book,'script',{}],[book,'shelfChoice1',{text:'A play'}],
+    [book,'pitchNotes',[{number:1,text:'Keep the prop'}]],[p,'clientNotes',[{text:'Keep this story'}]],[p.booking,'fromSource',true],[p,'jobs',{shot:{}}],[p,'steps',{dp:{status:'done'}}]]){
+    const before=obj[key];obj[key]=value;assert.equal(eligible(),false,key);obj[key]=before;
+  }
+  ctx.S={scenes:[{shots:[{board:{frame:'photo'}}]}]};assert.equal(eligible(),false);
+});
+
 test('an older busy-worker hold wakes after the worker exits and preserves the original brief',async()=>{
   const {ctx,run}=floor();
   const book=run('bookFilms()'), error='Another project worker is running.';

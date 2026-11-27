@@ -3480,6 +3480,8 @@ function crewContext(role, options){
   if(typeof postingTaste==='function'){
     add('PERSONAL PUBLISHING TASTE — EXAMPLES OF WHAT THE FILMMAKER NOTICES. CHOOSE THE LOOK FOR THIS FILM FROM ITS OWN BRIEF.',postingTaste().brief,4000);
   }
+  const meeting=developing && p?.writerWork?.producerMeetings?.at(-1);
+  if(meeting?.choice==='restage')add('PRODUCER’S DEVELOPMENT DECISION',meeting.reason+'\nNew staging assignment: '+meeting.nextAction);
   const pitch=developing && p?.booking?.commission?.choice;
   if(pitch?.opening && pitch?.ending)add('PRODUCER-APPROVED OPENING AND ENDING',
     'Opening: '+pitch.opening+'\nEnding: '+pitch.ending+'\nRead the verbs literally: what moves, what stays in place, who acts, and in what order? The writer’s plan and department proposals are interpretations. Discard invented intermediate actions that contradict these pages. Later filmmaker direction overrides the pitch.');
@@ -5069,7 +5071,7 @@ async function crewRestageScene(work,sceneNumber,edges){
   const pitch=p.booking?.commission?.choice;
   const beats=[pitch?.opening,pitch?.ending].filter(Boolean);
   const last=(work.stagingNotes||[]).filter(n=>n.sceneNumber===sceneNumber).at(-1);
-  if(last?.directionHash===directionHash && (!beats.length||beats.some(beat=>last.pitchQuote && beat.includes(last.pitchQuote))) && current.revisionPass-last.revisionPass<3 && last.revisionPass<=current.revisionPass)return last;
+  if(last?.directionHash===directionHash && last.at>=(work.producerMeetings?.at(-1)?.at||'') && (!beats.length||beats.some(beat=>last.pitchQuote && beat.includes(last.pitchQuote))) && current.revisionPass-last.revisionPass<3 && last.revisionPass<=current.revisionPass)return last;
   const director=crewFind('director');
   const prompt=crewContext(director,{screenplayDevelopment:true})+'\nThe same scene has failed independent story review three drafts in a row. Rehearse it on paper with the writer. Your authority covers crew-invented staging. Preserve explicit filmmaker directions, source facts, story payoff and duration. You can replace an impossible sequence of crew-invented actions with a materially different way to achieve the same beat. Decide what the audience must notice, what to change, and what they see or hear from the opening position to the cut. Test that the next scene can start there. A decision needs to be playable, including contact and release when they matter. Leave out measurements the audience cannot perceive. Return JSON.'+
     '\nFilmmaker direction: '+JSON.stringify(direction)+'\nOriginal crew plan: '+JSON.stringify(work.plan)+
@@ -6951,6 +6953,15 @@ async function crewCall(ask){
           productionCheckpoint(); toast(p.error); return;
         }
       }
+      if(id==='writer' && p.booking && typeof crewDevelopmentMeeting==='function'){
+        await crewDevelopmentMeeting(p);
+        if(CREW.cancel)continue;
+        if(p.shelveRequestedAt){
+          p.status='paused';p.currentStep='';
+          if(!productionCheckpoint())throw Error('Could not save the handoff to the next pitch meeting.');
+          return;
+        }
+      }
       const loopTicket=crewLoopTicket(p,id);
       if (!loopTicket.ok){
         p.status='needs_attention';
@@ -8123,6 +8134,7 @@ function clientScreenplayReview(p,expanded){
   return '<details class="ai-panel" style="max-width:1120px" id="clientScriptReview"'+(expanded?' open':'')+'><summary>Screenplay review · Draft '+
     (Number(review.revisionPass||0)+1)+' · '+(review.verdict==='pass'?'Approved':'Revision requested')+'</summary><p>'+esc(review.clientUpdate||'')+'</p>'
     +(closed.length?'<h4>Resolved in this draft</h4><ul>'+closed.map(text=>'<li>'+esc(text)+'</li>').join('')+'</ul>':'')
+    +(p.writerWork.producerMeetings||[]).slice(-1).map(n=>'<article class="crew-message"><h4>Producer’s development decision · '+(n.choice==='repitch'?'Request new pitches':'Restage scene '+esc(n.sceneNumber))+'</h4><p>'+esc(n.reason)+'</p><p>'+esc(n.nextAction)+'</p></article>').join('')
     +(p.writerWork.stagingNotes||[]).slice(-1).map(n=>'<article class="crew-message"><h4>Director’s rehearsal · Scene '+esc(n.sceneNumber)+' · Draft '+esc(n.revisionPass+1)+'</h4>'+(n.pitchQuote?'<blockquote>'+esc(n.pitchQuote)+'</blockquote>':'')+'<p>'+esc(n.audienceBeat)+'</p><p>'+esc(n.change)+'</p><p>'+esc(n.blocking)+'</p><p>'+esc(n.handoff)+'</p></article>').join('')
     +findings.join('')+'</details>';
 }

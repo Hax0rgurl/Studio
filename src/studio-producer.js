@@ -68,7 +68,47 @@ function canShelveOriginal(p,book){
   if(!p?.booking?.commission?.choice || p.mode!=='idea' || !book || p.booking.id!==book.id || p.booking.number!==book.number) return false;
   const development=['producer','director','story_editor','writer','story_review'];
   return !['complete','superseded','rendering','assembling'].includes(p.status) && !p.images && !p.expectedShotIds?.length &&
-    !Object.keys(p.jobs||{}).length && Object.keys(p.steps||{}).every(role=>development.includes(role));
+    !Object.keys(p.jobs||{}).length && Object.entries(p.steps||{}).every(([role,step])=>development.includes(role) || step.status==='waiting') &&
+    !(typeof S!=='undefined' && S.scenes?.some(sc=>sc.shots?.some(sh=>sh.board?.frame || sh.board?.video || sh.takes?.length)));
+}
+function producerOwnsPremise(p,book){
+  return canShelveOriginal(p,book) && ['running','paused'].includes(p.status) && p.booking.fromSource===false && !book.script && !book.options?.text &&
+    !book['shelfChoice'+book.number]?.text && !String(book.direction||'').trim() && !p.clientNotes?.length &&
+    !p.booking.pitchNotes?.length && !(book.pitchNotes||[]).some(n=>n.number===book.number);
+}
+async function crewDevelopmentMeeting(p){
+  const work=p.writerWork,review=work?.review;
+  if(review?.verdict!=='revise' || !producerOwnsPremise(p,readBooking()) || p.shelveRequestedAt)return;
+  const rehearsals=work.stagingNotes||[],history=work.revisionHistory||[],reviews=work.reviews||[];
+  const tried=rehearsals.filter(note=>history.some(entry=>entry.stagingAt===note.at && entry.sceneNumber===note.sceneNumber &&
+    reviews.some(r=>r.revisionPass===entry.review?.revisionPass+1 && r.verdict==='revise' &&
+      r.problems.some(n=>n.sceneNumber===note.sceneNumber && n.severity!=='minor'))));
+  const recent=tried.at(-1);
+  if(!recent || tried.filter(n=>n.sceneNumber===recent.sceneNumber).length<2 ||
+      !review.problems.some(n=>n.sceneNumber===recent.sceneNumber && n.severity!=='minor') ||
+      work.producerMeetings?.some(n=>n.rehearsalAt===recent.at))return;
+  const filmmaker=crewScreenplayDirection(p),role=crewFind('producer');
+  const prompt=crewContext(role,{screenplayDevelopment:true})+'\nTwo or more director rehearsals reached the written pages and failed independent review. Chair a development meeting. Decide whether this particular opening and payoff are still worth shooting for the filmmaker. Choose restage only for a specifically different, playable approach that addresses the audience problem. Choose repitch if another original deserves this slot. Do not approve the film or waive review. Cite an exact excerpt from a current major finding and explain your decision in plain language for the filmmaker.'+
+    '\nCurrent screenplay: '+JSON.stringify(crewScreenplayPages())+'\nEditorial findings: '+JSON.stringify(review.problems)+
+    '\nAttempted staging: '+JSON.stringify(tried.slice(-3).map(n=>({scene:n.sceneNumber,change:n.change})))+
+    '\nEarlier producer decisions: '+JSON.stringify((work.producerMeetings||[]).slice(-2));
+  const decision=await crewJsonAgentCall(role,prompt,{roleId:'producer',schemaName:'development_decision',workloadId:'department.producer.development.'+review.revisionPass,
+    schema:{type:'object',properties:{choice:{type:'string',enum:['restage','repitch']},finding:{type:'string'},reason:{type:'string'},nextAction:{type:'string'}},required:['choice','finding','reason','nextAction']}},v=>{
+    if(!['restage','repitch'].includes(v?.choice)||![v.reason,v.nextAction,v.finding].every(x=>typeof x==='string'&&x.trim())||
+      v.finding.trim().length<6 || !review.problems.some(n=>n.severity!=='minor' && n.issue.includes(v.finding.trim())))throw Error('Choose restage or repitch, quote a current major finding and give a reason and a next action.');
+    return {choice:v.choice,finding:v.finding.trim(),reason:v.reason.trim(),nextAction:v.nextAction.trim()};
+  });
+  if(productionState()!==p || CREW.cancel || p.status!=='running' || p.shelveRequestedAt ||
+     !producerOwnsPremise(p,readBooking()) || JSON.stringify(filmmaker)!==JSON.stringify(crewScreenplayDirection(p)))return;
+  const at=new Date().toISOString();
+  work.producerMeetings=work.producerMeetings||[];
+  work.producerMeetings.push({...decision,at,rehearsalAt:recent.at,sceneNumber:recent.sceneNumber,revisionPass:review.revisionPass});
+  if(decision.choice==='repitch'){p.shelveRequestedBy='producer';p.shelveRequestedAt=at;}
+  if(!productionCheckpoint()){
+    work.producerMeetings.pop();
+    if(decision.choice==='repitch'){delete p.shelveRequestedBy;delete p.shelveRequestedAt;}
+    throw Error('Could not save the producer’s development decision.');
+  }
 }
 function requestFreshPremises(){
   const p=productionState(),book=readBooking();
@@ -191,10 +231,10 @@ async function commissionOriginal(book,foundation){
   };
   const fit=personal?'\nTasteOS publishing standard for new crew originals: '+posting.brief+
     '\nExcluded premise terms: '+JSON.stringify(posting.excluded)+'. Use the filmmaker’s stated taste and examples to decide whether they would actually post the finished film. Never claim that they posted or liked a work without evidence. Treat examples as evidence of what the filmmaker notices. Find the detail that makes this particular scene. Choose its look from the material.':'';
-  const shelved=Object.values(book.shelvedOriginals||{}).filter(row=>row.number===book.number).map(row=>row.pitch);
+  const shelved=Object.values(book.shelvedOriginals||{}).filter(row=>row.number===book.number);
   const mandate='Filmmaker’s words, binding: '+foundation+'\nFilm-specific direction: '+(book.direction||'Crew original.')+fit+(rules.length?'\nGlobal TasteOS instructions: '+JSON.stringify(rules):'')+
     (notes.length?'\nLatest directions for this film, in order received. These supersede earlier pitch decisions: '+JSON.stringify(notes.map(n=>({to:n.targetRoleId||'crew',direction:n.text}))):'')+
-    (shelved.length?'\nThe filmmaker shelved the following premises for this production. Pitch different stories with different dramatic situations and payoffs. Reject renamed or cosmetically altered repeats: '+JSON.stringify(shelved):'')+
+    (shelved.length?'\nThese earlier premises were shelved for this production. Pitch different stories with different dramatic situations and payoffs. Reject renamed or cosmetically altered repeats: '+JSON.stringify(shelved):'')+
     '\nRunning time: '+(book.options?.targetMinutes?book.options.targetMinutes*60:10)+' seconds.';
   const lessons=screeningBrief(book['screenings'+book.number],true);
   const sameBrief=existing?.foundation===foundation&&existing.postingSignature===postingSignature;
@@ -214,7 +254,7 @@ async function commissionOriginal(book,foundation){
   }
   const pages=pitches.map(({title,opening,ending})=>({title,opening,ending}));
   const permitted=pages.map((p,index)=>({...p,index})).filter(p=>!excludedPitchSubject(pitches[p.index],posting.excluded) &&
-    !shelved.some(old=>old.title.trim().toLowerCase()===p.title.trim().toLowerCase() || (old.opening===p.opening&&old.ending===p.ending)));
+    !shelved.some(({pitch})=>pitch.title.trim().toLowerCase()===p.title.trim().toLowerCase() || (pitch.opening===p.opening&&pitch.ending===p.ending)));
   if(!permitted.length){
     const rejection=shelved.length?'The slate repeats shelved premises or violates the publishing brief. Pitch different stories.':'All three premises contain subjects excluded in TasteOS: '+posting.excluded.join(', ')+'. Pitch different subjects.';
     return checkpointMeeting({stage:'rewrite',pitches,choice:null,reason:rejection,rejection},{stage:'rewrite',note:rejection});
@@ -299,16 +339,23 @@ async function wakeProducer(){
       await tasteLoadSnapshot();
     }
     const foundation=typeof tasteStatement==='function' ? tasteStatement() : '';
+    if(active?.shelveRequestedBy==='producer' && active.shelveRequestedAt && !producerOwnsPremise(active,book)){
+      delete active.shelveRequestedAt;delete active.shelveRequestedBy;
+      if(!productionCheckpoint())throw Error('Could not save the change to the production brief.');
+    }
     if(active?.shelveRequestedAt && canShelveOriginal(active,book)){
       const booking=active.booking;
       book.shelvedOriginals=book.shelvedOriginals||{};
-      book.shelvedOriginals[active.id]={number:book.number,pitch:booking.commission.choice,at:active.shelveRequestedAt};
+      const by=active.shelveRequestedBy==='producer'?'producer':'filmmaker';
+      const meeting=by==='producer'?active.writerWork.producerMeetings.at(-1):null;
+      book.shelvedOriginals[active.id]={number:book.number,pitch:booking.commission.choice,by,at:active.shelveRequestedAt,
+        ...(meeting?{reason:meeting.reason,nextAction:meeting.nextAction}:{})};
       delete book['commission'+book.number];delete book.directedResume;delete book.error;
       delete book.pitchRetryAt;delete book.pitchRetryCount;book.phase='ready';saveBooking(book);
       const previous={status:active.status,currentStep:active.currentStep,error:active.error};
       active.supersededBooking=booking;delete active.booking;
       active.status='superseded';active.currentStep='';active.error='';
-      active.supersededReason='The filmmaker shelved this premise before photography.';
+      active.supersededReason=meeting?'The producer shelved this unshot original. '+meeting.reason:'The filmmaker shelved this premise before photography.';
       if(!productionCheckpoint()){
         Object.assign(active,previous,{booking});delete active.supersededBooking;delete active.supersededReason;
         throw Error('Could not preserve the shelved draft in Projects.');
