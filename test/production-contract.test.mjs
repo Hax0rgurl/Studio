@@ -1485,3 +1485,31 @@ test('a returning prop master keeps a filmmaker-authored entry intact',async()=>
   assert.equal(result.status,'skipped');assert.equal(result.artifact.preserved,1);
   assert.equal(ctx.S.bibles.props.key,entry);
 });
+
+test('the audience reader can send an editor-approved original back without seeing the pitch rationale',async()=>{
+  const p={mode:'idea',booking:{id:'book',commission:{choice:{whyWatch:'PRIVATE SALES PITCH'}}}};
+  const w={plan:{},reviews:[],revisionPass:0};const ctx={productionState:()=>p,crewWriterWork:()=>w,S:{scenes:[{num:1,text:'She strikes the ice. The steel vibrates.',slug:'EXT. LAKE'}]},
+    crewContext:()=>'',crewFind:id=>({id}),CREW_SCREENPLAY_REVIEW_SCHEMA:{},crewProgressHash:()=>'',previousPremiseFeedback:()=>[],
+    productionCheckpoint:()=>true,crewArtifactRef:()=>({}),crewJsonAgentCall:async(role,prompt,opt,validate)=>{
+      if(role.id==='taste'){assert.doesNotMatch(prompt,/PRIVATE SALES PITCH|The impact mirrors her grief/);
+        return validate({judgment:'incident_only',scene:1,evidence:'The steel vibrates.',reason:'The only change is the motion of the tool.',requiredChange:'Find a reason to care about this action.'});}
+      return validate({verdict:'pass',problems:[],audience:{setup:'She strikes the ice.',payoff:'The steel vibrates.',effect:'The impact mirrors her grief.'}});
+    }};
+  const review=loadFunction('function crewScreenplayPages','function crewCoverageConstraintText','crewReviewScreenplay',ctx);
+  await review({id:'story_review'},'');assert.equal(w.review.verdict,'revise');assert.equal(w.review.problems[0].severity,'major');
+  assert.equal(w.review.audienceRead.judgment,'incident_only');
+});
+
+test('a bible retry validates substantive content and resumes at the missing entity',async()=>{
+  const p={},names=['door','key'];let fail=true;const calls=[];
+  const ctx={productionState:()=>p,S:{bibles:{props:{}}},filmmakerBibleEntry:()=>false,autoBibles(){},crewBibleNames:()=>names,
+    crewBibleScenes:()=>[{num:1,text:'She opens the door with a key.'}],crewProgressHash:x=>x,crewContext:()=>'',CREW_BIBLE_SCHEMA:{},persistNow:()=>true,
+    crewArtifactRef:()=>({}),crewJsonAgentCall:async(role,prompt,opts,validate)=>{
+      const name=prompt.includes('"door"')?'door':'key';calls.push(name);assert.throws(()=>validate({canonicalDescription:''}),/finished description/);
+      if(name==='key'&&fail)throw Error('network');
+      return validate({canonicalDescription:'A physical prop established by the screenplay.',unknowns:[],supportedFacts:[],continuityProposals:[],evidenceScenes:['1']});
+    }};
+  const run=loadFunction('async function crewBibleJob','async function crewDataUrlBlob','crewBibleJob',ctx);
+  await assert.rejects(run({id:'prop_master',at:'prop-master'},'props',''),/network/);
+  fail=false;assert.equal((await run({id:'prop_master',at:'prop-master'},'props','')).status,'done');assert.deepEqual(calls,['door','key','key']);
+});

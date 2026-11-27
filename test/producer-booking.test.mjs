@@ -15,7 +15,7 @@ function floor(){
   vm.runInContext(producer,ctx);
   ctx.aiParseJson=JSON.parse;
   ctx.screeningSheet=async sample=>sample.images.join(',');
-  ctx.floorChat=async (model,role)=>JSON.stringify(role.startsWith('Director')?{pitches:['A','B','C'].map(title=>({title,opening:'Setup',ending:'Payoff',whyWatch:'A reversal'}))}:{index:1,reason:'The second ending resolves the opening question.',setupQuote:'Setup',payoffQuote:'Payoff',blockingGap:''});
+  ctx.floorChat=async (model,role)=>JSON.stringify(role.startsWith('Director')?{pitches:['A','B','C'].map(title=>({title,opening:'Setup',ending:'Payoff',whyWatch:'A reversal'}))}:{index:1,reason:'The second ending resolves the opening question.',setupQuote:'Setup',payoffQuote:'Payoff',storyJudgment:'earned',humanReason:'The reversal changes who has the power in the scene.',blockingGap:''});
   return {ctx,starts,run:source=>vm.runInContext(source,ctx)};
 }
 
@@ -319,7 +319,7 @@ test('publishing taste excludes listed subjects before the vote and requires evi
   ctx.floorChat=async(_,role,prompt)=>{
     if(role.startsWith('Director')){directorCalls++;return JSON.stringify({pitches});}
     seen.push(JSON.parse(prompt.slice(prompt.lastIndexOf('\n')+1)));
-    return JSON.stringify({index:1,reason:'Labor is invisible.',setupQuote:'clocks in',payoffQuote:'stays behind',blockingGap:'',postingEvidence:cited,postingReason:'The abandoned timecard makes overtime visible.'});
+    return JSON.stringify({index:1,reason:'Labor is invisible.',setupQuote:'clocks in',payoffQuote:'stays behind',storyJudgment:'earned',humanReason:'The reversal changes who has the power in the scene.',blockingGap:'',postingEvidence:cited,postingReason:'The abandoned timecard makes overtime visible.'});
   };
   const book=run('bookFilms()');
   assert.equal((await ctx.commissionOriginal(book,'')).choice,null);
@@ -341,7 +341,7 @@ test('local commissioning requests a structured slate and a ballot tied to perso
     if(calls.length===1)return JSON.stringify({pitches:['One','Two','Three'].map(title=>({
       title,opening:'The machine whistles.',ending:'A bird answers.',whyWatch:'The outside answers the factory.'}))});
     return JSON.stringify({index:0,reason:'The whistle gets an unexpected answer.',setupQuote:'machine whistles',
-      payoffQuote:'bird answers',blockingGap:'',postingEvidence:'One sound that catches my ear.',postingReason:'The two calls make the exchange legible.'});
+      payoffQuote:'bird answers',storyJudgment:'earned',humanReason:'The reversal changes who has the power in the scene.',blockingGap:'',postingEvidence:'One sound that catches my ear.',postingReason:'The two calls make the exchange legible.'});
   };
   const book=run('bookFilms()');book.textModel='qwen3.5:latest';
   const decision=await ctx.commissionOriginal(book,'');
@@ -363,7 +363,7 @@ test('the producer can select a stored publishing passage and keeps the actual e
       return JSON.stringify({pitches:['Bell','Lever','Scale'].map(title=>({title,opening:'A bell rings.',ending:'The bird answers.',whyWatch:'A counterfeit alarm.'}))});
     }
     assert.match(prompt,/"T1":"The sound reveals who is outside\."/);
-    return JSON.stringify({index:0,setupQuote:'bell rings',payoffQuote:'bird answers',blockingGap:'',reason:'The answer identifies the intruder.',
+    return JSON.stringify({index:0,setupQuote:'bell rings',payoffQuote:'bird answers',storyJudgment:'earned',humanReason:'The reversal changes who has the power in the scene.',blockingGap:'',reason:'The answer identifies the intruder.',
       postingEvidence:passage,postingReason:'The answer from the bird gives the sound a source.'});
   };
   let meeting=await ctx.commissionOriginal(book,'');
@@ -408,7 +408,7 @@ test('the director revises the rejected story with the producer’s note and han
     }
     return JSON.stringify(drafts===1?{index:-1,reason:'Establish who controls the light.'}:
       {index:0,reason:'Closing the shop becomes a deliberate choice.',setupQuote:'holds the light switch',
-        payoffQuote:'last bulb goes out',blockingGap:''});
+        payoffQuote:'last bulb goes out',storyJudgment:'earned',humanReason:'The reversal changes who has the power in the scene.',blockingGap:''});
   };
   await run('wakeProducer()');
   assert.equal(starts.length,0);
@@ -442,4 +442,17 @@ test('a timed-out pitch vote resumes on its saved pages after backoff without to
   await run('wakeProducer()');
   assert.equal(run('readBooking().phase'),'held');
   assert.equal(votes,2);
+});
+
+test('a causal visual effect with valid citations still goes back to the director if the producer finds no story',async()=>{
+  const {ctx,run,starts}=floor(),chat=ctx.floorChat;
+  ctx.floorChat=async(model,role,...args)=>{
+    const reply=JSON.parse(await chat(model,role,...args));
+    if(role.startsWith('Director'))return JSON.stringify(reply);
+    return JSON.stringify({...reply,storyJudgment:'incident_only',humanReason:'The vibration explains the collision, but nothing in that outcome matters to anyone.'});
+  };
+  await run('wakeProducer()');
+  const meeting=run('readBooking().commission1');
+  assert.equal(starts.length,0);assert.equal(meeting.choice,null);assert.equal(meeting.stage,'rewrite');
+  assert.match(meeting.rejection,/nothing in that outcome matters/);
 });

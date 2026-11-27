@@ -66,13 +66,12 @@ function bookingNeedsPhotoDecision(book){
 }
 function canShelveOriginal(p,book){
   if(!p?.booking?.commission?.choice || p.mode!=='idea' || !book || p.booking.id!==book.id || p.booking.number!==book.number) return false;
-  const development=['producer','director','story_editor','writer','story_review'];
   return !['complete','superseded','rendering','assembling'].includes(p.status) && !p.images && !p.expectedShotIds?.length &&
-    !Object.keys(p.jobs||{}).length && Object.entries(p.steps||{}).every(([role,step])=>development.includes(role) || step.status==='waiting') &&
+    !Object.keys(p.jobs||{}).length &&
     !(typeof S!=='undefined' && S.scenes?.some(sc=>sc.shots?.some(sh=>sh.board?.frame || sh.board?.video || sh.takes?.length)));
 }
 function producerOwnsPremise(p,book){
-  return canShelveOriginal(p,book) && ['running','paused'].includes(p.status) && p.booking.fromSource===false && !book.script && !book.options?.text &&
+  return canShelveOriginal(p,book) && Object.entries(p.steps||{}).every(([role,step])=>['producer','director','story_editor','writer','story_review'].includes(role)||step.status==='waiting') && ['running','paused'].includes(p.status) && p.booking.fromSource===false && !book.script && !book.options?.text &&
     !book['shelfChoice'+book.number]?.text && !String(book.direction||'').trim() && !p.clientNotes?.length &&
     !p.booking.pitchNotes?.length && !(book.pitchNotes||[]).some(n=>n.number===book.number);
 }
@@ -110,11 +109,11 @@ async function crewDevelopmentMeeting(p){
     throw Error('Could not save the producer’s development decision.');
   }
 }
-function requestFreshPremises(){
+function requestFreshPremises(reason=''){
   const p=productionState(),book=readBooking();
   if(!canShelveOriginal(p,book)||p.shelveRequestedAt) return;
-  p.shelveRequestedAt=new Date().toISOString();
-  if(!productionCheckpoint()){delete p.shelveRequestedAt;toast('Could not save the request to shelve this premise.');return;}
+  p.shelveRequestedAt=new Date().toISOString();p.filmmakerRejection=String(reason||'').trim();
+  if(!productionCheckpoint()){delete p.shelveRequestedAt;delete p.filmmakerRejection;toast('Could not save the request to shelve this premise.');return;}
   if(CREW.calling) CREW.cancel=true;
   wakeProducer();
 }
@@ -193,6 +192,12 @@ function sendMeetingDirection(text,roleId,bookId,number){
   try{saveBooking(book);}catch(error){toast('Could not save the pitch direction.');return false;}
   toast('Direction received for this film.',true);return true;
 }
+function previousPremiseFeedback(){
+  return (DB.projects||[]).flatMap(project=>(project.drafts||[]).map(d=>d.state?.production))
+    .filter(p=>p?.status==='superseded' && p.filmmakerRejection && p.supersededBooking?.commission?.choice)
+    .sort((a,b)=>String(b.shelveRequestedAt).localeCompare(String(a.shelveRequestedAt))).slice(0,8)
+    .map(p=>({premise:p.supersededBooking.commission.choice.title,filmmaker:p.filmmakerRejection}));
+}
 async function commissionOriginal(book,foundation){
   const key='commission'+book.number;
   const existing=book[key];
@@ -232,7 +237,7 @@ async function commissionOriginal(book,foundation){
   const fit=personal?'\nTasteOS publishing standard for new crew originals: '+posting.brief+
     '\nExcluded premise terms: '+JSON.stringify(posting.excluded)+'. Use the filmmaker’s stated taste and examples to decide whether they would actually post the finished film. Never claim that they posted or liked a work without evidence. Treat examples as evidence of what the filmmaker notices. Find the detail that makes this particular scene. Choose its look from the material.':'';
   const shelved=Object.values(book.shelvedOriginals||{}).filter(row=>row.number===book.number);
-  const mandate='Filmmaker’s words, binding: '+foundation+'\nFilm-specific direction: '+(book.direction||'Crew original.')+fit+(rules.length?'\nGlobal TasteOS instructions: '+JSON.stringify(rules):'')+
+  const mandate='Filmmaker’s words, binding: '+foundation+'\nFilmmaker feedback on rejected originals (use the stated reason; do not infer a genre ban): '+JSON.stringify(previousPremiseFeedback())+'\nFilm-specific direction: '+(book.direction||'Crew original.')+fit+(rules.length?'\nGlobal TasteOS instructions: '+JSON.stringify(rules):'')+
     (notes.length?'\nLatest directions for this film, in order received. These supersede earlier pitch decisions: '+JSON.stringify(notes.map(n=>({to:n.targetRoleId||'crew',direction:n.text}))):'')+
     (shelved.length?'\nThese earlier premises were shelved for this production. Pitch different stories with different dramatic situations and payoffs. Reject renamed or cosmetically altered repeats: '+JSON.stringify(shelved):'')+
     '\nRunning time: '+(book.options?.targetMinutes?book.options.targetMinutes*60:10)+' seconds.';
@@ -267,7 +272,7 @@ async function commissionOriginal(book,foundation){
   };
   const ballotFields={
     index:{type:'integer',enum:[-1,...permitted.map(p=>p.index)]},
-    reason:{type:'string'},blockingGap:{type:'string'},
+    storyJudgment:{type:'string',enum:['earned','incident_only','unearned']},humanReason:{type:'string'},reason:{type:'string'},blockingGap:{type:'string'},
     setupQuote:quoteOptions(permitted.map(p=>p.opening)),payoffQuote:quoteOptions(permitted.map(p=>p.ending))
   };
   const tastePassages=quoteOptions([posting.brief,foundation,...rules]).enum.slice(1);
@@ -278,7 +283,7 @@ async function commissionOriginal(book,foundation){
   }
   const ballotSchema={type:'object',additionalProperties:false,required:Object.keys(ballotFields),properties:ballotFields};
   const ballot=await consult('Independent commissioning producer',mandate+lessons+(sameBrief&&existing.stage==='voting'&&existing.rejection?'\nCorrect the producer’s previous decision on these same pages: '+existing.rejection:'')+
-    '\nRead what the viewer will see or hear. Identify the particular detail that makes the scene. What does the closing beat let them notice, feel or want to see next? Judge the premise on its own terms. An impossible event can be deliberate. Test whether positions, contact and consequences stay consistent with what the film establishes. If a reveal needs an impossible hiding place, an unmotivated transformation, or missing time, count it as a blockingGap unless that specific effect is intentional and established. Recognizing a familiar setting alone earns no greenlight. What makes the opening worth staying for? What in that opening earns the ending? Flag an unintroduced prop solving the story or conflicting instructions about the same action. Surreal and observational films can earn the ending through a legible visual or emotional connection. Check whether someone can read the change in the allotted time. An earlier film’s prop or technique is never evidence for a beat on these pages.'+
+    '\nRead this as someone deciding whether to keep watching. Set storyJudgment to incident_only if all you can describe is an unusual thing happening and its physical aftermath. Set it to unearned if the writing leaves the human reason to care in the pitch explanation. Either requires new pitches. For earned, state in humanReason what matters to a viewer before the change and how the payoff alters that understanding. A joke, recollection, desire, revealing observation or fright can earn its own form. A consequence measured in motion, material or camera technique alone cannot. Read what the viewer will see or hear. Identify the particular detail that makes the scene. What does the closing beat let them notice, feel or want to see next? Judge the premise on its own terms. An impossible event can be deliberate. Test whether positions, contact and consequences stay consistent with what the film establishes. If a reveal needs an impossible hiding place, an unmotivated transformation, or missing time, count it as a blockingGap unless that specific effect is intentional and established. Recognizing a familiar setting alone earns no greenlight. What makes the opening worth staying for? What in that opening earns the ending? Flag an unintroduced prop solving the story or conflicting instructions about the same action. Surreal and observational films can earn the ending through a legible visual or emotional connection. Check whether someone can read the change in the allotted time. An earlier film’s prop or technique is never evidence for a beat on these pages.'+
     '\nReturn JSON with index (0, 1, 2 or -1 to reject all) and reason. For a selection also include setupQuote copied exactly from opening, payoffQuote copied exactly from ending, and blockingGap (an empty string only if there is no missing connection). In reason explain how those specific beats connect and why watching the payoff matters. If none of the eligible pitches work, choose -1 and leave the selection evidence fields empty. Name the most promising beat and one concrete revision that could earn it a greenlight, or explain why the director needs a different premise. A deliberate impossibility established on screen is a premise. A blocking gap is a missing step that prevents the audience from following that premise. Only flag gaps that materially affect the viewing experience.\n'+ (personal?' Set postingEvidence to the ID of one passage below and explain in postingReason how a specific beat earns that connection. Use the original pitch index. Publishing passages: '+JSON.stringify(citations):'')+'\n'+JSON.stringify(permitted),0.35,ballotSchema);
   if(directionsChanged())return {choice:null};
   if(!Number.isInteger(ballot.index)||ballot.index< -1||ballot.index>2||!String(ballot.reason||'').trim())throw Error('The producer returned an incomplete commissioning decision.');
@@ -306,8 +311,13 @@ async function commissionOriginal(book,foundation){
       rejection='The producer must connect the chosen beat to the filmmaker’s own stated publishing taste.';
     }
   }
+  if(pick&&!rejection){
+    if(!['earned','incident_only','unearned'].includes(ballot.storyJudgment)||!String(ballot.humanReason||'').trim()){
+      needsCorrectBallot=true;rejection='Read the story on the page. Supply storyJudgment and the human reason to watch.';
+    }else if(ballot.storyJudgment!=='earned')rejection=ballot.humanReason;
+  }
   const choice=rejection?null:pitches[ballot.index];
-  const storyEvidence=choice?{setup:ballot.setupQuote.trim(),payoff:ballot.payoffQuote.trim()}:null;
+  const storyEvidence=choice?{humanReason:ballot.humanReason,setup:ballot.setupQuote.trim(),payoff:ballot.payoffQuote.trim()}:null;
   const stage=choice?'approved':needsCorrectBallot?'voting':'rewrite';
   return checkpointMeeting({stage,pitches,choice,reason:ballot.reason,storyEvidence,postingReason:choice&&personal?ballot.postingReason:'',postingEvidence:choice&&personal?evidence:'',rejection},
     {stage,reason:ballot.reason,note:rejection});
@@ -349,7 +359,7 @@ async function wakeProducer(){
       const by=active.shelveRequestedBy==='producer'?'producer':'filmmaker';
       const meeting=by==='producer'?active.writerWork.producerMeetings.at(-1):null;
       book.shelvedOriginals[active.id]={number:book.number,pitch:booking.commission.choice,by,at:active.shelveRequestedAt,
-        ...(meeting?{reason:meeting.reason,nextAction:meeting.nextAction}:{})};
+        ...(meeting?{reason:meeting.reason,nextAction:meeting.nextAction}:active.filmmakerRejection?{reason:active.filmmakerRejection}:{})};
       delete book['commission'+book.number];delete book.directedResume;delete book.error;
       delete book.pitchRetryAt;delete book.pitchRetryCount;book.phase='ready';saveBooking(book);
       const previous={status:active.status,currentStep:active.currentStep,error:active.error};

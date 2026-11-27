@@ -5287,6 +5287,25 @@ async function crewReviewScreenplay(role,ask){
       }
       return review;
     });
+  if(value.verdict==='pass' && p.booking?.commission?.choice){
+    const taste=crewFind('taste');
+    const prompt='Read only the supplied screenplay as someone watching it. In plain words, what happens, why would anyone care, and what changes for them at the end? The writer’s intentions are unavailable. If the experience amounts to a striking incident followed by its physical aftermath, say incident_only. If the pages fail to earn the intended feeling or laugh, say unearned. Say earned only when you can explain why the ending matters from what is actually played. A quiet memory, joke, horror story, or discovery can earn an ending on its own terms. Do not count technique, novelty, realistic physics or a claimed social-media reaction as a human payoff. The filmmaker’s actual directions and prior feedback follow. Return judgment, reason, a scene number, and a literal passage supporting your reading. For rejection include a useful requiredChange for the crew.'+
+      '\nFilmmaker: '+JSON.stringify(direction)+'\nPrevious filmmaker feedback: '+JSON.stringify(previousPremiseFeedback())+'\nScreenplay: '+JSON.stringify(pages);
+    const fields=['judgment','reason','evidence','requiredChange'];
+    const read=await crewJsonAgentCall(taste,prompt,{roleId:'taste',workloadId:'department.taste.screenplay.'+work.revisionPass,
+      schemaName:'screenplay_audience_read',schema:{type:'object',properties:{...Object.fromEntries(fields.map(k=>[k,{type:'string'}])),
+      judgment:{type:'string',enum:['earned','incident_only','unearned']},scene:{type:'integer'}},required:[...fields,'scene']}},r=>{
+      if(!['earned','incident_only','unearned'].includes(r?.judgment)||!String(r.reason||'').trim()||typeof r.evidence!=='string'||r.evidence.trim().length<6 ||
+        !pages.some(page=>String(page.scene)===String(r.scene)&&page.text.includes(r.evidence.trim())) ||
+        (r.judgment!=='earned'&&!String(r.requiredChange||'').trim()))throw Error('Give a plain-language judgment and quote the identified scene. Rejections need a change for the crew.');
+      return r;
+    });
+    value.audienceRead=read;
+    if(read.judgment!=='earned'){
+      value.verdict='revise';value.clientUpdate=read.reason;
+      value.problems.push({severity:'major',sceneNumber:read.scene,evidence:read.evidence,issue:read.reason,requiredChange:read.requiredChange,viewerConsequence:read.reason});
+    }
+  }
   value.directionHash=crewProgressHash(JSON.stringify(direction));
   value.sceneHashes=Object.fromEntries(pages.map(page=>[page.scene,crewProgressHash(JSON.stringify([page.slug,page.text]))]));
   value.pagesHash=crewProgressHash(JSON.stringify(pages)); value.reviewedPages=true; value.reviewedAt=new Date().toISOString(); value.revisionPass=work.revisionPass||0;
@@ -6004,32 +6023,40 @@ async function crewBibleJob(role, kind, ask){
   for (const name of names){
     if(filmmakerBibleEntry(S.bibles[kind]?.[name])){preserved++;continue;}
     const scenes=crewBibleScenes(kind,name);
+    const input=crewProgressHash(JSON.stringify([ask,scenes.map(sc=>[sc.num,sc.text]),p?.clientNotes||[],typeof tasteStatement==='function'?tasteStatement():'']));
+    const prior=p?.bibleProgress?.[kind]?.[name];
+    if(prior?.input===input && prior.entryHash===crewProgressHash(JSON.stringify(S.bibles[kind][name]))){completed++;continue;}
     const current=((S.bibles[kind]||{})[name]||{}).desc||'';
     const user=crewContext(role,{scenes,fullScene:true,extra:'ENTITY TO DOCUMENT: '+name+'\nBIBLE TYPE: '+kind
       +(current?'\nDeterministic script seed (evidence, not permission to invent): '+current:'')})
       +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
       +'\n\nWrite the canonical production bible entry required by your skill book. Separate facts directly supported by the screenplay from continuity proposals and unknowns. '
       +'Do not convert a proposal into a fact. The canonical description must be concrete enough for another department to reproduce the entity consistently, while saying unknown when the script does not decide something.';
-    let raw='',value;
-    try{
-      raw=await aiStream(crewJsonRepairSystem(role),user,null,null,{temperature:0.3,json:true,schema:CREW_BIBLE_SCHEMA,schemaName:'production_bible_entry',roleId:role.id,workloadId:'department.'+role.id,artifactType:'bible'});
-      value=aiParseJson(raw);
-    }catch(firstError){
-      const repair=user+'\n\nVALIDATION FAILURE: '+String((firstError&&firstError.message)||firstError)
-        +'\nReturn the complete corrected bible entry. Previous response:\n'+String(raw||'').slice(0,18000);
-      value=aiParseJson(await aiStream(crewJsonRepairSystem(role),repair,null,null,
-        {temperature:0.1,json:true,schema:CREW_BIBLE_SCHEMA,schemaName:'production_bible_entry',roleId:role.id,workloadId:'department.'+role.id+'.repair',artifactType:'bible'}));
-    }
-    const desc=String(value&&value.canonicalDescription||'').trim();
-    if (desc.length<24) throw new Error('The '+role.title+' returned no substantive entry for '+name+'.');
+    const value=await crewJsonAgentCall(role,user+'\nReturn one object for '+JSON.stringify(name)+'. Put the finished description directly in canonicalDescription. The valid scene numbers are '+scenes.map(sc=>sc.num).join(', ')+'.',
+      {temperature:0.3,schema:CREW_BIBLE_SCHEMA,schemaName:'production_bible_entry',roleId:role.id,workloadId:'department.'+role.id,artifactType:'bible'},entry=>{
+        if(typeof entry?.canonicalDescription!=='string' || entry.canonicalDescription.trim().length<24)
+          throw Error('Write the finished description of '+name+' in the top-level string canonicalDescription.');
+        for(const field of ['supportedFacts','continuityProposals','unknowns','evidenceScenes']){
+          if(!Array.isArray(entry[field]) || entry[field].some(x=>typeof x!=='string'))throw Error('Return '+field+' as an array of strings.');
+        }
+        if(!entry.evidenceScenes.length || entry.evidenceScenes.some(n=>!scenes.some(sc=>String(sc.num)===n.trim())))
+          throw Error('Cite scene numbers from this entry’s evidence in evidenceScenes.');
+        return entry;
+      });
+    const desc=value.canonicalDescription.trim();
     S.bibles[kind][name]={desc,src:'crew:'+role.at,auto:false,
       supportedFacts:(value.supportedFacts||[]).map(String).filter(Boolean).slice(0,40),
       continuityProposals:(value.continuityProposals||[]).map(String).filter(Boolean).slice(0,30),
       unknowns:(value.unknowns||[]).map(String).filter(Boolean).slice(0,30),
       evidenceScenes:(value.evidenceScenes||[]).map(String).filter(Boolean).slice(0,50)};
+    if(p){
+      p.bibleProgress=p.bibleProgress||{};p.bibleProgress[kind]=p.bibleProgress[kind]||{};
+      p.bibleProgress[kind][name]={input,entryHash:crewProgressHash(JSON.stringify(S.bibles[kind][name]))};
+    }
     completed++;
     if (!persistNow()) throw new Error('The bible entry for '+name+' could not be saved.');
   }
+  if(p?.bibleProgress)delete p.bibleProgress[kind];
   const summary=[completed?'Wrote '+completed+' '+kind+' bible entries':'',preserved?'Kept '+preserved+' filmmaker entries':''].filter(Boolean).join('. ');
   return {status:completed?'done':'skipped',text:summary+'.',
     artifact:crewArtifactRef('bibles',role.title+' bibles','bibles',summary,{bibleKind:kind,count:completed+preserved,preserved})};
@@ -6830,6 +6857,7 @@ function crewReadyRoles(p){
       if(!review?.reviewedPages || review.pagesHash!==pagesHash)return ['story_review'];
       if(review.directionHash && review.directionHash!==crewProgressHash(JSON.stringify(crewScreenplayDirection(p))))return ['story_review'];
       if(review.verdict==='revise')return ['writer'];
+      if(p.booking?.commission?.choice && review.audienceRead?.judgment!=='earned')return ['story_review'];
       if(review.verdict!=='pass')return ['story_review'];
     }
     if(!crewRoleFinished(p,roleId))return [roleId];
@@ -7544,7 +7572,13 @@ function doubleFeatureControls(){
     el('dfShelve').disabled=!!productionState()?.shelveRequestedAt;
     dashboardScreenings(screenings);
   };
-  el('dfShelve').onclick=()=>{requestFreshPremises();showBooking();};
+  el('dfShelve').onclick=()=>{
+    const film=productionState();
+    promptModal('Reject this premise · What should the crew learn?','',reason=>{
+      if(productionState()!==film){toast('The film changed. Your rejection was not applied.');return;}
+      requestFreshPremises(reason);showBooking();
+    });
+  };
   showBooking();
   const renderChoice=el('dfPlugin');for(const plugin of studioPlugins())renderChoice.add(new Option(plugin.name,plugin.url));
   renderChoice.value=localStorage.getItem('studio.renderer')||'';if(renderChoice.selectedIndex<0)renderChoice.value='';renderChoice.onchange=()=>{localStorage.setItem('studio.renderer',renderChoice.value);crewConnect().then(renderCrew);};
@@ -8133,6 +8167,7 @@ function clientScreenplayReview(p,expanded){
   });
   return '<details class="ai-panel" style="max-width:1120px" id="clientScriptReview"'+(expanded?' open':'')+'><summary>Screenplay review · Draft '+
     (Number(review.revisionPass||0)+1)+' · '+(review.verdict==='pass'?'Approved':'Revision requested')+'</summary><p>'+esc(review.clientUpdate||'')+'</p>'
+    +(review.audienceRead?'<article class="crew-message"><h4>TasteOS audience read</h4><p>'+esc(review.audienceRead.reason)+'</p><blockquote>'+esc(review.audienceRead.evidence)+'</blockquote></article>':'')
     +(closed.length?'<h4>Resolved in this draft</h4><ul>'+closed.map(text=>'<li>'+esc(text)+'</li>').join('')+'</ul>':'')
     +(p.writerWork.producerMeetings||[]).slice(-1).map(n=>'<article class="crew-message"><h4>Producer’s development decision · '+(n.choice==='repitch'?'Request new pitches':'Restage scene '+esc(n.sceneNumber))+'</h4><p>'+esc(n.reason)+'</p><p>'+esc(n.nextAction)+'</p></article>').join('')
     +(p.writerWork.stagingNotes||[]).slice(-1).map(n=>'<article class="crew-message"><h4>Director’s rehearsal · Scene '+esc(n.sceneNumber)+' · Draft '+esc(n.revisionPass+1)+'</h4>'+(n.pitchQuote?'<blockquote>'+esc(n.pitchQuote)+'</blockquote>':'')+'<p>'+esc(n.audienceBeat)+'</p><p>'+esc(n.change)+'</p><p>'+esc(n.blocking)+'</p><p>'+esc(n.handoff)+'</p></article>').join('')
