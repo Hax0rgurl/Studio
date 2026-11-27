@@ -3471,12 +3471,13 @@ function crewContext(role, options){
   };
   const foundation=typeof tasteStatement==='function'?tasteStatement():'';
   if(foundation)add('FILMMAKER’S STANDING DIRECTION — ALL PRODUCTIONS',foundation,12000);
+  if(p?.booking?.replacement)add('FILMMAKER’S SUPPLIED FILM BRIEF — BINDING',p.booking.replacement,24000);
   const notes=crewClientNotes(p).slice().reverse();
   const department=role?.greenroomRoleId||roleId;
   const direct=note=>!note.targetRoleId||note.targetRoleId===roleId||note.targetRoleId===department;
   const noteText=note=>'['+String(note.at||'').slice(0,19)+'] '+(note.targetRoleId?'TO @'+String((crewFind(note.targetRoleId)||{}).at||note.targetRoleId)+': ':'TO THE CREW: ')+String(note.text||'');
-  add('FILMMAKER DIRECTION — BINDING, LATEST WORDS WIN',notes.filter(direct).slice(0,30).map(noteText).join('\n'),8000);
-  add('FILMMAKER DIRECTION TO OTHER DEPARTMENTS',notes.filter(note=>!direct(note)).slice(0,30).map(noteText).join('\n'),4000);
+  add('FILMMAKER DIRECTION — BINDING, LATEST WORDS WIN',notes.filter(direct).slice(0,30).reverse().map(noteText).join('\n'),8000);
+  add('FILMMAKER DIRECTION TO OTHER DEPARTMENTS',notes.filter(note=>!direct(note)).slice(0,30).reverse().map(noteText).join('\n'),4000);
   if(typeof postingTaste==='function'){
     add('PERSONAL PUBLISHING TASTE — EXAMPLES OF WHAT THE FILMMAKER NOTICES. CHOOSE THE LOOK FOR THIS FILM FROM ITS OWN BRIEF.',postingTaste().brief,4000);
   }
@@ -3576,6 +3577,8 @@ async function crewFetchJson(path, opts){
   if(typeof studioDesktop==='function' && studioDesktop() && opts?.body && ['/api/image/generate','/api/video/queue-batch','/api/video/jobs','/api/video/assemble'].includes(path)){
     const data=JSON.parse(opts.body);
     const receipt=floorProduction(),provider=String(data.providerId||'');
+    if(['/api/video/queue-batch','/api/image/generate'].includes(path) && typeof filmmakerIntervention==='function' && filmmakerIntervention(productionState()))
+      throw Error('The filmmaker stopped this production before submission.');
     if(['/api/video/queue-batch','/api/image/generate'].includes(path) && provider && !provider.startsWith('studio-'))
       throw Error('Select a built-in Studio provider or a configured 480p renderer before spending credits.');
     if((!provider && receipt) || provider.startsWith('studio-')){
@@ -3699,7 +3702,8 @@ async function crewEnsureServices(){
 }
 function productionState(){ return S.production && typeof S.production==='object' ? S.production : null; }
 function crewClientNotes(p){ return Array.isArray(p&&p.clientNotes) ? p.clientNotes : []; }
-function crewAddClientNote(text,targetRoleId){
+function crewAddClientNote(text,targetRoleId){return crewSaveClientNote(text,targetRoleId);}
+function crewSaveClientNote(text,targetRoleId,kind){
   const p=productionState(), note=String(text||'').trim();
   if(note && typeof submitProduction==='function' && window.__TAURI__?.core && !p && !targetRoleId){submitProduction(note);return true;}
   if (!p){ toast('Start or open a production before sending direction to the crew.'); return false; }
@@ -3710,7 +3714,7 @@ function crewAddClientNote(text,targetRoleId){
   const screening=p.status==='complete'&&S.cut?.productionRunId===p.id;
   const guard=p.orchestration?.loopGuard, previousStages=guard?.stages;
   p.clientNotes=prior.concat([{
-    id:'client_'+uid(), text:note, kind:screening?'screening':'direction', at:new Date().toISOString(),
+    id:'client_'+uid(), text:note, kind:screening?'screening':(['veto','replacement'].includes(kind)?kind:'direction'), at:new Date().toISOString(),
     afterStep:p.currentStep||'', projectId:ACTIVE.p, draftId:ACTIVE.d, targetRoleId:target
   }]);
   // Human direction is an explicit new phase input. It is the only UI action
@@ -3722,7 +3726,12 @@ function crewAddClientNote(text,targetRoleId){
     toast('Agentic Movie Studio could not save your direction. Free local storage and try again.');
     return false;
   }
-  if(p.booking && ['needs_attention','paused','cancelled'].includes(p.status) && !crewUnprovenJobs(p).length){
+  const veto=typeof filmmakerIntervention==='function' && filmmakerIntervention(p);
+  if(veto){
+    if(CREW.calling||CREW.busy)CREW.cancel=true;
+    wakeProducer();
+  }
+  if(!veto && p.booking && ['needs_attention','paused','cancelled'].includes(p.status) && !crewUnprovenJobs(p).length){
     const book=readBooking();
     if(book?.id===p.booking.id && book.number===p.booking.number && !bookingNeedsPhotoDecision(book)){book.phase='ready';book.directedResume=true;delete book.error;saveBooking(book);wakeProducer();}
   }
@@ -5149,7 +5158,7 @@ async function crewWriteScript(role, ask){
   // Install the validated scene graph into this same project only after the
   // entire response passes. Fountain remains an import/export adapter.
   S.scriptName = 'agentic-draft.ams';
-  if (p.booking || !S.title || /^untitled$/i.test(S.title)) S.title=parsed.title;
+  if (p.booking || !S.title || /^untitled$/i.test(S.title)) S.title=p.booking?.replacement?.split('\n')[0]?.slice(0,160)||parsed.title;
   if(p.booking && activeProject())activeProject().name=S.title;
   if(rewriting && p && !p.images?.done && !p.expectedShotIds?.length && !Object.keys(p.jobs||{}).length){
     const changed=JSON.stringify(crewScreenplayPages())!==JSON.stringify(crewScreenplayPages(parsed.scenes));
@@ -5177,7 +5186,7 @@ function crewScreenplayDirection(p){
   const book=typeof readBooking==='function'?readBooking():null;
   const notes=(p.clientNotes||[]).filter(note=>note.kind!=='screening' &&
     (!note.targetRoleId||['producer','director','writer','story_editor','story_review'].includes(note.targetRoleId)));
-  return [typeof tasteStatement==='function'?tasteStatement():'',p.booking?(book?.id===p.booking.id?book.direction:''):p.brief,
+  return [typeof tasteStatement==='function'?tasteStatement():'',p.booking?(p.booking.replacement||(book?.id===p.booking.id?book.direction:'')):p.brief,
     ...notes.map(note=>note.text)].filter(Boolean);
 }
 function crewFollowupReview(work,pages,direction=[]){
@@ -5215,6 +5224,8 @@ function crewFollowupReview(work,pages,direction=[]){
       if(!nowText.has(clean(line)))reasons['removed-'+page.scene+'-'+(i+1)]={kind:'removed line',text:line};
     });
   }
+  finding.properties.reopenSource.enum=['',...Object.keys(reasons)];
+  finding.properties.reopenSource.description='Use exactly one of the listed source IDs for a new objection to an unchanged beat. Otherwise use the empty string.';
   finding.properties.evidence.description='Use the ID from the provided screenplay evidence list for the exact sentence supporting the finding.';
   return {notes,earlier,schema,citations,reasons};
 }
@@ -5239,8 +5250,12 @@ function crewCheckFollowupReview(followup,review,major,pages){
       if(matches.length && matches.every(line=>line.change==='unchanged'))citation=matches[0];
     }
     if(!n && citation?.change==='unchanged'){
-      const ref=String(note.reopenSource||'').trim();
-      if(!Object.hasOwn(followup.reasons||{},ref))throw Error('This new major note reopens unchanged writing. Cite the changed line, deletion, or binding direction in reopenSource, or leave it as a minor production note.');
+      let ref=String(note.reopenSource||'').trim();
+      if(ref && !Object.hasOwn(followup.reasons||{},ref)){
+        const matching=Object.entries(followup.reasons||{}).filter(([,source])=>normalized(source.text)===normalized(ref));
+        if(matching.length===1)ref=matching[0][0];
+      }
+      if(!Object.hasOwn(followup.reasons||{},ref))throw Error('This new major note reopens unchanged writing in scene '+note.sceneNumber+'. Set reopenSource to the relevant ID from '+JSON.stringify(Object.keys(followup.reasons||{}))+'. If none applies, reassess the severity.');
       note.reopenEvidence=followup.reasons[ref];
     }
     if(n)open.add(n);
@@ -5267,9 +5282,10 @@ async function crewReviewScreenplay(role,ask){
     +'\n\nIndependently review the completed screenplay. Do not rewrite it. Check the causal progression, distinct scene turns, visual behavior, ending, duration, continuity, filmmaker direction, and approved treatment. '
     +(p.mode==='adaptation'?'Reject paper-section mimicry, copied prose, illustrated-lecture structure, unsupported facts, and narration that substitutes for filmable evidence. ':'')
     +'Every revise verdict must identify at least one blocking or major scene-specific problem with quoted or precisely paraphrased evidence and an executable required change. Return the review schema only.';
-  const value=await crewJsonAgentCall(role,user,{temperature:0.2,json:true,
+  const options={temperature:0.2,json:true,
     schema:followup?.schema||CREW_SCREENPLAY_REVIEW_SCHEMA,schemaName:'screenplay_independent_review',roleId:role.id,
-    workloadId:'department.story_editor.screenplay_review.'+(work.revisionPass||0),artifactType:'screenplay_review'},review=>{
+    workloadId:'department.story_editor.screenplay_review.'+(work.revisionPass||0),artifactType:'screenplay_review'};
+  const validate=review=>{
       if(!['pass','revise'].includes(review.verdict)||!Array.isArray(review.problems))
         throw Error('Return a pass or revise verdict and a problems array.');
       const major=review.problems.filter(problem=>['blocking','major'].includes(problem.severity));
@@ -5288,8 +5304,19 @@ async function crewReviewScreenplay(role,ask){
           throw Error('A pass requires distinct setup and payoff quotations in screenplay order and a specific explanation of their effect on a viewer.');
       }
       return review;
-    });
-  if(value.verdict==='pass' && p.booking?.commission?.choice){
+    };
+  let value;
+  try{value=await crewJsonAgentCall(role,user,options,validate);}
+  catch(error){
+    if(!followup || error.code!=='AGENT_SCHEMA_REPAIR_EXHAUSTED')throw error;
+    const editor=crewFind('director');
+    const docket={pages,direction,prior:followup.notes.map((n,i)=>({number:i+1,scene:n.sceneNumber,issue:n.issue})),
+      evidence:followup.citations,reopenSources:followup.reasons};
+    const assignment='The story editor could not file a valid follow-up. Independently adjudicate the current screenplay against the filmmaker’s direction. Account for every previous major finding. Cite the exact evidence ID for each open finding. For a new finding about unchanged writing, choose the exact reopenSource ID for the relevant changed line, deletion or direction. If there is no basis for a new major finding, file it as minor. A pass requires two distinct verbatim setup and payoff quotes in order and their audience effect. Keep the original standard. Return the complete review.\n'+JSON.stringify(docket);
+    value=await crewJsonAgentCall(editor,assignment,{...options,roleId:editor.id,workloadId:options.workloadId+'.adjudication'},validate);
+    value.adjudicatedBy=editor.id;
+  }
+  if(value.verdict==='pass' && (p.booking?.commission?.choice||p.booking?.replacement)){
     const taste=crewFind('taste');
     const prompt='Read only the supplied screenplay as someone watching it. In plain words, what happens, why would anyone care, and what changes for them at the end? The writer’s intentions are unavailable. If the experience amounts to a striking incident followed by its physical aftermath, say incident_only. If the pages fail to earn the intended feeling or laugh, say unearned. Say earned only when you can explain why the ending matters from what is actually played. A quiet memory, joke, horror story, or discovery can earn an ending on its own terms. Do not count technique, novelty, realistic physics or a claimed social-media reaction as a human payoff. The filmmaker’s actual directions and prior feedback follow. Return judgment, reason, a scene number, and a literal passage supporting your reading. For rejection include a useful requiredChange for the crew.'+
       '\nFilmmaker: '+JSON.stringify(direction)+'\nPrevious filmmaker feedback: '+JSON.stringify(previousPremiseFeedback())+'\nScreenplay: '+JSON.stringify(pages);
@@ -6859,7 +6886,7 @@ function crewReadyRoles(p){
       if(!review?.reviewedPages || review.pagesHash!==pagesHash)return ['story_review'];
       if(review.directionHash && review.directionHash!==crewProgressHash(JSON.stringify(crewScreenplayDirection(p))))return ['story_review'];
       if(review.verdict==='revise')return ['writer'];
-      if(p.booking?.commission?.choice && review.audienceRead?.judgment!=='earned')return ['story_review'];
+      if((p.booking?.commission?.choice||p.booking?.replacement) && review.audienceRead?.judgment!=='earned')return ['story_review'];
       if(review.verdict!=='pass')return ['story_review'];
     }
     if(!crewRoleFinished(p,roleId))return [roleId];
@@ -6992,6 +7019,7 @@ async function crewCall(ask){
           return;
         }
       }
+      if(typeof filmmakerIntervention==='function' && filmmakerIntervention(p)){p.status='paused';p.currentStep='';productionCheckpoint();return;}
       const loopTicket=crewLoopTicket(p,id);
       if (!loopTicket.ok){
         p.status='needs_attention';
@@ -7119,7 +7147,7 @@ async function crewStart(mode, ask, sourceOptions){
     const sourceText=String(source.text||(mode==='adaptation'?brief:'')).trim();
     if (mode==='idea'&&!brief){ toast('Give the crew the idea first.'); return; }
     if (mode==='adaptation'&&sourceText.length<400){ toast('Attach or paste the paper, research, or source document first.'); return; }
-    const projectSeed=mode==='adaptation'?(source.filename||brief||'Source adaptation'):(source.booking?.commission?.choice?.title||brief);
+    const projectSeed=mode==='adaptation'?(source.filename||brief||'Source adaptation'):(source.booking?.replacement?.split('\n')[0]||source.booking?.commission?.choice?.title||brief);
     if (!crewCreateIdeaProject(projectSeed)){
       toast('Agentic Movie Studio could not save the new film project. Free local storage before starting production.');
       return;
@@ -7144,6 +7172,10 @@ async function crewStart(mode, ask, sourceOptions){
     imageProvider:{id:imageSelection.id,model:imageSelection.model||'',billingApproved:imageSelection.billingApproved===true,frozenAt:now}
   };
   if(source.booking?.pitchNotes?.length)S.production.clientNotes=source.booking.pitchNotes.map(n=>({...n,projectId:ACTIVE.p,draftId:ACTIVE.d}));
+  if(source.booking?.replacement){
+    S.production.clientNotes=[...(S.production.clientNotes||[]),{id:'brief_'+S.production.id,at:now,
+      text:source.booking.replacement,kind:'brief',targetRoleId:'',projectId:ACTIVE.p,draftId:ACTIVE.d}];
+  }
   if (['idea','adaptation'].includes(mode)) S.production.targetMinutes=targetMinutes;
   if (mode==='adaptation'){
     S.production.sourceMaterial=String(source.text||brief).trim();
@@ -7536,10 +7568,10 @@ function showPitchMeeting(details,meeting,id,prefix='',notes=[]){
   if(!meeting)return;
   details.querySelector('summary').textContent=prefix+pitchMeetingLabel(meeting);
   const rounds=meeting.rounds?.length?meeting.rounds:[{pitches:meeting.pitches||[],decisions:meeting.reason||meeting.rejection?[{reason:meeting.reason,note:meeting.rejection}]:[]}];
-  const direction=notes.map(n=>'<p><strong>You → '+esc(n.targetRoleId?'@'+n.targetRoleId:'crew')+'</strong> '+esc(n.text)+'</p>').join('');
-  details.querySelector('div').innerHTML=direction+rounds.map(round=>
+  const direction=[...notes].reverse().map(n=>'<p><strong>You → '+esc(n.targetRoleId?'@'+n.targetRoleId:'crew')+'</strong> '+esc(n.text)+'</p>').join('');
+  details.querySelector('div').innerHTML=direction+[...rounds].reverse().map(round=>
     (round.pitches||[]).map(p=>'<div class="pl-shot"><strong>'+esc(p.title)+'</strong><p>'+esc(p.opening)+'</p><p>'+esc(p.ending)+'</p>'+(p.whyWatch?'<p>'+esc(p.whyWatch)+'</p>':'')+'</div>').join('')+
-    (round.decisions||[]).map(d=>'<p><strong>Producer review</strong> '+esc(d.reason||d.note||'')+
+    [...(round.decisions||[])].reverse().map(d=>'<p><strong>Producer review</strong> '+esc(d.reason||d.note||'')+
       (d.note&&d.note!==d.reason?' '+esc(d.note):'')+(d.attempts>1?' ('+Number(d.attempts)+' attempts)':'')+'</p>').join('')
   ).join('<hr>')+(meeting.postingEvidence?'<p>Publishing brief: “'+esc(meeting.postingEvidence)+'” '+esc(meeting.postingReason||'')+'</p>':'');
 }
@@ -7737,7 +7769,7 @@ function renderCrew(){
   if (p){
     const statusLabel=String(p.status||'idle').replace(/_/g,' ');
     const pct=Math.round((finished/Math.max(1,CREW_PIPELINE.length))*100);
-    const transcript=crewTranscriptEntries(p);
+    const transcript=crewTranscriptEntries(p).reverse();
     h+='<div class="ai-panel" style="margin-bottom:14px;max-width:1120px">'
       + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
       + '<h4 style="margin:0">'+esc(S.title||'Untitled')+'</h4>'
@@ -8123,11 +8155,13 @@ function wireClientRoom(wrap){
     }
     if (button.id==='clientSend'||button.id==='clientBook'){
       const input=el('clientDirection'),text=input?.value||'',target=el('clientTarget')?.value||'';
-      if(!text.trim()){toast('Write your direction first.');return;}
+      if(!text.trim() && button.id!=='clientVeto'){toast('Write your direction first.');return;}
       input.value='';
       if(button.id==='clientBook'){
         try{submitProduction(text.trim());}
         catch(error){input.value=text;toast(String(error.message||error));}
+      }else if(['clientVeto','clientReplace'].includes(button.id)){
+        if(!crewSaveClientNote(text.trim()||'I reject this production.', '',button.id==='clientVeto'?'veto':'replacement'))input.value=text;
       }else if(!(button.dataset.meetingId?sendMeetingDirection(text,target,button.dataset.meetingId,Number(button.dataset.filmNumber)):crewAddClientNote(text,target))){
         const current=el('clientDirection');if(current)current.value=text;
       }
@@ -8180,7 +8214,7 @@ function renderClientRoom(){
   showClientPitchMeeting();
   const run=filmReceipts.get(S.doubleFeatureId);
   if(run){
-    const messages=productionChat(run);
+    const messages=productionChat(run).reverse();
     wrap.innerHTML='<h3>Crew chat</h3>'+messages.map(clientTranscriptHtml).join('')
       +(messages.length?'':'<p>No crew conversation was recorded during this production.</p>')
       +'<h4>Production notes</h4>'+run.films.map(f=>'<article class="crew-message"><b>Film '+f.number+' · '+esc(f.title)+'</b><p>'+esc(f.screening?.observation||'Screening pending.')+'</p></article>').join('');
@@ -8193,7 +8227,7 @@ function renderClientRoom(){
   const caret=editing?el('clientDirection').selectionStart:null;
   wrap.dataset.draftKey=draftKey;
   wireClientRoom(wrap);
-  const p=productionState(),transcript=crewTranscriptEntries(p),current=p&&p.currentStep?crewFind(p.currentStep):null;
+  const p=productionState(),transcript=crewTranscriptEntries(p).reverse(),current=p&&p.currentStep?crewFind(p.currentStep):null;
   const booking=readBooking(),inMeeting=!!livePitchMeeting(booking)&&(!p||p.status==='superseded');
   const roleOptions=CREW_ALL.map(role=>'<option value="'+esc(role.id)+'">@'+esc(role.at)+' · '+esc(role.title)+'</option>').join('');
   wrap.innerHTML='<div class="ai-panel" style="max-width:1120px;margin-bottom:14px">'
@@ -8207,6 +8241,7 @@ function renderClientRoom(){
     +'<div class="client-direction-grid"><label class="bd-f"><span>Send to</span><select data-town-direction id="clientTarget"'+(!p&&!inMeeting?' disabled':'')+'><option value="">Entire crew</option>'+roleOptions+'</select></label>'
     +'<label class="bd-f"><span>Direction</span><textarea data-town-direction id="clientDirection" rows="3" placeholder="'+(p?.status==='complete'?'What worked or fell short in the finished film?':p?'What should this department keep or change at its next checkpoint?':'Give the producer a film idea.')+'"></textarea></label></div>'
     +'<button class="btn primary" data-town-ui id="clientSend" '+(inMeeting?'data-meeting-id="'+esc(booking.id)+'" data-film-number="'+Number(booking.number)+'"':'')+' style="margin-top:8px">'+(inMeeting?'Send direction':p?.status==='complete'?'Save screening note':!p?'Book a film':'Send direction')+'</button>'
+    +(p?.booking && p.status!=='complete'?'<button class="btn small danger" data-town-ui id="clientVeto">Reject this production</button><button class="btn small" data-town-ui id="clientReplace">Use this as the replacement brief</button>':'')
     +(p?.status==='complete'&&window.__TAURI__?.core?'<button class="btn small" data-town-ui id="clientBook">Book a new film from this idea</button>':'')+'</div>'
     +clientScreenplayReview(p,reviewOpen)
     +'<div class="ai-panel" style="max-width:1120px"><div class="crew-transcript">'

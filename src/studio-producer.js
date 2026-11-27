@@ -64,6 +64,51 @@ function bookFilms(direction='',script=null,requestId='',options={}){
 function bookingNeedsPhotoDecision(book){
   return book?.phase==='held'&&/Storyboard rendering failed: Submission interrupted before provider receipt/.test(book.error||'');
 }
+// A supplied replacement is project direction; keep it out of the standing taste profile.
+function filmmakerIntervention(p){
+  if(!p?.booking || p.status==='complete' || p.status==='superseded')return null;
+  let veto=null, replacement=null;
+  for(const note of p.clientNotes||[]){
+    if(note.kind==='screening'||note.kind==='brief')continue;
+    const text=String(note.text||'').trim();
+    if(note.kind==='replacement')replacement=text;
+    else if(!note.targetRoleId && /^use [^\n]+ as the film\. it supersedes the earlier pitch\.\s*\n/i.test(text))
+      replacement=text.slice(text.indexOf('\n')).trim();
+    else if(note.kind==='veto' || /^(?:this|that|it)(?: is|['’]s) (?:fucking )?(?:shit|garbage|trash)[.!\s]*$/im.test(text) ||
+      /^(?:kill|scrap|reject) (?:this|the) (?:film|movie|premise|draft|idea)\b/im.test(text))veto=text;
+  }
+  return replacement||veto?{replacement,veto}:null;
+}
+function redirectRejectedFilm(p,book,order){
+  const number=book.number, slot='replacement'+number;
+  if(p.booking.id!==book.id||p.booking.number!==number)return false;
+  // A missing provider receipt is never permission for a second billable attempt.
+  if(crewUnprovenJobs(p).length || bookingNeedsPhotoDecision(book)){
+    if(book.phase!=='held'){book.phase='held';book.error=p.error||'The filmmaker stopped this production with an outstanding provider receipt.';saveBooking(book);}
+    return true;
+  }
+  const saved=p.booking;
+  const prior=book[slot];
+  // Preserve a supplied brief if its execution is rejected. For a crew original
+  // with no substitute, send the rejection back to the pitch meeting.
+  const text=order.replacement || prior?.text || '';
+  book[slot]={text,veto:order.veto||'',fromRun:p.id};
+  if(!text && !book.script && !book.options?.text){
+    book.shelvedOriginals=book.shelvedOriginals||{};
+    book.shelvedOriginals[p.id]={number,by:'filmmaker',pitch:saved.commission?.choice,reason:order.veto};
+  }
+  delete book['commission'+number];delete book['shelfChoice'+number];delete book.directedResume;delete book.error;
+  book.phase='ready';saveBooking(book);
+  const old={status:p.status,currentStep:p.currentStep,error:p.error};
+  p.supersededBooking=saved;delete p.booking;
+  p.status='superseded';p.currentStep='';p.error='';
+  p.supersededReason=order.veto||'The filmmaker supplied a replacement production brief.';
+  if(!productionCheckpoint()){
+    Object.assign(p,old,{booking:saved});delete p.supersededBooking;delete p.supersededReason;
+    throw Error('Could not preserve the rejected project. The producer will retry the handoff.');
+  }
+  return true;
+}
 function canShelveOriginal(p,book){
   if(!p?.booking?.commission?.choice || p.mode!=='idea' || !book || p.booking.id!==book.id || p.booking.number!==book.number) return false;
   return !['complete','superseded','rendering','assembling'].includes(p.status) && !p.images && !p.expectedShotIds?.length &&
@@ -120,7 +165,7 @@ function requestFreshPremises(reason=''){
 function pitchDirectionChanged(active,foundation){
   return active?.booking && active.mode==='idea' &&
        ((foundation && foundation!==(active.booking.foundationAtPitch||'')) || (!active.booking.commission && !active.booking.fromSource)) &&
-       !['complete','cancelled'].includes(active.status) && !Object.keys(active.jobs||{}).length &&
+       !active.booking.replacement && !['complete','cancelled'].includes(active.status) && !Object.keys(active.jobs||{}).length &&
        !active.images?.done && !allShots().some(({sh})=>boardOf(sh).frame);
 }
 function studioScreenings(){
@@ -344,6 +389,8 @@ async function wakeProducer(){
       book=bookFilms();book.count=1;saveBooking(book);
     }
     const active=productionState();
+    const intervention=filmmakerIntervention(active);
+    if(intervention && redirectRejectedFilm(active,book,intervention))return;
     if(typeof tasteLoadSnapshot==='function'){
       if(TASTE_OS.loading)return;
       await tasteLoadSnapshot();
@@ -390,7 +437,7 @@ async function wakeProducer(){
     if(book.phase==='held' && active?.booking?.id===book.id && active.booking.number===book.number &&
        ['paused','needs_attention'].includes(active.status) && (/could not self-repair its/.test(book.error||'') || (/review blocked .*storyboard prompt/.test(book.error||'') && crewStoryboardNextRole(active)==='stills_prompt')) && !crewUnprovenJobs(active).length){
       const screenplay=active.writerWork && /could not self-repair its screenplay_review/.test(book.error);
-      const reviewInput=screenplay?'/sentence-ids-v1/'+crewProgressHash(JSON.stringify(crewScreenplayPages())):'';
+      const reviewInput=screenplay?'/review-citations-v2/'+crewProgressHash(JSON.stringify(crewScreenplayPages())):'';
       const key=active.id+'/'+book.error.split(' after ')[0]+reviewInput;
       book.retries=book.retries||{};
       if((book.retries[key]||0)<2){
@@ -439,7 +486,9 @@ async function wakeProducer(){
         await crewInvoke('studio_local_brain');
         if(!await aiConnect())return;
       }
-      let brief=book.direction||'Choose an original film idea.';
+      const replacement=book['replacement'+book.number];
+      let brief=replacement?.text||book.direction||'Choose an original film idea.';
+      if(replacement?.veto)brief+='\nThe filmmaker rejected the previous production. Develop the next approach under this direction: '+replacement.veto;
       if(book.number===2){
         const first=book.films[0];
         brief+='\nCreate a companion short to '+(first.title||'film one')+'. Carry forward a craft lesson the audience can see in a specific shot. Choose a new subject and story when that better serves the filmmaker. The first film is screening evidence, never a mandatory premise.\nFirst film: '+JSON.stringify(first.scenes||[])+'\nScreening: '+JSON.stringify(first.review);
@@ -455,7 +504,7 @@ async function wakeProducer(){
       }
       brief+=screeningBrief(book[memoryKey]);
       const shelf=JSON.parse(localStorage.getItem('studio.plays.v1')||'[]');
-      if(!book.script&&shelf.length){
+      if(!replacement?.text&&!book.script&&!book.options?.text&&shelf.length){
         const label='shelfChoice'+book.number;
         if(!book[label]){
           const prompt='Choose a play to adapt for the requested film or choose an original. Respect the filmmaker’s direction: '+foundation+'\n'+brief+'\n Return JSON with index (zero-based, -1 for an original) and reason.\n'+JSON.stringify(shelf.map(p=>({name:p.name,opening:p.text.slice(0,1000)})));
@@ -467,7 +516,7 @@ async function wakeProducer(){
         const pick=book[label];
         if(pick.text)brief+='\nAdapt a moment from '+pick.name+' for this short. Preserve the source on the shelf.\n'+pick.text;
       }
-      const fromSource=!!(book.script||book.options?.text||book['shelfChoice'+book.number]?.text);
+      const fromSource=!!(replacement?.text||book.script||book.options?.text||book['shelfChoice'+book.number]?.text);
       let commission=null;
       if(!fromSource){
         commission=await commissionOriginal(book,foundation);
@@ -479,9 +528,9 @@ async function wakeProducer(){
       }
       if(foundation)brief='STANDING FILMMAKER DIRECTION (binding): '+foundation+'\n'+brief;
       if(!book.script && !book.options?.targetMinutes)brief+='\nMake exactly two five-second scenes, exactly one shot per scene. Total ten seconds.';
-      assigningFilm={id:book.id,number:book.number,foundationAtPitch:foundation,fromSource,commission,pitchNotes:(readBooking().pitchNotes||[]).filter(n=>n.number===book.number),screeningSources:book[memoryKey],renderer:book.renderer,textModel:book.textModel,short:!book.script&&!book.options?.targetMinutes};
+      assigningFilm={id:book.id,number:book.number,foundationAtPitch:foundation,fromSource,commission,replacement:replacement?.text||'',pitchNotes:(readBooking().pitchNotes||[]).filter(n=>n.number===book.number),screeningSources:book[memoryKey],renderer:book.renderer,textModel:book.textModel,short:!book.script&&!book.options?.targetMinutes};
       if(activeDraft()&&!persistNow())throw Error('Could not save the open draft.');
-      if(book.script){
+      if(book.script && !replacement?.text){
         if(book.script.draftId){
           const project=DB.projects.find(row=>row.id===book.script.projectId);
           const draft=project?.drafts.find(row=>row.id===book.script.draftId);
@@ -499,7 +548,7 @@ async function wakeProducer(){
           runAutoBreakdown();cardsFromScenes();if(!persistNow())throw Error('Could not save the imported screenplay.');
         }
         await crewStart('script',brief,{booking:assigningFilm});
-      }else await crewStart(book.options?.text?'adaptation':'idea',brief,{targetMinutes:1/6,...book.options,booking:assigningFilm});
+      }else await crewStart(!replacement?.text&&book.options?.text?'adaptation':'idea',brief,{targetMinutes:1/6,...book.options,booking:assigningFilm});
       return;
     }
     if(book.directedResume && p.status==='complete'){delete book.directedResume;saveBooking(book);}

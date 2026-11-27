@@ -456,3 +456,17 @@ test('a causal visual effect with valid citations still goes back to the directo
   assert.equal(starts.length,0);assert.equal(meeting.choice,null);assert.equal(meeting.stage,'rewrite');
   assert.match(meeting.rejection,/nothing in that outcome matters/);
 });
+
+test('a filmmaker replacement stops an unshot draft and goes straight to the crew on the next wake',async()=>{
+  const {ctx,run,starts}=floor(),book=run('bookFilms()');
+  const text='Midnight Crossing\nThe lamps go out.';
+  const old={id:'old',booking:{id:book.id,number:1},status:'needs_attention',currentStep:'story_review',
+    clientNotes:[{kind:'replacement',text},{kind:'direction',text:'This is SHIT!'}]};
+  Object.assign(ctx,{productionState:()=>old,productionCheckpoint:()=>true,crewUnprovenJobs:()=>[]});
+  await run('wakeProducer()');
+  assert.equal(old.status,'superseded');
+  await run('wakeProducer()');
+  assert.equal(starts.length,1);assert.equal(starts[0][2].booking.replacement,text);
+  assert.equal(starts[0][2].booking.commission,null);
+  assert.match(starts[0][1],/Midnight Crossing/);
+});
