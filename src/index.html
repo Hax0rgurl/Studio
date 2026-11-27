@@ -3060,7 +3060,8 @@ function imageProviderFallback(){
     requiresBillingApproval:false,allowsCustomModel:false,models:[],capabilities:{textToImage:true,referenceImages:true}};
 }
 function mediaProviders(kind){
-  const rows=CREW.providers.length?CREW.providers:[videoProviderFallback(),imageProviderFallback()];
+  const desktop=typeof studioDesktop==='function' && studioDesktop();
+  const rows=CREW.providers.length?CREW.providers:desktop?floorProviders().map(p=>({...p,configured:false})):[videoProviderFallback(),imageProviderFallback()];
   return kind?rows.filter(provider=>(provider.mediaKinds||[provider.id==='phosphene'?'video':'image']).includes(kind)):rows;
 }
 function videoProviders(){ return mediaProviders('video'); }
@@ -3539,19 +3540,29 @@ function crewContext(role, options){
 function crewInvoke(command, args){
   try{
     const inv = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
-    if(inv && command.startsWith('greenroom_') && typeof floorProduction==='function' && floorProduction())return floorCall('room/'+command.slice(10),args.request);
+    if(inv && command.startsWith('greenroom_') && typeof studioDesktop==='function' && studioDesktop())return floorCall('room/'+command.slice(10),args.request);
     return inv ? inv(command, args||{}) : Promise.reject(new Error('desktop bridge unavailable'));
   }catch(e){ return Promise.reject(e); }
 }
 async function crewFetchJson(path, opts){
-  if(typeof floorProduction==='function' && floorProduction() && opts?.body){
+  if(typeof studioDesktop==='function' && studioDesktop() && opts?.body && ['/api/image/generate','/api/video/queue-batch','/api/video/jobs','/api/video/assemble'].includes(path)){
     const data=JSON.parse(opts.body);
-    let result;
-    try{result=await floorCall(path,{...data,runId:productionState().id,renderer:floorProduction().renderer||null});}
-    catch(e){const failure=Error(String(e));if(/before provider receipt/.test(failure.message))failure.code='VIDEO_SUBMISSION_UNPROVEN';throw failure;}
-    for(const row of result.jobs||[])if(row.outputPath)row.mediaUrl=window.__TAURI__.core.convertFileSrc(row.outputPath);
-    if(result.outputPath&&path==='/api/video/assemble')result.mediaUrl=window.__TAURI__.core.convertFileSrc(result.outputPath);
-    return result;
+    const receipt=floorProduction(),provider=String(data.providerId||'');
+    if((!provider && receipt) || provider.startsWith('studio-')){
+      let renderer=null;
+      if(provider.startsWith('studio-plugin-')){
+        renderer=[receipt?.renderer,...studioPlugins()].find(p=>p&&pluginProviderId(p)===provider);
+        if(!renderer)throw Error('The renderer saved for this shot is unavailable. Reconnect that plugin in Settings.');
+      }else if(!provider && receipt)renderer=receipt.renderer||null;
+      const runId=data.storageRunId || (receipt?productionState()?.id:data.runId);
+      if(!runId)throw Error('Studio could not identify the saved production for this shot.');
+      let result;
+      try{result=await floorCall(path,{...data,runId,renderer});}
+      catch(e){const failure=Error(String(e));if(/before provider receipt/.test(failure.message))failure.code='VIDEO_SUBMISSION_UNPROVEN';throw failure;}
+      for(const row of result.jobs||[])if(row.outputPath)row.mediaUrl=window.__TAURI__.core.convertFileSrc(row.outputPath);
+      if(result.outputPath&&path==='/api/video/assemble')result.mediaUrl=window.__TAURI__.core.convertFileSrc(result.outputPath);
+      return result;
+    }
   }
   const r = await fetch(CREW.pd.replace(/\/$/,'') + path, Object.assign({
     headers:{'Content-Type':'application/json'}
@@ -3575,14 +3586,23 @@ async function crewFetchJson(path, opts){
   return body;
 }
 async function crewConnect(){
-  if(typeof floorProduction==='function' && window.__TAURI__?.core && (floorProduction()||assigningFilm||!productionState()||S.doubleFeatureId||['complete','cancelled'].includes(productionState().status))){
-    const ready=await floorCall('health');
+  if(typeof studioDesktop==='function' && studioDesktop()){
+    CREW.startResults=[];CREW.providerError='';CREW.providerLoadErrors=[];
+    let status;
+    try{status=await floorCall('runtime_status');}
+    catch(error){
+      CREW.online=false;CREW.providers=[];CREW.providerError='Studio runtime check failed: '+String(error.message||error);
+      return CREW.services={greenroom:{ok:false},pitchdeck:{ok:false},ollama:{ok:false}};
+    }
     const renderer=(floorProduction()||assigningFilm)?.renderer;
-    CREW.providers=floorProviders(renderer);CREW.online=ready;
+    CREW.providers=floorProviders(renderer).map(p=>p.id==='studio-wan'||p.id==='studio-qwen-image'?{...p,configured:status.qwenKey}:p);
+    CREW.online=!!status.room;
     const preferred=studioPlugins().find(p=>p.url===localStorage.getItem('studio.renderer') && p.frameArg);
     CREW.videoProviderId=preferred?pluginProviderId(preferred):'studio-wan';CREW.videoModel=preferred?.tool||'wan3.0-video';
     CREW.imageProviderId='studio-qwen-image';CREW.imageModel='qwen-image-3.0-pro';
-    return CREW.services={greenroom:{ok:ready},pitchdeck:{ok:ready},ollama:{ok:AI.status==='on'}};
+    const local=crewModelInUse()==='qwen3.5:latest';
+    return CREW.services={greenroom:{ok:!!status.room,name:'Built-in crew room'},pitchdeck:{ok:!!status.media,name:'Built-in media'},
+      ollama:{ok:local?AI.status==='on':!!status.qwenKey,name:'Crew model',detail:local?'Local model':status.qwenKey?'Qwen key saved':'Add a Qwen key'}};
   }
   try{
     const rows = await crewInvoke('local_services_health');
@@ -3634,10 +3654,16 @@ async function crewRequireGreenroom(){
   if (CREW.online) return true;
   const result=(CREW.startResults||[]).find(row=>row&&row.id==='greenroom');
   const detail=String((result&&result.detail)||'').trim();
+  if(typeof studioDesktop==='function' && studioDesktop())throw Error(CREW.providerError||'Studio could not open its built-in crew room.');
   throw new Error('Greenroom is required for agent work and is not connected.'+(detail?' '+detail:''));
 }
 async function crewEnsureServices(){
-  if(typeof floorProduction==="function" && floorProduction())return crewConnect();
+  if(typeof studioDesktop==='function' && studioDesktop()){
+    if(crewModelInUse()==='qwen3.5:latest' && AI.status!=='on'){
+      await crewInvoke('studio_local_brain');await aiConnect();
+    }
+    return crewConnect();
+  }
   if (CREW.startPromise) return CREW.startPromise;
   const work=(async()=>{
     // Resume is a health operation before it is a launch operation. When the
@@ -4103,11 +4129,17 @@ async function crewOpenRecord(){
     try{
       const detail=await crewInvoke('greenroom_fetch_production_thread', {request:{projectId:p.id,threadId:p.greenroomThreadId}});
       crewMergeRecord(detail);
+      if(p.greenroomError){p.greenroomError='';productionCheckpoint();}
       return p.greenroomThreadId;
     }catch(e){
       // The saved id is stale or belongs to an older database. Ask the backend
       // to find/create the correctly tagged thread for this production id.
-      p.greenroomError=String((e&&e.message)||e); p.greenroomThreadId=''; productionCheckpoint();
+      p.greenroomError=String((e&&e.message)||e);
+      if(typeof studioDesktop==='function' && studioDesktop()){
+        if(!p.greenroomError.includes('Conversation belongs to a different project'))throw e;
+        p.previousRoomThreadId=p.greenroomThreadId;
+      }
+      p.greenroomThreadId=''; productionCheckpoint();
     }
   }
   try{
@@ -4122,7 +4154,7 @@ async function crewOpenRecord(){
     if (p.greenroomThreadId){
       try{
         const detail=await crewInvoke('greenroom_fetch_production_thread', {request:{projectId:p.id,threadId:p.greenroomThreadId}});
-        crewMergeRecord(detail);
+        crewMergeRecord(detail);p.greenroomError='';
       }catch(e){}
     }
     productionCheckpoint();
@@ -6104,7 +6136,7 @@ async function crewVideo(role, ask){
       queued++;
     }else{
       jobs[sh.id]={id:'',status:'failed',queuedAt:new Date().toISOString(),label:spec.label,
-        error:error||'PitchDeck returned no render job id',attempt,providerId:selection.id,model:selection.model||'',review:spec.review,
+        error:error||'The selected provider returned no render job ID',attempt,providerId:selection.id,model:selection.model||'',review:spec.review,
         code:String(problem.code||result.code||''),marker:String(problem.marker||result.marker||'')};
       failed++;
     }
@@ -7438,7 +7470,7 @@ function renderCrew(){
   crewApplyMutationLock();
   const p=productionState(), svc=CREW.services||{}, steps=(p&&p.steps)||{};
   const badge=(name,key,detail)=>{
-    const ok=key==='ollama' ? AI.status==='on'||!!p?.booking?.textModel : !!(svc[key]&&svc[key].ok);
+    const ok=key==='ollama' && !studioDesktop()?AI.status==='on':!!svc[key]?.ok;
     return '<span class="ai-badge '+(ok?'ok':'err')+'">'+esc(name)+' '+(ok?esc(detail||'ready'):'off')+'</span>';
   };
   const finished=CREW_PIPELINE.filter(id=>steps[id]&&['done','skipped'].includes(steps[id].status)).length;
@@ -7468,16 +7500,16 @@ function renderCrew(){
   const paidProvider=selectedVideo.requiresBillingApproval?selectedVideo:(selectedImage.requiresBillingApproval?selectedImage:null);
   let h='<div class="ai-panel" style="margin:0 0 14px;max-width:1120px">'
     + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
-    + badge(p?.booking?'Crew model':'Ollama','ollama',p?.booking?.textModel||AI.model||'ready')
-    + badge(p?.booking?'Crew room':'Greenroom','greenroom','recording')
-    + badge(p?.booking?'Built-in media':'PitchDeck','pitchdeck','connected')
+    + badge(studioDesktop()?'Crew model':'Ollama','ollama',studioDesktop()?(svc.ollama?.detail||crewModelInUse()):(AI.model||'ready'))
+    + badge(studioDesktop()?'Built-in crew room':'Greenroom','greenroom','recording')
+    + badge(studioDesktop()?'Built-in media':'PitchDeck','pitchdeck','connected')
     + '<span class="ai-badge '+(selectedImage.configured===false?'err':'ok')+'">Stills · '+esc(selectedImage.name)+'</span>'
     + '<span class="ai-badge '+(selectedVideo.configured===false?'err':'ok')+'">Video · '+esc(selectedVideo.name)+'</span>'
     + '<span class="ai-badge ok">'+Object.keys(CREW_SKILLS.roles||{}).length+' skill books · v'+esc(CREW_SKILLS.version||'unknown')+'</span>'
     + (AI.models&&AI.models.length ? '<label class="ai-stat">Model <select id="crewModel"'+(active?' disabled':'')+' style="margin-left:5px;max-width:310px">'
         + AI.models.map(model=>'<option value="'+esc(model)+'"'+(model===AI.model?' selected':'')+'>'+esc(model)+'</option>').join('')+'</select></label>' : '')
     + '<div class="tb-spacer"></div><button class="btn small" id="crewPing">Check</button>'
-    + '<button class="btn small" id="crewServices">Start local services</button></div>'
+    + ((!studioDesktop()||crewModelInUse()==='qwen3.5:latest')?'<button class="btn small" id="crewServices">'+(studioDesktop()?'Start local model':'Start local services')+'</button>':'')+'</div>'
     + ((CREW.startResults||[]).some(x=>x.outcome==='error')
         ? '<div class="crit bad" style="margin-top:10px">'+(CREW.startResults||[]).filter(x=>x.outcome==='error').map(x=>'<div><b>'+esc(x.name||x.id||'service')+':</b> '+esc(x.detail||'could not start')+'</div>').join('')+'</div>' : '')
     + (CREW.providerError?'<div class="crit bad" style="margin-top:10px">'+esc(CREW.providerError)+'</div>':'')
@@ -7614,8 +7646,8 @@ function renderCrew(){
     CREW.departmentsOpen=departmentControls.open;
     if (departmentControls.open) requestAnimationFrame(()=>departmentControls.scrollIntoView({block:'start',behavior:'smooth'}));
   });
-  on('crewPing','click', async ()=>{ await crewConnect(); if (AI.status!=='on') await aiConnect(); renderCrew(); });
-  on('crewServices','click', async ()=>{ toast('Starting the local production services…',true); await crewEnsureServices(); renderCrew(); });
+  on('crewPing','click', async ()=>{ if ((!studioDesktop()||crewModelInUse()==='qwen3.5:latest') && AI.status!=='on') await aiConnect(); await crewConnect(); renderCrew(); });
+  on('crewServices','click', async ()=>{ toast(studioDesktop()?'Starting the built-in crew model…':'Starting the local production services…',true); await crewEnsureServices(); renderCrew(); });
   on('crewAsk','input',()=>{CREW.nextFilmDirection=el('crewAsk').value;});
   on('crewIdea','click', ()=>{const note=(el('crewAsk')||{}).value||'';CREW.nextFilmDirection='';return crewStart('idea',note);});
   on('crewAdapt','click', async ()=>{
@@ -7804,6 +7836,7 @@ async function refreshTownRun(){
 }
 function townServiceState(){
   const svc=CREW.services||{};
+  if(studioDesktop())return {greenroom:{...svc.greenroom,name:'Built-in crew room'},pitchdeck:{...svc.pitchdeck,name:'Built-in media'},ollama:{...svc.ollama,name:'Crew model'}};
   return {
     ollama:{name:'Text model',ok:AI.status==='on'||!!(svc.ollama&&svc.ollama.ok),detail:AI.model||''},
     greenroom:{name:'Greenroom',ok:!!(svc.greenroom&&svc.greenroom.ok),detail:(svc.greenroom&&svc.greenroom.detail)||''},
@@ -10020,7 +10053,10 @@ function settingsProviderModelHtml(kind,provider,value,disabled){
 }
 function settingsServiceStatusHtml(aiHit){
   const svc=CREW.services||{};
-  const pill=(label,ok,detail)=>'<span class="ai-badge '+(ok?'ok':'err')+'">'+esc(label)+' · '+esc(ok?(detail||'ready'):'off')+'</span>';
+  const pill=(label,ok,detail)=>'<span class="ai-badge '+(ok?'ok':'err')+'">'+esc(label)+' · '+esc(ok?(detail||'ready'):detail==='Add a Qwen key'?detail:'off')+'</span>';
+  if(studioDesktop() && !svc.greenroom)return '<span class="ai-badge">Checking Studio runtime…</span>';
+  if(studioDesktop())return pill('Built-in crew room',!!svc.greenroom?.ok,'ready')+pill('Built-in media',!!svc.pitchdeck?.ok,'ready')+
+    pill('Crew model',!!svc.ollama?.ok,svc.ollama?.detail);
   const aiOk=aiHit===undefined?AI.status==='on':!!aiHit;
   return pill('Text model',aiOk,aiHit?(aiHit.kind||'ready'):(AI.model||'ready'))
     +pill('Greenroom',!!(svc.greenroom&&svc.greenroom.ok),'ready')
@@ -10110,13 +10146,14 @@ function settingsPanelHtml(initialTab){
       +'</section>'
       +'<section class="settings-panel'+on('services')+'" data-settings-panel="services"><h4>Services &amp; extensions</h4>'
         +'<div class="settings-intro">Connection addresses, health checks, and installed API/MCP adapters.</div>'
-        +'<div class="settings-card"><h5>Local service addresses</h5><div class="settings-grid" style="margin-top:10px">'
+        +(studioDesktop()?'<div class="settings-card"><h5>Studio runtime</h5>':('<div class="settings-card"><h5>Local service addresses</h5><div class="settings-grid" style="margin-top:10px">'
           +'<label class="settings-field"><span>Greenroom</span><input id="settingsGreenroom" value="'+esc(CREW.gr)+'"'+dis+'></label>'
-          +'<label class="settings-field"><span>Media gateway</span><input id="settingsPitchDeck" value="'+esc(CREW.pd)+'"'+dis+'></label>'
-        +'</div><div class="settings-status" id="settingsServiceStatus">'+settingsServiceStatusHtml()+'</div>'
-          +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" id="settingsCheck">Check connections</button><button class="btn small" id="settingsStartServices">Start local services</button></div></div>'
+          +'<label class="settings-field"><span>Media gateway</span><input id="settingsPitchDeck" value="'+esc(CREW.pd)+'"'+dis+'></label>'+'</div>'))
+        +'<div class="settings-status" id="settingsServiceStatus">'+settingsServiceStatusHtml()+'</div>'
+        +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" id="settingsCheck">Check connections</button>'
+        +((!studioDesktop()||crewModelInUse()==='qwen3.5:latest')?'<button class="btn small" id="settingsStartServices">'+(studioDesktop()?'Start local model':'Start local services')+'</button>':'')+'</div></div>'
         +'<div class="settings-card"><h5>Installed media adapters</h5><div id="settingsProviderList">'+settingsProviderListHtml()+'</div>'
-          +(CREW.providerDirectory?'<div class="settings-path">'+esc(CREW.providerDirectory)+'</div>':'<div class="auto-note" style="margin-top:8px">Start the media gateway to reveal its trusted adapter folder.</div>')
+          +(studioDesktop()?'':CREW.providerDirectory?'<div class="settings-path">'+esc(CREW.providerDirectory)+'</div>':'<div class="auto-note" style="margin-top:8px">Start the media gateway to reveal its trusted adapter folder.</div>')
           +'<div id="settingsProviderConfig" style="margin-top:10px"></div>'
           +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px">'
           +(CREW.providerDirectory?'<button class="btn small" id="settingsCopyAdapterPath">Copy adapter folder path</button>':'')+'</div>'
@@ -10213,12 +10250,12 @@ async function settingsCheckConnections(start){
     if (start) await crewEnsureServices();
     else await crewConnect();
     const base=aiBaseOf((el('settingsAiBase')||{}).value||AI.base);
-    const aiHit=base?await aiProbe(base):null;
+    const aiHit=base&&(!studioDesktop()||crewModelInUse()==='qwen3.5:latest')?await aiProbe(base):null;
     const status=el('settingsServiceStatus'); if (status) status.innerHTML=settingsServiceStatusHtml(aiHit);
     const list=el('settingsProviderList'); if (list){ list.innerHTML=settingsProviderListHtml(); settingsWireProviderButtons(); }
     toast(start?'Local services checked and started where available.':'Connection check finished.',true);
   }catch(error){ toast('Settings check failed: '+String((error&&error.message)||error)); }
-  finally{ if (check){ check.disabled=false; check.textContent=start?'Start local services':'Check connections'; } }
+  finally{ if (check){ check.disabled=false; check.textContent=start?(studioDesktop()?'Start local model':'Start local services'):'Check connections'; } }
 }
 function saveAppSettings(){
   const runtimeLocked=crewMutationLocked()||canonicalWorkerLocked();
@@ -10232,10 +10269,12 @@ function saveAppSettings(){
     AI.noThink=!!((el('settingsNoThink')||{}).checked);
     if (previousBase!==AI.base){ AI.status='idle'; AI.kind=''; AI.models=[]; }
     aiSave();
-    CREW.gr=settingsHttpBase((el('settingsGreenroom')||{}).value,CREW_GR_DEFAULT);
-    CREW.pd=settingsHttpBase((el('settingsPitchDeck')||{}).value,CREW_PD_DEFAULT);
-    localStorage.setItem('studio.crew.gr',CREW.gr);
-    localStorage.setItem('studio.crew.pd',CREW.pd);
+    if(el('settingsGreenroom') && el('settingsPitchDeck')){
+      CREW.gr=settingsHttpBase((el('settingsGreenroom')||{}).value,CREW_GR_DEFAULT);
+      CREW.pd=settingsHttpBase((el('settingsPitchDeck')||{}).value,CREW_PD_DEFAULT);
+      localStorage.setItem('studio.crew.gr',CREW.gr);
+      localStorage.setItem('studio.crew.pd',CREW.pd);
+    }
     localStorage.setItem('studio.production.minutes',String(Math.max(1,Number((el('settingsIdeaMinutes')||{}).value)||1)));
   }
   if (!mediaProviderSelectionLocked()){
@@ -11263,11 +11302,11 @@ async function boardQueueVideoOnce(shotId, options){
   }
   const owner=boardRenderOwner(shotId);
   if (!opts.servicesReady){
-    if (!opts.quiet) toast('Starting PitchDeck and Phosphene…');
+    if (!opts.quiet) toast('Checking the selected video renderer…');
     const services=await crewEnsureServices();
     if (!boardRenderOwnerMatches(owner)) return false;
     if (!services.pitchdeck||!services.pitchdeck.ok){
-      if (!opts.quiet) toast('PitchDeck did not start. Check Make a Film for service details.');
+      if (!opts.quiet) toast('Media services are unavailable. Check connections in Settings.');
       return false;
     }
   }
@@ -11299,7 +11338,8 @@ async function boardQueueVideoOnce(shotId, options){
   const attempt=knownTerminal?Math.max(0,Number(previous.attempt)||0)+1:Math.max(0,Number(previous&&previous.attempt)||0);
   const runId=String(previous&&previous.runId||('board_'+uid()));
   const label=(S.title||'studio')+' sc'+sc.num+' sh'+sh.num;
-  const admitting={runId,attempt,id:'',status:'admitting',queuedAt:new Date().toISOString(),label,error:'',code:'',marker:'',
+  const storageRunId=previous?.storageRunId || (typeof floorProduction==='function' && floorProduction()?productionState().id:runId);
+  const admitting={runId,storageRunId,attempt,id:'',status:'admitting',queuedAt:new Date().toISOString(),label,error:'',code:'',marker:'',
     providerId:selection.id,model:selection.model||'',review};
   if (!boardStoreVideo(sh,admitting)){
     if (!opts.quiet) toast('Agentic Movie Studio could not save the pending render. Free local storage; nothing was queued.');
@@ -11310,7 +11350,7 @@ async function boardQueueVideoOnce(shotId, options){
   let data;
   try{
     data=await crewFetchJson('/api/video/queue-batch', {
-      method:'POST', body:JSON.stringify({providerId:selection.id,model:selection.model||'',runId,
+      method:'POST', body:JSON.stringify({providerId:selection.id,model:selection.model||'',runId,storageRunId,
         billingApproval:videoBillingApproval(selection),shots:[{
         studioShotId:sh.id,attempt,prompt,imageDataUrl,label,quality:'draft',model:selection.model||'',review,
         frames:Math.round(Math.max(1,Number((sh.prompt&&sh.prompt.seconds)||PL.seconds||5))*24)+1,
@@ -11319,7 +11359,7 @@ async function boardQueueVideoOnce(shotId, options){
     });
   }catch(e){
     if (!boardRenderOwnerMatches(owner)) return false;
-    const failed={runId,attempt,id:'',status:'failed',queuedAt:admitting.queuedAt,label,providerId:selection.id,model:selection.model||'',review,
+    const failed={runId,storageRunId,attempt,id:'',status:'failed',queuedAt:admitting.queuedAt,label,providerId:selection.id,model:selection.model||'',review,
       error:String((e&&e.message)||e),code:String((e&&e.code)||''),marker:String((e&&e.marker)||'')};
     if (!boardStoreVideo(sh,failed)) toast('The render response could not be saved. Reopen this project before retrying.');
     if (activeView()==='boards') await renderBoards();
@@ -11330,9 +11370,9 @@ async function boardQueueVideoOnce(shotId, options){
   const result=(data.results||data.jobs||[])[0]||data;
   const id=crewJobId(result), problem=boardQueueProblem(data,result);
   const receipt=id
-    ? {runId,attempt,id,status:'queued',queuedAt:admitting.queuedAt,label,error:'',code:'',marker:'',reused:!!result.reused,
+    ? {runId,storageRunId,attempt,id,status:'queued',queuedAt:admitting.queuedAt,label,error:'',code:'',marker:'',reused:!!result.reused,
         providerId:selection.id,model:selection.model||'',review}
-    : {runId,attempt,id:'',status:'failed',queuedAt:admitting.queuedAt,label,error:problem.error||'PitchDeck returned no render job id',code:problem.code,marker:problem.marker,
+    : {runId,storageRunId,attempt,id:'',status:'failed',queuedAt:admitting.queuedAt,label,error:problem.error||'The selected provider returned no render job ID',code:problem.code,marker:problem.marker,
         providerId:selection.id,model:selection.model||'',review};
   if (!boardStoreVideo(sh,receipt)){
     toast(provider.name+' accepted this shot, but Agentic Movie Studio could not save its receipt. Do not render it again until the project is reopened.');
@@ -11376,19 +11416,21 @@ async function boardRefreshVideos(){
   const owner=boardDraftOwner();
   const work=(async()=>{
     const refs=boardActiveVideoJobs().map(({sh,job})=>({shotId:sh.id,id:job.id,
-      providerId:String(job.providerId||'phosphene')}));
+      providerId:String(job.providerId||'phosphene'),storageRunId:job.storageRunId||(typeof floorProduction==='function' && floorProduction()?productionState().id:job.runId)}));
     if (!refs.length) return {done:0,total:0};
     const rows=[], missing=[];
     const groups=new Map();
     refs.forEach(ref=>{
-      if (!groups.has(ref.providerId)) groups.set(ref.providerId,[]);
-      groups.get(ref.providerId).push(ref);
+      const group=JSON.stringify([ref.providerId,ref.storageRunId]);
+      if (!groups.has(group)) groups.set(group,[]);
+      groups.get(group).push(ref);
     });
-    for (const [providerId,providerRefs] of groups){
+    for (const providerRefs of groups.values()){
+      const {providerId,storageRunId}=providerRefs[0];
       for (let i=0;i<providerRefs.length;i+=500){
         const page=providerRefs.slice(i,i+500);
         const data=await crewFetchJson('/api/video/jobs', {
-          method:'POST',body:JSON.stringify({providerId,ids:page.map(x=>x.id)})
+          method:'POST',body:JSON.stringify({providerId,storageRunId,ids:page.map(x=>x.id)})
         });
         if (!boardDraftOwnerMatches(owner)) return {stale:true};
         rows.push(...crewStatusRows(data).map(row=>Object.assign({providerId},row)));
@@ -11451,7 +11493,7 @@ async function boardRenderAllReady(){
   const work=(async()=>{
     const services=await crewEnsureServices();
     if (!boardDraftOwnerMatches(owner)) return {queued:0,total:candidates.length};
-    if (!services.pitchdeck||!services.pitchdeck.ok) throw new Error('PitchDeck did not start.');
+    if (!services.pitchdeck||!services.pitchdeck.ok) throw new Error('Media services are unavailable. Check connections in Settings.');
     let queued=0;
     for (const {sh} of candidates){
       if (!boardDraftOwnerMatches(owner)) break;

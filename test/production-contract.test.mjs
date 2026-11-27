@@ -18,6 +18,37 @@ function loadFunction(start, end, name, context) {
   return context.__fn;
 }
 
+test('desktop service checks use the bundle in blank, shelved and active projects with or without a Qwen key', async () => {
+  const producer = await readFile(new URL('../src/studio-producer.js', import.meta.url), 'utf8');
+  const helpers = producer.slice(producer.indexOf('function studioDesktop'), producer.indexOf('function studioCrewSettings'));
+  const calls = [];
+  const context = {
+    S:{}, CREW:{}, AI:{status:'off'}, assigningFilm:null, studioPlugins:()=>[],
+    window:{__TAURI__:{core:{invoke(){}}}}, localStorage:{getItem:()=>null},
+    floorProviders:()=>[{id:'studio-wan'},{id:'studio-qwen-image'}],
+    floorCall:async action=>{
+      calls.push(action);
+      assert.equal(action,'runtime_status');
+      return {room:true,media:true,qwenKey:context.hasKey};
+    }
+  };
+  vm.createContext(context);
+  vm.runInContext(helpers+bodyBetween('async function crewConnect()', 'function productionState()'),context);
+  for (const production of [null,{status:'superseded'}, {supersededBooking:{textModel:'qwen4-max'}}, {booking:{textModel:'qwen3.8-max'}}]){
+    context.S.production=production;
+    for(const hasKey of [false,true]){
+      context.CREW.startResults=[{outcome:'error',detail:'stale launcher failure'}];
+      context.hasKey=hasKey;
+      const status=await context.crewEnsureServices();
+      assert.ok(status.greenroom.ok && status.pitchdeck.ok);
+      assert.equal(status.ollama.ok,hasKey);
+      assert.ok(context.CREW.providers.every(provider=>provider.configured===hasKey));
+      assert.equal(context.CREW.startResults.length,0);
+    }
+  }
+  assert.equal(calls.length,8);
+});
+
 test('a booked handoff waits for a competing worker and honors Stop before claiming the role', async () => {
   for (const stop of [false, true]) {
     const production = {id:'film',booking:{id:'order'}};

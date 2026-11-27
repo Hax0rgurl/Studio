@@ -16,7 +16,9 @@ function saveBooking(book){
   localStorage.setItem(billKey,JSON.stringify(book));
   window.dispatchEvent?.(new Event('studio-booking-changed'));
 }
-function floorProduction(){return typeof S!=='undefined' && (S.production?.booking || S.production?.studioCrew);}
+function studioDesktop(){return !!window.__TAURI__?.core?.invoke;}
+function floorProduction(){return typeof S!=='undefined' && (S.production?.booking || S.production?.studioCrew || S.production?.supersededBooking);}
+function crewModelInUse(){return (floorProduction()||assigningFilm)?.textModel||localStorage.getItem('studio.doubleFeatureModel')||'qwen3.8-max';}
 function studioCrewSettings(){
   const selected=localStorage.getItem('studio.renderer');
   const renderer=selected?studioPlugins().find(entry=>entry.url===selected):null;

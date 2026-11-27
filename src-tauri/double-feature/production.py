@@ -160,9 +160,12 @@ def adapter(call):
     action=call['action'];r=call['data']
     if action in ('uncertain_photos','authorize_photo_retry'):return photo_recovery(action,r)
     if action.startswith('room/'):return room(action[5:],r,call['owner'])
-    if action=='health':
+    if action in ('health','runtime_status'):
         MEDIA.mkdir(parents=True,exist_ok=True)
         with sqlite3.connect(MEDIA/'crew.sqlite') as db:db.execute('select 1')
+        if action=='runtime_status':
+            ffmpeg=Path(sys.executable).absolute().parents[2]/'ffmpeg'
+            return dict(room=True,media=ffmpeg.is_file() and os.access(ffmpeg,os.X_OK),qwenKey=bool(credential(b'Studio.QwenTokenPlan')))
         return True
     if action=='chat':
         body={k:r[k] for k in ('messages','model','temperature','max_tokens') if k in r}
