@@ -262,6 +262,19 @@ async function wakeProducer(){
         book.phase='ready';delete book.error;saveBooking(book);await crewResume();return;
       }
     }
+    const meeting=book['commission'+book.number];
+    const ownsActiveFilm=active?.booking?.id===book.id && active.booking.number===book.number;
+    if(book.phase==='held' && !ownsActiveFilm && meeting && !meeting.choice &&
+       /timed? out|connection reset|connection refused|temporarily unavailable|HTTP (?:429|502|503|504)\b/i.test(book.error||'')){
+      if(!book.pitchRetryAt){
+        book.pitchRetryCount=(book.pitchRetryCount||0)+1;
+        const delaySeconds=Math.min(900,30*2**Math.min(5,book.pitchRetryCount-1));
+        book.pitchRetryAt=Date.now()+1000*delaySeconds;
+        saveBooking(book);
+      }
+      if(Date.now()<book.pitchRetryAt)return;
+      delete book.pitchRetryAt;delete book.error;book.phase='ready';saveBooking(book);
+    }
     if(['complete','held'].includes(book.phase))return;
     let p=productionState();
     const match=p?.booking?.id===book.id && p.booking.number===book.number;
@@ -309,6 +322,9 @@ async function wakeProducer(){
       let commission=null;
       if(!fromSource){
         commission=await commissionOriginal(book,foundation);
+        if(book.pitchRetryCount){
+          delete book.pitchRetryCount;delete book.pitchRetryAt;saveBooking(book);
+        }
         if(!commission.choice)return;
         brief='PRODUCER GREENLIGHT — develop this chosen story: '+JSON.stringify(commission.choice)+'\nProducer’s decision: '+commission.reason+(commission.postingEvidence?'\nPublishing taste: “'+commission.postingEvidence+'” — '+commission.postingReason:'')+'\n'+brief;
       }

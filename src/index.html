@@ -7284,6 +7284,9 @@ function doubleFeatureControls(){
   const showBooking=()=>{
     const book=readBooking(),active=book&&!['held','complete'].includes(book.phase);
     state.textContent=!book?'Producer is opening the floor.':book.phase==='complete'?'Screening complete':book.phase==='held'?(bookingNeedsPhotoDecision(book)?'Photography is on hold. Qwen has not confirmed the storyboard photo.':'Producer waiting · '+book.error):'Film '+book.number+' of '+(book.count||2);
+    if(book?.phase==='held'&&book.pitchRetryAt){
+      state.textContent='Pitch meeting connection interrupted. The producer will retry at '+new Date(book.pitchRetryAt).toLocaleTimeString()+'.';
+    }
     button.textContent=book?.phase==='held'?(bookingNeedsPhotoDecision(book)?'Review missing photo':'Retry this booking'):active?'Crew is working':'Book two shorts · 4 storyboard photos and 4 video shots';
     const meeting=book?.['commission'+book.number], details=el('dfMeeting');
     const meetingId=meeting?book.id+'/'+book.number:'';
@@ -7358,7 +7361,7 @@ function doubleFeatureControls(){
     try{
       const old=readBooking();
       if(bookingNeedsPhotoDecision(old) && await reviewMissingPhoto(old))return;
-      if(old?.phase==='held'){old.phase='ready';old.directedResume=true;delete old.error;saveBooking(old);}
+      if(old?.phase==='held'){old.phase='ready';old.directedResume=true;delete old.error;delete old.pitchRetryAt;saveBooking(old);}
       else bookFilms((el('crewAsk')?.value||'').trim());
       await wakeProducer();await refresh();}
     catch(e){toast(String(e));}finally{submitting=false;showBooking();}

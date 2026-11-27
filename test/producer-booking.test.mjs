@@ -296,3 +296,28 @@ test('the director revises the rejected story with the producer’s note and han
   assert.match(starts[0][1],/A clerk holds the light switch/);
   assert.equal(starts[0][2].booking.commission.stage,'approved');
 });
+
+test('a timed-out pitch vote resumes on its saved pages after backoff without touching a photography hold',async()=>{
+  const {ctx,run,starts}=floor(),model=ctx.floorChat;
+  let pitches=0,votes=0;
+  ctx.floorChat=async(...args)=>{
+    if(args[1].startsWith('Director'))pitches++;
+    else if(++votes===1)throw Error('Operation timed out');
+    return model(...args);
+  };
+  await run('wakeProducer()');
+  assert.equal(run('readBooking().phase'),'held');
+  await run('wakeProducer()');
+  assert.equal(votes,1);
+  assert.ok(run('readBooking().pitchRetryAt')>Date.now());
+  run('const pending=readBooking();pending.pitchRetryAt=Date.now()-1;saveBooking(pending)');
+  await run('wakeProducer()');
+  assert.equal(starts.length,1);
+  assert.equal(pitches,1);
+  assert.equal(votes,2);
+  assert.equal(run('readBooking().pitchRetryAt'),undefined);
+  run("const photo=readBooking();photo.phase='held';photo.error='Storyboard rendering failed: Submission interrupted before provider receipt.';saveBooking(photo)");
+  await run('wakeProducer()');
+  assert.equal(run('readBooking().phase'),'held');
+  assert.equal(votes,2);
+});
