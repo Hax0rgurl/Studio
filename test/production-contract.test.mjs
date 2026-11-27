@@ -1320,7 +1320,7 @@ test('a screenplay cannot pass on a major story flaw or a payoff quoted before i
   const review={verdict:'pass',problems:[],audience:{setup:'The clerk stamps his own hand.',payoff:'He holds it up for approval.',effect:'The authority has become the applicant.'}};
   const ctx={productionState:()=>({mode:'idea'}),crewWriterWork:()=>work,S:{scenes:pages},crewContext:()=>'',CREW_SCREENPLAY_REVIEW_SCHEMA:{},
     crewJsonAgentCall:async(_role,_user,_opts,validate)=>validate(structuredClone(review)),crewProgressHash:()=>'',productionCheckpoint:()=>true,crewArtifactRef:()=>({})};
-  const run=loadFunction('async function crewReviewScreenplay','function crewCoverageConstraintText','crewReviewScreenplay',ctx);
+  const run=loadFunction('function crewScreenplayPages','function crewCoverageConstraintText','crewReviewScreenplay',ctx);
   await run({id:'story_review'},'');
   assert.equal(work.review.verdict,'pass');
   review.problems=[{sceneNumber:1,severity:'major',issue:'The opening gives away the ending.'}];
@@ -1331,4 +1331,28 @@ test('a screenplay cannot pass on a major story flaw or a payoff quoted before i
   review.problems=[];
   [review.audience.setup,review.audience.payoff]=[review.audience.payoff,review.audience.setup];
   await assert.rejects(run({id:'story_review'},''),/screenplay order/);
+});
+
+test('a saved role receipt admits only the screenplay pages the story editor actually passed', () => {
+  const context = {
+    S:{scenes:[{num:1,slug:'INT. LAB - DAY',text:'She catches the glass.',shots:[]}]},
+    CREW_BIBLE_PHASE:['prop_master'],CREW_VISUAL_PREP_PHASE:[]
+  };
+  vm.createContext(context);
+  vm.runInContext(bodyBetween('function crewScreenplayPages','async function crewReviewScreenplay')+
+    bodyBetween('function crewProgressHash','function crewProgressFingerprint')+
+    bodyBetween('function crewRoleFinished','const CREW_PRODUCER_DECISION_BASE'),context);
+  const p={mode:'idea',writerWork:{plan:{},review:null},steps:{}};
+  for(const id of ['director','story_editor','writer','story_review'])p.steps[id]={status:'done'};
+  const next=()=>Array.from(context.crewReadyRoles(p));
+  assert.deepEqual(next(),['story_review']);
+  const pagesHash=context.crewProgressHash(JSON.stringify(context.crewScreenplayPages()));
+  p.writerWork.review={reviewedPages:true,pagesHash,verdict:'revise'};
+  assert.deepEqual(next(),['writer']);
+  p.writerWork.review.verdict='pass';
+  assert.deepEqual(next(),['prop_master']);
+  context.S.scenes[0].text='The glass breaks before she reaches it.';
+  assert.deepEqual(next(),['story_review']);
+  p.mode='script';
+  assert.deepEqual(next(),['prop_master']);
 });

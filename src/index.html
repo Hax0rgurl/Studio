@@ -3270,7 +3270,8 @@ function crewApplyMutationLock(){
     const readOnly=(locked||canonical)&&view.id!=='view-crew';
     view.classList.toggle('production-readonly',readOnly);
     view.querySelectorAll('input,textarea,select,button').forEach(control=>{
-      const reviewSafe=control.matches('[data-review-flag],[data-review-note],[data-review-approve],[data-board-review],[data-town-ui],[data-town-direction],#sceneSearch,#charFilter,#locFilter,#bibleSearch,#boardFilter,#takeFilter,[data-bopen],[data-bedit],[data-bprompt],[data-bdown],[data-tkprompt]');
+      const exportSafe=view.id==='view-export' && control.id!=='expPitchDeck';
+      const reviewSafe=exportSafe || control.matches('[data-review-flag],[data-review-note],[data-review-approve],[data-board-review],[data-town-ui],[data-town-direction],#sceneSearch,#charFilter,#locFilter,#bibleSearch,#boardFilter,#takeFilter,[data-bopen],[data-bedit],[data-bprompt],[data-bdown],[data-tkprompt]');
       if (readOnly&&!reviewSafe&&!control.disabled){
         control.disabled=true; control.dataset.crewReadOnly='1';
       }else if ((!readOnly||reviewSafe)&&control.dataset.crewReadOnly==='1'){
@@ -3816,14 +3817,8 @@ function crewCompleteRoleRework(p,roleId){
   if (completed&&Array.isArray(p.reworkRoles)) p.reworkRoles=p.reworkRoles.filter(id=>id!==roleId);
   return completed;
 }
-function crewPrepareRework(p){
-  const queue=crewReworkQueue(p).filter(item=>item&&!item.preparedAt);
-  if (!p||!queue.length) return false;
-  const indexes=queue.map(item=>CREW_PIPELINE.indexOf(item.roleId)).filter(index=>index>=0);
-  if (!indexes.length) return false;
-  const first=Math.min(...indexes), now=new Date().toISOString();
-  p.reworkRoles=[...new Set((p.reworkRoles||[]).concat(CREW_PIPELINE.slice(first)))];
-  CREW_PIPELINE.slice(first).forEach(roleId=>{
+function crewReopenSteps(p,roles,now){
+  roles.forEach(roleId=>{
     const step=(p.steps||{})[roleId];
     if (!step) return;
     step.history=Array.isArray(step.history)?step.history:[];
@@ -3831,6 +3826,15 @@ function crewPrepareRework(p){
     step.history=step.history.slice(0,6);
     step.status='waiting'; step.error=''; step.updatedAt=now;
   });
+}
+function crewPrepareRework(p){
+  const queue=crewReworkQueue(p).filter(item=>item&&!item.preparedAt);
+  if (!p||!queue.length) return false;
+  const indexes=queue.map(item=>CREW_PIPELINE.indexOf(item.roleId)).filter(index=>index>=0);
+  if (!indexes.length) return false;
+  const first=Math.min(...indexes), now=new Date().toISOString();
+  p.reworkRoles=[...new Set((p.reworkRoles||[]).concat(CREW_PIPELINE.slice(first)))];
+  crewReopenSteps(p,CREW_PIPELINE.slice(first),now);
   queue.forEach(item=>item.preparedAt=now);
   p.status='paused'; p.currentStep=''; p.error='';
   return productionCheckpoint();
@@ -5111,6 +5115,13 @@ async function crewWriteScript(role, ask){
   S.scriptName = 'agentic-draft.ams';
   if (p.booking || !S.title || /^untitled$/i.test(S.title)) S.title=parsed.title;
   if(p.booking && activeProject())activeProject().name=S.title;
+  if(rewriting && p && !p.images?.done && !p.expectedShotIds?.length && !Object.keys(p.jobs||{}).length){
+    const changed=JSON.stringify(crewScreenplayPages())!==JSON.stringify(crewScreenplayPages(parsed.scenes));
+    if(changed){
+      crewReopenSteps(p,CREW_PIPELINE.slice(CREW_PIPELINE.indexOf('story_review')),new Date().toISOString());
+      delete p.sceneInventory;
+    }
+  }
   S.scenes = parsed.scenes;
   const auto = runAutoBreakdown();
   if(p.booking){clearAutoShots();auto.shots=0;for(const sc of S.scenes)sc.autoPropSeeds=[...(sc.elements.props||[])];}
@@ -5123,12 +5134,15 @@ async function crewWriteScript(role, ask){
     artifact:crewArtifactRef('screenplay','Screenplay','scenes',S.scenes.length+' planned, checkpointed structured scenes',
       {sceneCount:S.scenes.length,format:'Agentic Movie Studio structured screenplay',planSaved:true,revisionPass:work.revisionPass||0})};
 }
+function crewScreenplayPages(scenes=S.scenes){
+  return scenes.map(sc=>({scene:sc.num,slug:sc.slug,text:sc.text}));
+}
 async function crewReviewScreenplay(role,ask){
   const p=productionState();
   if (!p||!['idea','adaptation'].includes(p.mode)) return {status:'skipped',text:'The existing imported screenplay remains canon; automatic story review cannot rewrite it.'};
   const work=crewWriterWork(p);
   if (!S.scenes.length||!work.plan) return {status:'failed',text:'No planned screenplay is available for independent story review.'};
-  const pages=S.scenes.map(sc=>({scene:sc.num,slug:sc.slug,text:sc.text}));
+  const pages=crewScreenplayPages();
   const user=crewContext(role,{extra:'APPROVED WRITER PLAN:\n'+JSON.stringify(work.plan)
     +'\n\nDURABLE WRITER WORK:\n'+JSON.stringify({revisionPass:work.revisionPass||0,sceneCount:S.scenes.length})})
     +(ask?'\n\nPRODUCTION ASSIGNMENT:\n'+ask:'')
@@ -6690,8 +6704,18 @@ function crewReadyRoles(p){
   const development=p.mode==='adaptation'
     ? ['story_editor','director','writer','story_review']
     : ['director','story_editor','writer','story_review'];
-  if(p.writerWork?.review?.verdict==='revise' && p.steps?.story_review?.status==='done')return ['writer'];
-  for (const roleId of development) if (!crewRoleFinished(p,roleId)) return [roleId];
+  for(const roleId of development){
+    if(roleId==='story_review' && p.writerWork?.plan && ['idea','adaptation'].includes(p.mode)
+        && !p.images?.done && !p.expectedShotIds?.length && !Object.keys(p.jobs||{}).length
+        && !S.scenes.some(sc=>(sc.shots||[]).some(sh=>sh.board?.frame || sh.takes?.length))){
+      const review=p.writerWork.review;
+      const pagesHash=crewProgressHash(JSON.stringify(crewScreenplayPages()));
+      if(!review?.reviewedPages || review.pagesHash!==pagesHash)return ['story_review'];
+      if(review.verdict==='revise')return ['writer'];
+      if(review.verdict!=='pass')return ['story_review'];
+    }
+    if(!crewRoleFinished(p,roleId))return [roleId];
+  }
   if(p.booking && !p.images?.done){
     for(const [kind,role] of [['characters','casting_director'],['props','prop_master']]){
       if(crewRoleFinished(p,role) && !p.sceneInventory?.[kind])return [role];
@@ -8421,12 +8445,10 @@ function buildSceneCSV(){
   return rows.map(r=>r.map(csvCell).join(',')).join('\n');
 }
 function openBreakdownSheets(){
-  const w = window.open('', '_blank');
-  if (!w){ toast('Popup blocked — allow popups to print breakdown sheets'); return; }
   const sheets = exportScenes().map(sc=>{
     const catList = cats().filter(c=>!c.auto).map(c=>{
       const items = sc.elements[c.k]||[];
-      return `<div class="cat"><div class="cl">${c.label}</div><div class="ci">${items.map(esc).join(', ')||'—'}</div></div>`;
+      return `<div class="cat"><div class="cl">${esc(c.label)}</div><div class="ci">${items.map(esc).join(', ')||'—'}</div></div>`;
     }).join('');
     return `<div class="sheet">
       <div class="sh-head"><div><div class="t">${esc(S.title)}</div><div class="s">SCENE ${esc(sc.num)} · ${esc(sc.slug)}</div></div>
@@ -8436,7 +8458,7 @@ function openBreakdownSheets(){
       ${catList}
     </div>`;
   }).join('');
-  w.document.write(`<!DOCTYPE html><html><head><title>${esc(S.title)} — Breakdown Sheets</title><style>
+  printStudioDocument('Breakdown Sheets', `<!DOCTYPE html><html><head><title>${esc(S.title)} — Breakdown Sheets</title><style>
     body{font-family:-apple-system,Segoe UI,sans-serif;margin:0;padding:24px;color:#111}
     .sheet{border:2px solid #111;margin-bottom:22px;page-break-inside:avoid;padding:0}
     .sh-head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #111;padding:12px 16px;background:#f3f3f3}
@@ -8449,8 +8471,7 @@ function openBreakdownSheets(){
     .cl{width:150px;min-width:150px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:8px 16px;color:#444;border-right:1px solid #ccc;font-weight:700}
     .ci{padding:8px 16px;font-size:13px}
     @media print{.sheet{margin-bottom:14px}}
-  </style></head><body>${sheets}<script>window.print()<\/script></body></html>`);
-  w.document.close();
+  </style></head><body>${sheets}</body></html>`);
 }
 
 /* ---------- shooting schedule & Day Out of Days ----------
@@ -8568,8 +8589,6 @@ function schedCastKey(plan){
     : '';
 }
 function openScheduleSheet(){
-  const w = window.open('', '_blank');
-  if (!w){ toast('Popup blocked — allow popups to print the schedule'); return; }
   const plan = buildScheduleDays(exportScenes(), SCHED);
   const totalE = plan.days.reduce((n,d)=>n+d.eighths,0);
   const locs = new Set(plan.days.map(d=>d.location));
@@ -8582,7 +8601,7 @@ function openScheduleSheet(){
         <div><span class="lbl">Scenes</span>${d.sceneNums.map(esc).join(', ')}</div>
         <div style="margin-top:5px"><span class="lbl">Cast</span>${d.castIds.length? d.castIds.map(i=>`<b>${i}</b>`).join(', ') : '—'}${d.castNames.length? ' <span style="color:#666">('+d.castNames.map(esc).join(', ')+')</span>':''}</div>
       </div></div>`).join('');
-  w.document.write(schedPrintHead('Shooting Schedule') +
+  printStudioDocument('Shooting Schedule', schedPrintHead('Shooting Schedule') +
     `<h1>${esc(S.title)} — Suggested Shooting Schedule</h1>
      <div class="sub">${esc(scopeLabel())} · target ${SCHED.pagesPerDay} pg/day · generated ${new Date().toLocaleDateString()}</div>
      <div class="caveat">${esc(SCHED_CAVEAT)}</div>
@@ -8591,26 +8610,22 @@ function openScheduleSheet(){
        <div class="stat"><div class="v">${(totalE/8).toFixed(1)}</div><div class="k">Pages</div></div>
        <div class="stat"><div class="v">${locs.size}</div><div class="k">Locations</div></div>
        <div class="stat"><div class="v">${moves}</div><div class="k">Location changes</div></div>
-     </div>${daysHtml}${schedCastKey(plan)}<script>window.print()<\/script></body></html>`);
-  w.document.close();
+     </div>${daysHtml}${schedCastKey(plan)}</body></html>`);
 }
 function openDoodSheet(){
-  const w = window.open('', '_blank');
-  if (!w){ toast('Popup blocked — allow popups to print the DOOD'); return; }
   const plan = buildScheduleDays(exportScenes(), SCHED), dood = buildDood(plan);
   const dayCols = plan.days.map(d=>`<th title="${esc(d.location)} · ${esc(d.regimeLabel)}">${d.n}</th>`).join('');
   const body = dood.cast.map(c=>`<tr><td>${c.id}</td><td class="name">${esc(c.name)}</td>${
     c.codes.map(x=>`<td class="${x==='H'?'h':(x?'w':'')}">${x||''}</td>`).join('')
   }<td>${c.work}</td><td>${c.hold}</td><td><b>${c.total}</b></td></tr>`).join('');
-  w.document.write(schedPrintHead('Day Out of Days') +
+  printStudioDocument('Day Out of Days', schedPrintHead('Day Out of Days') +
     `<h1>${esc(S.title)} — Day Out of Days</h1>
      <div class="sub">${dood.cast.length} cast · ${plan.days.length} shoot days · ${esc(scopeLabel())} · generated ${new Date().toLocaleDateString()}</div>
      <div class="caveat">${esc(SCHED_CAVEAT)}</div>
      <table><thead><tr><th>ID</th><th class="name">Character</th>${dayCols}<th>W</th><th>H</th><th>Tot</th></tr></thead>
      <tbody>${body || '<tr><td colspan="99" style="color:#888">No cast with dialogue detected in scope.</td></tr>'}</tbody></table>
      <div class="legend"><b>Codes:</b> <b>SW</b> Start&nbsp;Work · <b>W</b> Work · <b>WF</b> Work&nbsp;Finish · <b>SWF</b> Start-Work-Finish (single day) · <b>H</b> Hold (carried &amp; paid between first and last day). <b>W</b>/<b>H</b>/<b>Tot</b> = work days / hold days / total (span). Cast appear only where they have dialogue.</div>
-     ${schedCastKey(plan)}<script>window.print()<\/script></body></html>`);
-  w.document.close();
+     ${schedCastKey(plan)}</body></html>`);
 }
 
 /* ---------- export UI ---------- */
@@ -8653,12 +8668,23 @@ function screenplayPrintDocument(){
     +'@media screen{body{max-width:8.5in;margin:24px auto;padding:.75in 1in .75in 1.5in;box-shadow:0 2px 20px #bbb}.title-page{height:8.5in}}'
     +'</style></head><body><section class="title-page"><h1>'+esc(S.title||'Untitled Screenplay')+'</h1><p>Written screenplay</p>'
     +(draft.name?'<p>'+esc(draft.name)+'</p>':'')+'<p>'+esc(new Date().toLocaleDateString())+'</p></section>'
-    +exportScenes().map(screenplaySceneHtml).join('')+'<script>window.addEventListener(\'load\',()=>window.print())<\/script></body></html>';
+    +exportScenes().map(screenplaySceneHtml).join('')+'</body></html>';
+}
+function printStudioDocument(label, html){
+  if(studioDesktop()){
+    return crewInvoke('open_print_preview',{title:(S.title||'Untitled')+' — '+label,html})
+      .catch(error=>toast('Could not open the print preview: '+String(error)));
+  }
+  const preview=window.open('','_blank');
+  if(!preview){toast('Allow pop-ups to open the print preview.');return;}
+  preview.document.open();
+  preview.document.write(html);
+  preview.document.close();
+  preview.focus();
+  preview.print();
 }
 function openScreenplayPrint(){
-  const win=window.open('','_blank');
-  if (!win){ toast('Popup blocked — allow popups to print the screenplay.'); return; }
-  win.document.write(screenplayPrintDocument()); win.document.close();
+  return printStudioDocument('Screenplay',screenplayPrintDocument());
 }
 
 function previewExport(title, filename, content){

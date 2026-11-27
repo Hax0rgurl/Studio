@@ -5,6 +5,7 @@
 mod double_feature;
 mod greenroom;
 mod local_http;
+mod print_preview;
 mod services;
 mod taste_os;
 
@@ -45,6 +46,8 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             initial_file,
+            print_preview::open_print_preview,
+            print_preview::print_preview,
             double_feature::studio_production,
             double_feature::studio_producer_leader,
             double_feature::studio_shot_preview,
