@@ -1030,6 +1030,7 @@ function persist(){
   ensureShotIds();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(()=>{
+    saveTimer = null;
     const d = activeDraft();
     if (d){ d.state = S; saveDB(); }
     el('saveState').textContent = 'saved locally · ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
@@ -1042,6 +1043,7 @@ function persist(){
 function persistNow(){
   ensureShotIds();
   clearTimeout(saveTimer);
+  saveTimer = null;
   const d = activeDraft();
   let ok=false;
   if (d){ d.state = S; ok=!!saveDB(); }
@@ -1097,6 +1099,7 @@ function openDraft(pid, did){
   }
   const p = DB.projects.find(x=>x.id===pid); if (!p) return;
   const d = p.drafts.find(x=>x.id===did) || p.drafts[p.drafts.length-1]; if (!d) return;
+  if(saveTimer!==null && activeDraft() && !persistNow())return;
   ACTIVE = { p:pid, d:d.id }; saveDB();
   hydrate(JSON.parse(JSON.stringify(d.state)));
   crewActivateLoadedProduction();
@@ -1992,7 +1995,7 @@ function hideCatPicker(){ catPicker.style.display='none'; }
 document.addEventListener('mousedown', e=>{ if (!catPicker.contains(e.target)) hideCatPicker(); });
 
 /* ================= shots view ================= */
-const shotsOpen = new Set();
+const shotsOpen = new Map();
 function nextShotNum(sc){
   const used = new Set(sc.shots.map(s=>s.num));
   for (let i=0;i<26;i++){ const n = sc.num + String.fromCharCode(65+i); if (!used.has(n)) return n; }
@@ -2008,7 +2011,7 @@ function renderShots(){
   const t = totals();
   el('shotMeta').textContent = `${t.shots} shots across ${S.scenes.filter(s=>s.shots.length).length} scenes`;
   el('shotsWrap').innerHTML = S.scenes.map((sc,i)=>{
-    const open = shotsOpen.has(i) || sc.shots.length>0;
+    const open = shotsOpen.get(i) ?? (sc.shots.length>0);
     return `<div class="shot-scene">
       <div class="shot-scene-head" data-i="${i}">
         <span class="num" style="font-family:var(--mono);font-size:11px;color:var(--tx3)">SC ${esc(sc.num)}</span>
@@ -2022,7 +2025,7 @@ function renderShots(){
   }).join('');
   el('shotsWrap').querySelectorAll('.shot-scene-head').forEach(h=>h.addEventListener('click',()=>{
     const i = +h.dataset.i;
-    if (shotsOpen.has(i) && !S.scenes[i].shots.length) shotsOpen.delete(i); else if (shotsOpen.has(i)) shotsOpen.delete(i); else shotsOpen.add(i);
+    shotsOpen.set(i, !(shotsOpen.get(i) ?? (S.scenes[i].shots.length>0)));
     renderShots();
   }));
   wireShotTables();
@@ -2049,8 +2052,8 @@ function wireShotTables(){
   el('shotsWrap').querySelectorAll('[data-add]').forEach(b=>b.addEventListener('click',e=>{
     e.stopPropagation();
     const sc = S.scenes[+b.dataset.add];
-    sc.shots.push({num: nextShotNum(sc), size:'', angle:'', move:'', lens:'', desc:''});
-    shotsOpen.add(+b.dataset.add); renderShots(); persist();
+    sc.shots.push({id:uid(), num:nextShotNum(sc), size:'', angle:'', move:'', lens:'', desc:'', takes:[]});
+    shotsOpen.set(+b.dataset.add,true); renderShots(); persist();
   }));
   el('shotsWrap').querySelectorAll('.shot-table input').forEach(inp=>{
     inp.addEventListener('click', e=>e.stopPropagation());
@@ -2392,7 +2395,7 @@ const HELP_TOPICS = [
       <li>Open <b>Make a Film</b>. Give the crew an idea, or import/open an existing screenplay first.</li>
       <li>For a bare idea, choose the target length and let the agents write to it. For an existing screenplay, use <b>Make the current script</b>: the target is ignored and the screenplay’s own length is preserved.</li>
       <li>The screenplay engine parses and breaks down the script; the crew fills bibles, Look, coverage and prompts; your taste layer reviews them.</li>
-      <li>PitchDeck and Phosphene render each stable shot. A take appears only when a real clip finishes, then the editor assembles the final cut.</li>
+      <li>The selected image provider renders each approved storyboard photograph. The selected video renderer animates that frame. A finished clip becomes a take, and the editor assembles the cut. The autonomous crew can use Studio’s bundled Qwen and Wan connections.</li>
       <li>Use the individual modules whenever you want to inspect or refine the same canonical project.</li>
     </ol>
     <p style="color:var(--tx2);margin-top:8px">The bundled demo is only a software example. It is never treated as your material when you start from a new idea.</p>`],
@@ -2475,8 +2478,8 @@ function importText(text, filename, force){
   }
   importParsed(parsed, filename);
 }
-function importParsed(parsed, filename){
-  if (typeof crewMutationLocked==='function' && (crewMutationLocked() || crewCanonicalLocked())){
+function importParsed(parsed, filename, produce=false){
+  if (!produce && typeof crewMutationLocked==='function' && (crewMutationLocked() || crewCanonicalLocked())){
     toast('Wait for the current department checkpoint before replacing project scenes.'); return;
   }
   if (!parsed.scenes.length){ toast('No scenes found — is this a screenplay? (Needs INT./EXT. sluglines)'); return; }
@@ -2486,12 +2489,23 @@ function importParsed(parsed, filename){
 
   const finishInto = (proj, draftName) => {
     const d = { id:uid(), name:draftName, imported:new Date().toISOString(), state };
+    const busy=crewMutationLocked()||crewCanonicalLocked();
+    if(!busy && activeDraft() && !persistNow())return;
     proj.drafts.push(d);
-    ACTIVE = { p:proj.id, d:d.id }; saveDB();
-    hydrate(state);
-    const auto = runAutoBreakdown();
-    persist(); renderAll(); closeModal();
-    toast(`Imported ${S.scenes.length} scenes · ${(totals().eighths/8).toFixed(1)} pages — auto-tagged ${auto.tags} elements, seeded ${auto.bibles} bibles, drafted ${auto.shots} shots`, true);
+    if(busy){
+      d.needsBreakdown=true;
+      if(!saveDB()){proj.drafts.pop();return;}
+    }else{
+      ACTIVE={p:proj.id,d:d.id};hydrate(state);
+      runAutoBreakdown();cardsFromScenes();
+      if(!persistNow())return;
+    }
+    closeModal();renderAll();
+    if(produce){
+      submitProduction('Produce this screenplay as written.',{title,filename,projectId:proj.id,draftId:d.id});
+      return;
+    }
+    toast('Imported '+S.scenes.length+' scenes into '+proj.name+' · '+draftName,true);
   };
   const cur = activeProject();
   if (cur){
@@ -2618,7 +2632,8 @@ function promptModal(title, value, onOk){
     {label:'Cancel'},
     {label:'Save', primary:true, onClick:()=>{ const v = el('pmInput').value; closeModal(); onOk(v); }},
   ]);
-  setTimeout(()=>{ el('pmInput').focus(); el('pmInput').select(); },50);
+  const input=el('pmInput');
+  setTimeout(()=>{ if(input.isConnected && el('modal').classList.contains('open')){input.focus();input.select();} },50);
 }
 
 /* ---------- draft comparison ---------- */
@@ -2694,14 +2709,16 @@ function handleFile(file){
       if(!looksLikeScreenplayPDF(pages))throw Error('This PDF does not contain a recognizable screenplay.');
       const parsed=screenplayFromPDF(pages);
       if(!parsed.scenes.length)throw Error('No screenplay scenes found.');
-      submitProduction('Produce this screenplay as written.',{filename:file.name,title:parsed.title||file.name,scenes:parsed.scenes});
+      importParsed(parsed,file.name,true);
     }).catch(e=>toast(String(e.message||e)));return;
   }
   if(window.__TAURI__?.core && /\.(fountain|fdx|txt)$/i.test(file.name)){
     file.text().then(text=>{
       const parsed=parseScript(text,file.name);
-      if(parsed.scenes.length)submitProduction('Produce this screenplay as written.',{filename:file.name,title:parsed.title||file.name,scenes:parsed.scenes});
-      else if(text.trim())submitProduction(text);
+      if(parsed.scenes.length)importParsed(parsed,file.name,true);
+      else if(/\.txt$/i.test(file.name)&&text.trim()){
+        if(text.trim().length>400)offerAdaptation(text,file.name);else submitProduction(text);
+      }else toast('No screenplay scenes found. Check for INT. or EXT. scene headings.');
     }).catch(e=>toast(String(e)));
     return;
   }
@@ -2793,10 +2810,13 @@ async function pdfExtract(file){
   return pages;
 }
 function looksLikeScreenplayPDF(pages){
-  let slugs = 0;
-  for (const pg of pages) for (const l of pg.lines)
-    if (/^(INT|EXT|EST|I\/E)[.\s]/i.test(l.text) && l.text === l.text.toUpperCase()) slugs++;
-  return slugs >= 5;
+  const lines=pages.flatMap(page=>page.lines.map(line=>line.text.trim())).filter(Boolean);
+  const heading=text=>/^(?:\d+[A-Z]?[.\s]+)?(?:INT|EXT|EST|I\/E)[.\s]/i.test(text) && text===text.toUpperCase();
+  const headings=lines.filter(heading);
+  if(headings.length>=5)return true;
+  const first=lines.findIndex(heading);
+  return first>=0 && lines.slice(first+1).some(text=>!heading(text) && /[a-z]/.test(text))
+    && (headings.length>=2 || (first<5 && /\s[-–—]\s\S/.test(lines[first])));
 }
 function screenplayFromPDF(pages){
   // classify by indent relative to the action margin (the most common left edge)
@@ -2853,15 +2873,16 @@ async function handlePDF(file,owner){
     toast('The active draft changed while that PDF was being read. Nothing was imported.'); return;
   }
   const totalText = pages.reduce((n,pg)=>n+pg.lines.reduce((m,l)=>m+l.text.length,0),0);
-  if (totalText < 200){ toast('This PDF has no readable text layer (it may be scanned images). Export it from your writing app as FDX or text instead.'); return; }
+
   if (looksLikeScreenplayPDF(pages)){
     const parsed = screenplayFromPDF(pages);
     if (parsed.scenes.length){
-      if(window.__TAURI__?.core)submitProduction('Produce this screenplay as written.',{filename:file.name,title:parsed.title||file.name,scenes:parsed.scenes});
+      if(window.__TAURI__?.core)importParsed(parsed,file.name,true);
       else importParsed(parsed,file.name);
       return;
     }
   }
+  if (totalText < 200){ toast('This PDF has no readable text layer (it may be scanned images). Export it from your writing app as FDX or text instead.'); return; }
   // A prose PDF may be research to adapt or a visual lookbook. Never guess
   // that a paper is already screenplay prose and silently reformat it.
   offerAdaptation(documentTextFromPDF(pages),file.name,()=>importStyleGuide(pages,file.name,owner));
@@ -2937,7 +2958,7 @@ function importStyleGuide(pages, filename, owner){
   for (const pg of pages) for (const l of pg.lines) rawLines.push(l.text);
   const cleaned = cleanGuideLines(rawLines);
   // full curated text rides along into every AI export; buckets stored for re-suggesting later
-  S.styleGuide = { name, added:new Date().toISOString(), text: cleaned.join('\n').slice(0,7000), buckets: bucketGuideLines(cleaned) };
+  S.styleGuide = { name, added:new Date().toISOString(), text: rawLines.join('\n'), buckets: bucketGuideLines(cleaned) };
   const filled = applyGuideLook();
   persist(); nav('look');
   toast(`Style guide “${name}” loaded — ${filled} look fields filled, and it now rides along inside every AI export`, true);
@@ -4018,6 +4039,12 @@ function crewMergeRecord(detail){
   p.greenroomMessageCount=detail.messages.length;
   if (merged) productionCheckpoint();
   return merged;
+}
+async function crewRefreshRecord(){
+  try{
+    await crewConnect();
+    if(productionState())await crewOpenRecord();
+  }catch(error){toast('Could not refresh the crew record: '+String(error.message||error));}
 }
 async function crewOpenRecord(){
   const p = productionState();
@@ -6300,7 +6327,8 @@ async function crewRun(roleId, ask){
     if (!productionState() && a!=='none'){
       crewEnsureCurrentProject();
       const now=new Date().toISOString();
-      S.production={id:'prod_'+uid(),mode:'script',brief:ask||('Finish '+(S.title||'this film')+'.'),
+      const studioCrew=window.__TAURI__?.core && typeof studioCrewSettings==='function' ? studioCrewSettings() : null;
+      S.production={studioCrew,id:'prod_'+uid(),mode:'script',brief:ask||('Finish '+(S.title||'this film')+'.'),
         status:'running',startedAt:now,updatedAt:now,currentStep:'',steps:{},jobs:{},error:''};
       createdDirectProduction=true;
       owner={projectId:ACTIVE.p,draftId:ACTIVE.d,runId:S.production.id};
@@ -6761,8 +6789,20 @@ async function crewStart(mode, ask, sourceOptions){
   if(typeof submitProduction==='function' && window.__TAURI__?.core && !sourceOptions?.booking){
     const options={...(sourceOptions||{})};
     if(mode!=='script')options.targetMinutes=Number(options.targetMinutes||el('crewLength')?.value||1);
-    const script=mode==='script'?{title:S.title,filename:S.scriptName,scenes:JSON.parse(JSON.stringify(S.scenes))}:null;
-    if(script&&!script.scenes.length){toast('Import a screenplay first.');return;}
+    let script=null;
+    if(mode==='script'){
+      if(!S.scenes.length){toast('Import a screenplay first.');return;}
+      if(!crewEnsureCurrentProject()||!persistNow())return;
+      let draft=activeDraft();
+      if(S.production||S.cut){
+        const state=JSON.parse(JSON.stringify(S));state.production=null;state.cut=null;
+        state.scenes.forEach(sc=>sc.shots.forEach(sh=>{sh.takes=[];}));
+        draft={id:uid(),name:'Production from '+draft.name,imported:new Date().toISOString(),state};
+        activeProject().drafts.push(draft);
+        if(!saveDB()){activeProject().drafts.pop();return;}
+      }
+      script={title:S.title,filename:S.scriptName,projectId:ACTIVE.p,draftId:draft.id};
+    }
     submitProduction(ask||'Produce the current screenplay.',script,options);return;
   }
   const current=productionState();
@@ -7377,7 +7417,7 @@ function renderCrew(){
     if (crewAddClientNote((input||{}).value||'') && input) input.value='';
   });
   on('crewRefreshRecord','click', async ()=>{
-    await crewConnect(); await crewOpenRecord(); renderCrew();
+    await crewRefreshRecord(); renderCrew();
   });
   w.querySelectorAll('[data-artifact-view]').forEach(button=>button.addEventListener('click',()=>nav(button.dataset.artifactView)));
   w.querySelectorAll('[data-review-approve]').forEach(button=>button.addEventListener('click',async()=>{
@@ -7459,14 +7499,17 @@ function renderCrew(){
     if (AI.ctrl){try{AI.ctrl.abort();}catch(e){}}
     toast('Stopping after the current safe checkpoint.');
   });
-  w.querySelectorAll('[data-crew]').forEach(b=>b.addEventListener('click', ()=>{
+  w.querySelectorAll('[data-crew]').forEach(b=>b.addEventListener('click', async()=>{
     if (crewMutationLocked()){
       const current=productionState(), role=crewFind((current&&current.currentStep)||'');
       const worker=(role&&role.at)||CREW.busy||'', label=worker?'@'+worker:'another project worker';
       toast('Individual departments cannot start while '+label+' is working. Use Stop safely, wait for its checkpoint, then run the department you want.');
       return;
     }
-    crewRun(b.dataset.crew, (el('crewAsk')||{}).value ? el('crewAsk').value.trim() : '');
+    try{
+      const result=await crewRun(b.dataset.crew, (el('crewAsk')?.value||'').trim());
+      if(!result.ok)toast(result.out||'The department could not finish its assignment.');
+    }catch(error){toast(String(error.message||error));}
   }));
   w.querySelectorAll('[data-crew-skill]').forEach(b=>b.addEventListener('click', ()=>{
     const role=crewFind(b.dataset.crewSkill), book=crewSkillBook(role);
@@ -7564,7 +7607,7 @@ function townEnsureController(){
       onDirection:(roleId,text)=>{const saved=crewAddClientNote(text,roleId);if(saved&&STUDIO_TOWN_CONTROLLER)STUDIO_TOWN_CONTROLLER.refresh();return saved;},
       onReview:async(roleId,verdict,note)=>{await crewReviewArtifact(roleId,verdict,note);if(STUDIO_TOWN_CONTROLLER)STUDIO_TOWN_CONTROLLER.refresh();},
       onRun:roleId=>crewRun(roleId,''),onNotice:message=>toast(message),onError:error=>toast(error.message),
-      onRefresh:async()=>{await crewConnect();if(productionState())await crewOpenRecord();if(STUDIO_TOWN_CONTROLLER)STUDIO_TOWN_CONTROLLER.refresh();}
+      onRefresh:async()=>{await crewRefreshRecord();if(STUDIO_TOWN_CONTROLLER)STUDIO_TOWN_CONTROLLER.refresh();}
     });
   }
   return STUDIO_TOWN_CONTROLLER;
@@ -7599,8 +7642,7 @@ function wireClientRoom(wrap){
     if (!button || !wrap.contains(button)) return;
     if (button.id==='clientTown'){ nav('town'); return; }
     if (button.id==='clientRefresh'){
-      await crewConnect();
-      if (productionState()) await crewOpenRecord();
+      await crewRefreshRecord();
       renderClientRoom(); return;
     }
     if (button.id==='clientSend'){
@@ -7830,11 +7872,6 @@ function sceneContextMd(sc, includeText){
 /* ---------- export scope ---------- */
 let EXP = { mode:'all', range:'' };
 let SCHED = { pagesPerDay:5 };   // target page budget per synthetic shoot day (schedule/DOOD)
-function scenePageStart(i){
-  if (S.scenes[i] && S.scenes[i].page) return S.scenes[i].page;
-  let e = 0; for (let j=0;j<i;j++) e += S.scenes[j].eighths||0;
-  return Math.floor(e/8)+1;
-}
 function parseRangeSet(str){
   const set = new Set(); const ranges = [];
   String(str||'').split(/[,;]+/).map(s=>s.trim()).filter(Boolean).forEach(part=>{
@@ -7861,7 +7898,14 @@ function exportScenes(){
     case 'pages': {
       const r = parseRangeSet(EXP.range);
       if (r.empty) return all;
-      return all.filter((sc,i)=>{ const p = scenePageStart(i); return r.has(p, p); });
+      let eighth = 0;
+      return all.filter(sc=>{
+        const start = sc.page ? Math.max((sc.page-1)*8, Math.min(eighth,sc.page*8-1)) : eighth;
+        eighth = start + Math.max(1,sc.eighths||1);
+        const first = Math.floor(start/8)+1, last = Math.ceil(eighth/8);
+        for(let page=first;page<=last;page++) if(r.has(page,page))return true;
+        return false;
+      });
     }
     default: return all;
   }
@@ -8029,6 +8073,7 @@ ${styleGuideBlock()}## SCENES & PLANNED COVERAGE
 
 /* ---------- chat with your script ---------- */
 function buildChatPack(){
+  const {state}=exportProjectDocument();
   let md = packHeader('Script Companion');
   md += `## YOUR ROLE
 
@@ -8037,7 +8082,7 @@ You are now a producing/AD assistant with complete knowledge of the screenplay b
 ## BREAKDOWN DATA
 
 **Title:** ${S.title}
-**Scenes:** ${S.scenes.length} · **Pages:** ${(totals().eighths/8).toFixed(1)}
+**Scenes:** ${state.scenes.length} · **Pages:** ${(state.scenes.reduce((sum,sc)=>sum+(sc.eighths||0),0)/8).toFixed(1)}
 
 ### Project look
 ${lookBlock()}
@@ -8046,14 +8091,14 @@ ${styleGuideBlock()}
 
 ### Bibles
 ${['characters','locations','props'].map(t=>{
-  const rows = Object.entries(S.bibles[t]).filter(([,v])=>v.desc&&v.desc.trim()).map(([k,v])=>`- **${k}** (${t.slice(0,-1)}): ${v.desc.trim().replace(/\n+/g,' ')}`);
+  const rows = Object.entries(state.bibles[t]).filter(([,v])=>v.desc&&v.desc.trim()).map(([k,v])=>`- **${k}** (${t.slice(0,-1)}): ${v.desc.trim().replace(/\n+/g,' ')}`);
   return rows.join('\n');
 }).filter(Boolean).join('\n') || '_None defined._'}
 
 ### Scenes
 
 `;
-  for (const sc of exportScenes()){
+  for (const sc of state.scenes){
     md += sceneHeaderMd(sc)+'\n\n'+sceneContextMd(sc,true)+'\n';
     if (sc.shots.length) md += 'Planned shots:\n'+sc.shots.map(sh=>'- '+shotLine(sh)).join('\n')+'\n\n';
   }
@@ -8354,6 +8399,21 @@ function makeZip(files){ // files: [{name, content:string}]
   end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
   return new Blob([...parts, ...central, new Uint8Array(end.buffer)], {type:'application/zip'});
 }
+function exportProjectDocument(){
+  const document = serialize(), scenes = exportScenes();
+  if(scenes.length===S.scenes.length)return document;
+  const selected = new Set(scenes.map(sc=>String(sc.num)));
+  const state = blankState();
+  for(const key of ['title','scriptName','bible','tasteNotes','look','lookSrc','lookAuto','boardStyle','styleGuide','customCats'])state[key]=S[key];
+  state.scenes=scenes;
+  state.cards=S.cards.filter(card=>selected.has(String(card.sceneNum)));
+  const names=usedNames(scenes);
+  for(const [key,allowed] of [['characters',names.chars],['locations',names.locs],['props',names.props]]){
+    const included=new Set(allowed.map(name=>name.toLowerCase()));
+    state.bibles[key]=Object.fromEntries(Object.entries(S.bibles[key]).filter(([name])=>included.has(name.toLowerCase())));
+  }
+  return {...document,state};
+}
 function exportEverything(){
   const vp = el('vpPlat')? el('vpPlat').value : 'generic';
   const ip = el('ipPlat')? el('ipPlat').value : 'midjourney';
@@ -8373,7 +8433,7 @@ WHAT'S IN HERE
 - shooting_schedule.csv / day_out_of_days.csv: a DRAFT stripboard + cast Day Out of Days,
   grouped from the breakdown. Cast presence is inferred from dialogue only (silent/background
   cast are not detected) — a starting point to hand your 1st AD, not a locked schedule.
-- ${stub}.ams: the full project file. Open it with Agentic Movie Studio.
+- ${stub}.ams: the project file for the selected scope. Open it with Agentic Movie Studio.
 ` },
     { name: stub+'/'+stub+'.fountain', content: buildScreenplayFountain() },
     { name: stub+'/video_prompts_'+vp+'.md', content: buildVideoPack(vp, 'all') },
@@ -8384,7 +8444,7 @@ WHAT'S IN HERE
     { name: stub+'/scenes.csv', content: buildSceneCSV() },
     { name: stub+'/shooting_schedule.csv', content: buildScheduleCSV(exportScenes(), SCHED) },
     { name: stub+'/day_out_of_days.csv', content: buildDoodCSV(exportScenes(), SCHED) },
-    { name: stub+'/'+stub+'.ams', content: JSON.stringify(serialize(),null,2) },
+    { name: stub+'/'+stub+'.ams', content: JSON.stringify(exportProjectDocument(),null,2) },
   ];
   const blob = makeZip(files);
   const a = document.createElement('a');
@@ -8493,7 +8553,7 @@ function renderExport(){
   el('expSchedCsv').addEventListener('click', ()=>{ download(fileStub()+'_shooting_schedule.csv', buildScheduleCSV(exportScenes(), SCHED), 'text/csv'); toast('Shooting schedule downloaded', true); });
   el('expDoodSheet').addEventListener('click', openDoodSheet);
   el('expDoodCsv').addEventListener('click', ()=>{ download(fileStub()+'_day_out_of_days.csv', buildDoodCSV(exportScenes(), SCHED), 'text/csv'); toast('Day Out of Days downloaded', true); });
-  el('expProj').addEventListener('click', ()=>el('btnSaveProj').click());
+  el('expProj').addEventListener('click', ()=>download(fileStub()+'.ams', JSON.stringify(exportProjectDocument(),null,2), 'application/json'));
   const pdBtn = el('expPitchDeck');
   if (pdBtn) pdBtn.addEventListener('click', exportToPitchDeck);
 }
@@ -9614,7 +9674,7 @@ function renderDoctor(){
         ? '<input id="docRange" style="width:100%;margin-top:7px" placeholder="e.g. 1-20, 34, 50A" value="'+esc(DOC.range)+'">'
         : '')
   +    '<div style="display:flex;gap:8px;margin-top:14px">'
-  +      '<button class="btn primary" id="docRun" style="flex:1"'+((DOC.running||AI.status!=='on')?' disabled':'')+'>'+runLabel+'</button>'
+  +      '<button class="btn primary" id="docRun" style="flex:1"'+((DOC.running||(AI.status!=='on' && !(DOC.move==='repair' && DOC.mechOnly)))?' disabled':'')+'>'+runLabel+'</button>'
   +      (DOC.running ? '<button class="btn danger" id="docStop">Stop</button>' : '')
   +    '</div>'
   +    (targets.length > 6 && !DOC.running
@@ -9638,7 +9698,7 @@ function renderDoctor(){
   const scSel = el('docScene');
   if (scSel) scSel.addEventListener('change', ()=>{ DOC.sceneIdx = +scSel.value; docResetResults(); renderDoctor(); });
   const mo = el('docMechOnly');
-  if (mo) mo.addEventListener('change', ()=>{ DOC.mechOnly = mo.checked; });
+  if (mo) mo.addEventListener('change', ()=>{ DOC.mechOnly = mo.checked; renderDoctor(); });
   const rIn = el('docRange');
   if (rIn) rIn.addEventListener('input', ()=>{ DOC.range = rIn.value; });
   const runBtn = el('docRun');
@@ -10071,7 +10131,7 @@ async function docRun(only){
   if (DOC.running) return;
   if (canonicalWorkerLocked()){ toast('Another project worker is still running.'); return; }
   const m = aiMove(DOC.move);
-  if (AI.status !== 'on'){
+  if (AI.status !== 'on' && !(DOC.move==='repair' && DOC.mechOnly)){
     const ok = await aiConnect(el('docBase') ? el('docBase').value : '');
     if (!ok){ renderDoctor(); toast('No local model server is answering.'); return; }
   }
@@ -10111,7 +10171,7 @@ async function docRun(only){
     try{
       let cleaned, fixed;
       if (isRepair && DOC.mechOnly){
-        fixed = aiForceSlug(sc, mech);
+        fixed = {text:aiSceneFountain(sc,mech).trim(),slugChanged:false};
         cleaned = fixed.text;
       } else {
         const raw = await aiStream(
@@ -10868,7 +10928,8 @@ async function boardDownloadFrame(shotId){
   if (!blob){ toast('No frame on this shot yet.'); return; }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = fileStub() + '_shot_' + (hit.sh.num||'') + '.png';
+  const extension=({'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif','image/avif':'avif'})[blob.type] || 'img';
+  a.download = fileStub() + '_shot_' + (hit.sh.num||'') + '.' + extension;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
 }
@@ -13792,12 +13853,12 @@ function pdVisualStyle(){
   const L = S.look;
   return [L.format, L.lensing, L.palette, L.lighting].filter(x=>x && x.trim()).join('; ');
 }
-function pdPlot(){
-  const first = S.scenes.slice(0, 6).map(sc=>sc.synopsis).filter(Boolean).join(' ');
-  return (first || S.scenes.map(sc=>sc.synopsis).filter(Boolean).join(' ')).slice(0, 1200);
+function pdPlot(scenes){
+  const first = scenes.slice(0, 6).map(sc=>sc.synopsis).filter(Boolean).join(' ');
+  return (first || scenes.map(sc=>sc.synopsis).filter(Boolean).join(' ')).slice(0, 1200);
 }
-function pdFinalScript(){
-  return S.scenes.map(sc=>sc.slug + '\n\n' + String(sc.text||'').trim()).join('\n\n');
+function pdFinalScript(scenes){
+  return scenes.map(sc=>sc.slug + '\n\n' + String(sc.text||'').trim()).join('\n\n');
 }
 
 /* Character bibles are prose; PitchDeck wants locked physical and wardrobe fields.
@@ -13854,7 +13915,9 @@ async function pdFrameDataUrl(sh){
 async function buildPitchDeckProject(opts){
   const withChars = !!(opts && opts.characters);
   const onStep = opts && opts.onStep;
-  const shots = allShotsB();
+  const scenes = exportScenes();
+  const included = new Set(scenes);
+  const shots = allShotsB().filter(({sc})=>included.has(sc));
   const minutes = [];
   for (let i = 0; i < shots.length; i += PD_SHOTS_PER_MINUTE){
     const slice = shots.slice(i, i + PD_SHOTS_PER_MINUTE);
@@ -13903,7 +13966,7 @@ async function buildPitchDeckProject(opts){
   return {
     id: 'studio-' + ((activeProject()||{}).id || fileStub()),
     movieTitle: S.title || 'Untitled',
-    plot: pdPlot(),
+    plot: pdPlot(scenes),
     genreIdea: S.look.tone || 'cinematic drama',
     eraSetting: S.look.design || 'present day',
     photoStyle: pdVisualStyle() || 'cinematic realistic',
@@ -13911,7 +13974,7 @@ async function buildPitchDeckProject(opts){
     characterProfiles,
     extrasProfiles: [],
     references: [],
-    finalScript: pdFinalScript(),
+    finalScript: pdFinalScript(scenes),
     minutes,
     sourceApp: 'studio',
     sourceProjectId: (activeProject()||{}).id || '',
@@ -13921,13 +13984,15 @@ async function buildPitchDeckProject(opts){
 
 async function exportToPitchDeck(){
   if (!S.scenes.length){ toast('Import a script first.'); return; }
-  const shots = allShotsB();
+  const scenes = exportScenes();
+  const included = new Set(scenes);
+  const shots = allShotsB().filter(({sc})=>included.has(sc));
   if (!shots.length){ toast('Plan some shots first — PitchDeck generates per shot.'); return; }
   const cast = [...new Set(shots.flatMap(x=>x.sc.characters))];
   const canAI = AI.status === 'on';
 
   openModal('Send to PitchDeck',
-    '<p style="line-height:1.6">' + shots.length + ' shots across ' + S.scenes.length + ' scenes, packed into '
+    '<p style="line-height:1.6">' + shots.length + ' shots across ' + scenes.length + ' scenes, packed into '
       + Math.ceil(shots.length / PD_SHOTS_PER_MINUTE) + ' minute' + (Math.ceil(shots.length/PD_SHOTS_PER_MINUTE)===1?'':'s')
       + ' of twelve. Board frames travel with it.</p>'
     + '<label style="display:flex;gap:9px;align-items:flex-start;margin-top:14px;font-size:12.5px">'

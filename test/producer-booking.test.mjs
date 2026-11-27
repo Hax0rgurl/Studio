@@ -90,3 +90,25 @@ test('a producer rejection keeps the floor in development without authorizing me
   assert.equal(starts.length,0);
   assert.match(run('readBooking().commission1.rejection'),/Every ending/);
 });
+
+test('queued screenplay uses its saved draft, including a deferred breakdown',async()=>{
+  const {ctx,run,starts}=floor();
+  const draft={id:'revision',needsBreakdown:true,state:{look:{lighting:'One bare bulb'}}};
+  ctx.DB.projects=[{id:'film',drafts:[draft]}];
+  const order=[];
+  Object.assign(ctx,{
+    ACTIVE:{},
+    openDraft(projectId,draftId){ctx.ACTIVE={p:projectId,d:draftId};order.push('open');},
+    runAutoBreakdown(){order.push('breakdown');},cardsFromScenes(){order.push('cards');},
+    persistNow(){order.push('save');return true;}
+  });
+  ctx.localStorage.setItem('studio.producer.inbox.v1',JSON.stringify([
+    {id:'revised-film',direction:'Keep the pauses.',script:{projectId:'film',draftId:'revision'}}
+  ]));
+  await run('wakeProducer()');
+  assert.deepEqual(order,['open','breakdown','cards','save']);
+  assert.equal(draft.needsBreakdown,undefined);
+  assert.equal(starts[0][0],'script');
+  assert.equal(draft.state.look.lighting,'One bare bulb');
+  assert.equal(starts[0][2].targetMinutes,undefined);
+});

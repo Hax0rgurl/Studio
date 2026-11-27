@@ -7,7 +7,13 @@ let assigningFilm = null;
 function productionDay(){return new Date().toLocaleDateString('en-CA');}
 function readBooking(){return JSON.parse(localStorage.getItem(billKey)||'null');}
 function saveBooking(book){localStorage.setItem(billKey,JSON.stringify(book));}
-function floorProduction(){return typeof S!=='undefined' && S.production?.booking;}
+function floorProduction(){return typeof S!=='undefined' && (S.production?.booking || S.production?.studioCrew);}
+function studioCrewSettings(){
+  const selected=localStorage.getItem('studio.renderer');
+  const renderer=selected?studioPlugins().find(entry=>entry.url===selected):null;
+  if(selected&&(!renderer||!renderer.frameArg))throw Error('The selected renderer needs a storyboard frame input.');
+  return {renderer:renderer||null,textModel:localStorage.getItem('studio.doubleFeatureModel')||'qwen3.8-max'};
+}
 function floorCall(action,data={}){
   return window.__TAURI__.core.invoke('studio_production',{action,data,owner:floorOwner});
 }
@@ -40,10 +46,7 @@ function submitProduction(direction,script=null,options={}){
 function bookFilms(direction='',script=null,requestId='',options={}){
   const old=readBooking();
   if(old && old.phase!=='complete')throw Error('The current double feature already has the floor.');
-  const textModel=localStorage.getItem('studio.doubleFeatureModel')||'qwen3.8-max';
-  const chosen=localStorage.getItem('studio.renderer');
-  const renderer=chosen?studioPlugins().find(p=>p.url===chosen):null;
-  if(chosen&&(!renderer||!renderer.frameArg))throw Error('The selected renderer needs a storyboard frame input.');
+  const {renderer,textModel}=studioCrewSettings();
   const book={options,requestId,count:requestId?1:2,renderer,id:crypto.randomUUID(),phase:'ready',films:[],direction,script,textModel,number:1};
   saveBooking(book);return book;
 }
@@ -181,9 +184,22 @@ async function wakeProducer(){
       assigningFilm={id:book.id,number:book.number,foundationAtPitch:foundation,fromSource,commission,renderer:book.renderer,textModel:book.textModel,short:!book.script&&!book.options?.targetMinutes};
       if(activeDraft()&&!persistNow())throw Error('Could not save the open draft.');
       if(book.script){
-        if(!crewCreateIdeaProject(book.script.title))throw Error('Could not create the screenplay project.');
-        S.title=book.script.title;S.scenes=book.script.scenes;S.scriptName=book.script.filename;
-        runAutoBreakdown();cardsFromScenes();if(!persistNow())throw Error('Could not save the imported screenplay.');
+        if(book.script.draftId){
+          const project=DB.projects.find(row=>row.id===book.script.projectId);
+          const draft=project?.drafts.find(row=>row.id===book.script.draftId);
+          if(!draft)throw Error('The queued screenplay draft was removed from Projects.');
+          openDraft(project.id,draft.id);
+          if(ACTIVE.p!==project.id||ACTIVE.d!==draft.id)throw Error('Could not open the queued screenplay draft.');
+          if(draft.needsBreakdown){
+            runAutoBreakdown();cardsFromScenes();delete draft.needsBreakdown;
+            if(!persistNow())throw Error('Could not save the breakdown.');
+          }
+        }else{
+          // Restore bookings saved by releases that embedded the screenplay.
+          if(!crewCreateIdeaProject(book.script.title))throw Error('Could not create the screenplay project.');
+          S.title=book.script.title;S.scenes=book.script.scenes;S.scriptName=book.script.filename;
+          runAutoBreakdown();cardsFromScenes();if(!persistNow())throw Error('Could not save the imported screenplay.');
+        }
         await crewStart('script',brief,{booking:assigningFilm});
       }else await crewStart(book.options?.text?'adaptation':'idea',brief,{targetMinutes:1/6,...book.options,booking:assigningFilm});
       return;
