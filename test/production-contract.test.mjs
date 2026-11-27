@@ -1366,5 +1366,9 @@ test('a follow-up review accounts for the prior findings and cites what the view
   assert.throws(()=>validate(last,{resolved:[]},[finding],pages),/every prior major/);
   assert.throws(()=>validate(last,{resolved:[1,2]},[finding],pages),/open prior/);
   assert.throws(()=>validate(last,{resolved:[1]},[{...finding,evidence:'The bell is ringing.'}],pages),/exact quotation/);
+  last.citations={'scene-1-line-2':{scene:'1',text:'The bell stays silent.'}};
+  const linked={...finding,evidence:'scene-1-line-2'};
+  validate(last,{resolved:[1]},[linked],pages);
+  assert.equal(linked.evidence,'The bell stays silent.');
   assert.doesNotThrow(()=>validate(last,{resolved:[1,2]},[],pages));
 });

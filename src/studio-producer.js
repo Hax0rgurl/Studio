@@ -332,7 +332,9 @@ async function wakeProducer(){
     // explicit filmmaker stops must never be retried by this path.
     if(book.phase==='held' && active?.booking?.id===book.id && active.booking.number===book.number &&
        ['paused','needs_attention'].includes(active.status) && (/could not self-repair its/.test(book.error||'') || (/review blocked .*storyboard prompt/.test(book.error||'') && crewStoryboardNextRole(active)==='stills_prompt')) && !crewUnprovenJobs(active).length){
-      const key=active.id+'/'+book.error.split(' after ')[0];
+      const screenplay=active.writerWork && /could not self-repair its screenplay_review/.test(book.error);
+      const reviewInput=screenplay?'/sentence-ids-v1/'+crewProgressHash(JSON.stringify(crewScreenplayPages())):'';
+      const key=active.id+'/'+book.error.split(' after ')[0]+reviewInput;
       book.retries=book.retries||{};
       if((book.retries[key]||0)<2){
         book.retries[key]=(book.retries[key]||0)+1;book.phase='ready';delete book.error;saveBooking(book);

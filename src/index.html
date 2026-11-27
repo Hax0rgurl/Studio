@@ -5137,7 +5137,7 @@ async function crewWriteScript(role, ask){
 function crewScreenplayPages(scenes=S.scenes){
   return scenes.map(sc=>({scene:sc.num,slug:sc.slug,text:sc.text}));
 }
-function crewFollowupReview(work){
+function crewFollowupReview(work,pages){
   const prior=work.lastReview;
   if(!prior)return null;
   const notes=(prior.problems||[]).filter(note=>note.severity!=='minor');
@@ -5150,7 +5150,14 @@ function crewFollowupReview(work){
   finding.required.push('priorFinding','viewerConsequence');
   finding.properties.priorFinding={type:'integer',minimum:0,maximum:notes.length};
   finding.properties.viewerConsequence={type:'string'};
-  return {notes,earlier,schema};
+  const citations={};
+  const segmenter=typeof Intl.Segmenter==='function'?new Intl.Segmenter('en',{granularity:'sentence'}):null;
+  for(const page of pages){
+    const sentences=segmenter?Array.from(segmenter.segment(page.text),part=>part.segment.trim()):page.text.split(/\n+/);
+    sentences.filter(Boolean).forEach((line,i)=>{citations['scene-'+page.scene+'-line-'+(i+1)]={scene:page.scene,text:line};});
+  }
+  finding.properties.evidence.description='Use the ID from the provided screenplay evidence list for the exact sentence supporting the finding.';
+  return {notes,earlier,schema,citations};
 }
 function crewCheckFollowupReview(followup,review,major,pages){
   const normalized=value=>String(value||'').trim().replace(/\s+/g,' ').toLowerCase();
@@ -5158,11 +5165,15 @@ function crewCheckFollowupReview(followup,review,major,pages){
   if(!Array.isArray(resolved)||resolved.some(n=>!Number.isInteger(n)||n<1||n>followup.notes.length))throw Error('List resolved prior finding numbers.');
   const open=new Set();
   for(const note of major){
-    const n=note.priorFinding,source=pages.find(row=>String(row.scene)===String(note.sceneNumber)),quote=normalized(note.evidence);
+    const n=note.priorFinding,source=pages.find(row=>String(row.scene)===String(note.sceneNumber));
+    const citation=followup.citations?.[String(note.evidence||'').trim()];
+    if(citation && String(citation.scene)===String(note.sceneNumber))note.evidence=citation.text;
+    const quote=normalized(note.evidence);
     if(!Number.isInteger(n)||n<0||n>followup.notes.length||resolved.includes(n))throw Error('Use an open prior finding number, or zero for a new issue.');
     if(n && String(followup.notes[n-1].sceneNumber)!==String(note.sceneNumber))throw Error('Reference the prior finding for this scene.');
-    if(quote.length<8 || !normalized(source?.text).includes(quote) || normalized(note.viewerConsequence).length<12)
-      throw Error('Each major finding needs an exact quotation from this scene and a concrete consequence a viewer would see or hear.');
+    if(!source || (!citation && quote.length<8) || !normalized(source.text).includes(quote))
+      throw Error('Select an evidence ID from scene '+note.sceneNumber+' for this finding. Studio will file the exact quotation.');
+    if(normalized(note.viewerConsequence).length<12)throw Error('Write the visible or audible consequence for the audience in viewerConsequence.');
     if(n)open.add(n);
   }
   if(followup.notes.some((_,i)=>!open.has(i+1)&&!resolved.includes(i+1)))throw Error('Account for every prior major finding as resolved or still open.');
@@ -5172,13 +5183,13 @@ async function crewReviewScreenplay(role,ask){
   if (!p||!['idea','adaptation'].includes(p.mode)) return {status:'skipped',text:'The existing imported screenplay remains canon; automatic story review cannot rewrite it.'};
   const work=crewWriterWork(p);
   if (!S.scenes.length||!work.plan) return {status:'failed',text:'No planned screenplay is available for independent story review.'};
-  const pages=crewScreenplayPages(),followup=crewFollowupReview(work);
+  const pages=crewScreenplayPages(),followup=crewFollowupReview(work,pages);
   const user=crewContext(role,{extra:'APPROVED WRITER PLAN:\n'+JSON.stringify(work.plan)
     +'\n\nDURABLE WRITER WORK:\n'+JSON.stringify({revisionPass:work.revisionPass||0,sceneCount:S.scenes.length})})
     +(ask?'\n\nPRODUCTION ASSIGNMENT:\n'+ask:'')
     +(followup?'\n\nREVISION CHECK. Prior major findings (numbered from 1): '+JSON.stringify(followup.notes.map((finding,i)=>({number:i+1,...finding})))+
-      '\nPages before this revision: '+JSON.stringify(Object.fromEntries(followup.earlier))+
-      '\nCompare the changed pages to those directions. List the numbers that are resolved in resolved. For each remaining major finding identify its priorFinding, quote only exact current scene text in evidence, and describe in viewerConsequence what someone would actually see or hear go wrong. Use priorFinding 0 for a newly discovered material problem. Explain the on-screen consequence of the new problem. Wording, articles, units, and alternative ways to photograph an equally readable event belong in minor notes unless they change what a viewer experiences or break explicit filmmaker direction. Before reversing an earlier direction, identify the conflict and follow the filmmaker. Acknowledge a successful correction and move on.':'')
+      '\nPages before this revision: '+JSON.stringify(Object.fromEntries(followup.earlier))+'\nCURRENT EVIDENCE IDS: '+JSON.stringify(followup.citations)+
+      '\nCompare the changed pages to those directions. List the numbers that are resolved in resolved. For each remaining major finding identify its priorFinding, put the matching current sentence ID in evidence, and describe in viewerConsequence what someone would actually see or hear go wrong. Use priorFinding 0 for a newly discovered material problem. Explain the on-screen consequence of the new problem. Wording, articles, units, and alternative ways to photograph an equally readable event belong in minor notes unless they change what a viewer experiences or break explicit filmmaker direction. Before reversing an earlier direction, identify the conflict and follow the filmmaker. Acknowledge a successful correction and move on.':'')
     +'\n\nSCREENPLAY PAGES DELIVERED BY THE WRITER:\n'+JSON.stringify(pages)+'\nAssess these pages against the latest filmmaker direction, including anything it supersedes in the original pitch. Check whether earlier findings have been resolved. Request a further rewrite for a concrete problem on screen. Coverage belongs to the first AD after this review. Provisional breakdown suggestions are outside the screenplay.'
     +'\nA major finding can be a storytelling failure even if every action is filmable. A purely predictable demonstration needs a rewrite when the filmmaker asks for wit, humor or drama. Judge these pages from a human viewer’s seat. What expectation does the opening create? What does the ending make us understand, feel or laugh at that was not already obvious? Identify the first on-screen detail that would make someone stay. Explain what gives the ending meaning and why someone might want to share the moment. Do not predict popularity. Quote two distinct, literal extracts in story order from the screenplay in audience.setup and audience.payoff, and explain their relationship in audience.effect. When the film does not earn a payoff, return revise and cite the affected scene. A quiet observation, a sonic change, a laugh or a question that earns the next scene can carry the ending. Read each in its own form.'
     +'\n\nIndependently review the completed screenplay. Do not rewrite it. Check the causal progression, distinct scene turns, visual behavior, ending, duration, continuity, filmmaker direction, and approved treatment. '
