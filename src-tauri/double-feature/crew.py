@@ -18,7 +18,7 @@ from urllib.request import Request, urlopen
 ROOT = Path.home() / 'Movies' / 'Agentic Movie Studio' / 'Double Features'
 MODEL = 'wan3.0-video'
 VIDEO_RESOLUTION = '480P'
-BOARD_SIZE = '848*480'
+BOARD_SIZE = '1280*720'
 
 def plugin_480_options(plugin):
     # Use the renderer's configured parameter spelling and value type.

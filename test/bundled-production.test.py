@@ -103,7 +103,7 @@ class ProductionAdapters(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Unrecognized renderer resolution'):
             options({'args':{'resolution':'auto'}})
 
-    def test_storyboard_request_is_480_pixels_tall(self):
+    def test_storyboard_request_is_720p(self):
         sender = Mock(side_effect=TimeoutError('test intercepted the request'))
         spec = {'runId':'film','studioShotId':'shot','providerId':'studio-qwen-image','prompt':'Frame',
                 'billingApproval':{'approved':True,'providerId':'studio-qwen-image'},
@@ -111,7 +111,7 @@ class ProductionAdapters(unittest.TestCase):
                           'promptFingerprint':runtime['prompt_fingerprint']('Frame')}}
         with patch.dict(runtime,qwen_admission=sender), self.assertRaises(TimeoutError):
             runtime['adapter']({'action':'/api/image/generate','data':spec})
-        self.assertEqual(sender.call_args.args[1]['parameters']['size'], '848*480')
+        self.assertEqual(sender.call_args.args[1]['parameters']['size'], '1280*720')
 
     def test_review_gate_and_idempotent_video(self):
         calls = []
