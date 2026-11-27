@@ -165,15 +165,6 @@ const esc = (value = "") =>
     .replaceAll('"', "&quot;");
 
 const PAPERS = ["white", "cream", "yellow", "pink", "blue", "green", "lavender"];
-const PAPER_FILLS = {
-  white: "#fffef7",
-  cream: "#fbf3dc",
-  yellow: "#fdf0b6",
-  pink: "#fbe0e2",
-  blue: "#ddebf7",
-  green: "#ddefdc",
-  lavender: "#e8e2f5",
-};
 
 const STATUSES = [
   { id: "idea", name: "Idea", color: "#9a938a" },
@@ -2262,7 +2253,7 @@ function renderInspector() {
   const boardName = home ? home.board.title : "";
   const paperSwatches = PAPERS.map(
     (paper) =>
-      `<button class="paper-swatch ${card.paper === paper ? "is-active" : ""}" type="button" data-set-paper="${paper}" style="background:${PAPER_FILLS[paper]}" title="${paper}" aria-label="Paper ${paper}"></button>`
+      `<button class="paper-swatch ${card.paper === paper ? "is-active" : ""}" type="button" data-set-paper="${paper}" title="${paper}" aria-label="Paper ${paper}"></button>`
   ).join("");
   const characterChips = state.characters.length
     ? state.characters
