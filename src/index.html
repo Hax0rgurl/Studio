@@ -131,6 +131,7 @@
   .el-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px}
   .el-pill{display:inline-flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--line);border-radius:16px;padding:3px 5px 3px 11px;font-size:12px}
   .el-pill .x{color:var(--tx3);cursor:pointer;padding:0 5px;border-radius:50%}
+  .production-readonly [data-kill]{display:none}
   .el-pill .x:hover{color:var(--red)}
   .el-add{display:flex;gap:6px;margin-top:6px}
   .el-add input{flex:1;padding:5px 9px;font-size:12px}
@@ -2095,8 +2096,8 @@ function wireShotTables(){
 /* ================= elements view ================= */
 function collectElements(){
   const map = {}; // cat -> name -> [sceneIdx]
-  for (const c of cats()){ if (!c.auto) map[c.k] = {}; }
-  map.cast = {};
+  for (const c of cats()){ if (!c.auto) map[c.k] = Object.create(null); }
+  map.cast = Object.create(null);
   S.scenes.forEach((sc,i)=>{
     sc.characters.forEach(n=>{ (map.cast[n] = map.cast[n]||[]).push(i); });
     for (const c of cats()){ if (c.auto) continue;
@@ -2115,16 +2116,27 @@ function removeElementEverywhere(cat, name){
   return n;
 }
 function renameElementEverywhere(cat, name, newName){
+  const props=S.bibles.props;
+  if(cat==='props' && Object.hasOwn(props,name) && Object.hasOwn(props,newName) &&
+      JSON.stringify(props[name])!==JSON.stringify(props[newName])){
+    toast('A different prop description already uses that name. Choose another name to keep both.');return false;
+  }
   S.scenes.forEach(sc=>{
-    sc.elements[cat] = (sc.elements[cat]||[]).map(x=>x===name? newName : x);
+    if((sc.elements[cat]||[]).includes(name))sc.elements[cat]=[...new Set(sc.elements[cat].map(x=>x===name?newName:x))];
+    if(cat==='props' && sc.autoPropSeeds?.includes(name))sc.autoPropSeeds=[...new Set(sc.autoPropSeeds.map(x=>x===name?newName:x))];
   });
-  if (cat==='props' && S.bibles.props[name]){ S.bibles.props[newName] = S.bibles.props[name]; delete S.bibles.props[name]; }
+  if(cat==='props' && Object.hasOwn(props,name)){
+    S.bibles.props=Object.fromEntries(Object.entries(props).filter(([key])=>key!==name).concat([[newName,props[name]]]));
+  }
+  return true;
 }
 function renderElements(){
   if (!S.scenes.length){ el('elementsWrap').innerHTML = '<div class="empty"><h3>No script loaded</h3><p>Import a screenplay to start tagging elements.</p></div>'; return; }
+  const sceneGraph=S.scenes;
+  const editable=()=>sceneGraph===S.scenes && !crewMutationLocked() && !crewCanonicalLocked();
   const map = collectElements();
   let html = `<div style="margin-bottom:6px"><button class="btn small" id="btnNewCat">+ New category</button>
-    <span class="auto-note" style="margin-left:10px">Click any element to see its scenes, rename it, or remove it everywhere. ✕ removes instantly.</span></div>`;
+    <span class="auto-note" style="margin-left:10px">${editable()?'Click an element to see its scenes. You can rename or remove tags. ✕ removes a tag everywhere.':'Click an element to see its scenes.'}</span></div>`;
   for (const c of cats()){
     const entries = Object.entries(map[c.k]||{}).sort((a,b)=>b[1].length-a[1].length);
     if (!entries.length && !c.custom) continue;
@@ -2136,7 +2148,7 @@ function renderElements(){
   const bNC = el('btnNewCat');
   if (bNC) bNC.addEventListener('click', ()=>{
     promptModal('New element category (e.g. Weapons, Picture Vehicles, Playback)', '', v=>{
-      v = v.trim(); if (!v) return;
+      v = v.trim(); if (!v || !editable()) return;
       const k = 'x_'+v.toLowerCase().replace(/[^a-z0-9]+/g,'_');
       S.customCats = S.customCats||[];
       if (!S.customCats.some(c=>c.k===k) && !CATS.some(c=>c.k===k)){
@@ -2149,6 +2161,7 @@ function renderElements(){
     const kill = pill.querySelector('[data-kill]');
     if (kill) kill.addEventListener('click', e=>{
       e.stopPropagation();
+      if(!editable())return;
       const removed = removeElementEverywhere(cat, n);
       persist(); renderElements(); toast(`Removed “${n}” from ${removed} scene${removed!==1?'s':''}`);
     });
@@ -2156,17 +2169,17 @@ function renderElements(){
       const map2 = collectElements();
       const scs = (map2[cat]||{})[n]||[];
       openModal(`“${n}” — ${scs.length} scene${scs.length!==1?'s':''}`,
-        `<div style="display:flex;gap:8px;margin-bottom:12px"><input id="elRename" style="flex:1" value="${esc(n)}"><button class="btn small" id="elRenameBtn">Rename everywhere</button><button class="btn small danger" id="elDeleteBtn">Delete everywhere</button></div>`
+        (cat!=='cast' && editable()?`<div style="display:flex;gap:8px;margin-bottom:12px"><input aria-label="Element name" id="elRename" style="flex:1" value="${esc(n)}"><button class="btn small" id="elRenameBtn">Rename everywhere</button><button class="btn small danger" id="elDeleteBtn">Delete everywhere</button></div>`:'')
         + scs.map(i=>`<div style="padding:7px 0;border-bottom:1px solid var(--line);cursor:pointer" data-sc="${i}"><span style="font-family:var(--mono);color:var(--tx3);font-size:11px">SC ${esc(S.scenes[i].num)}</span> &nbsp; ${esc(S.scenes[i].slug)}</div>`).join(''),
         [{label:'Close'}]);
       el('modalBody').querySelectorAll('[data-sc]').forEach(d=>d.addEventListener('click',()=>{ closeModal(); openScene(+d.dataset.sc); }));
-      if (cat!=='cast'){
+      if (el('elRenameBtn')){
         el('elRenameBtn').addEventListener('click', ()=>{
           const nn = el('elRename').value.trim();
-          if (nn && nn!==n){ renameElementEverywhere(cat, n, nn); persist(); closeModal(); renderElements(); toast(`Renamed to “${nn}” everywhere`, true); }
+          if (nn && nn!==n && editable() && renameElementEverywhere(cat,n,nn)){ persist(); closeModal(); renderElements(); toast(`Renamed to “${nn}” everywhere`, true); }
         });
-        el('elDeleteBtn').addEventListener('click', ()=>{ removeElementEverywhere(cat, n); persist(); closeModal(); renderElements(); toast(`Deleted “${n}” everywhere`); });
-      } else { el('elRenameBtn').style.display='none'; el('elDeleteBtn').style.display='none'; }
+        el('elDeleteBtn').addEventListener('click', ()=>{ if(!editable())return; removeElementEverywhere(cat, n); persist(); closeModal(); renderElements(); toast(`Deleted “${n}” everywhere`); });
+      }
     });
   });
 }
@@ -3439,7 +3452,7 @@ function filmmakerBibleEntry(entry){
 function crewContext(role, options){
   const opts=options||{}, p=productionState(), L=S.look||{}, sections=[];
   const roleId=String((role&&role.id)||opts.roleId||'');
-  const developing=['idea','adaptation'].includes(p?.mode) && ['writer','story_editor','story_review'].includes(roleId);
+  const developing=['idea','adaptation'].includes(p?.mode) && (opts.screenplayDevelopment || ['writer','story_editor','story_review'].includes(roleId));
   const contextTokens=Math.max(4096,Number(AI.numCtx)||8192);
   const defaultBudget=Math.max(18000,Math.min(120000,Math.floor(contextTokens*3.1)));
   const requestedBudget=Number(opts.budget);
@@ -5043,6 +5056,33 @@ async function crewWritePlannedScene(role,ask,plan,row,index,work,adapting){
   if (productionCheckpoint()===false) throw new Error('Scene '+(index+1)+' could not be saved.');
   return scene;
 }
+async function crewRestageScene(work,sceneNumber,edges){
+  const current=work.review;
+  const history=(work.reviews||[]).slice(-3);
+  if(history.length!==3 || history.at(-1).reviewedAt!==current.reviewedAt || history.at(-1).pagesHash!==current.pagesHash)return null;
+  if(!history.every((r,i)=>r.verdict==='revise' && Number(r.revisionPass)===Number(current.revisionPass)-2+i &&
+      r.problems.some(n=>n.sceneNumber===sceneNumber && n.severity!=='minor')))return null;
+  const p=productionState(),direction=crewScreenplayDirection(p),directionHash=crewProgressHash(JSON.stringify(direction));
+  const last=(work.stagingNotes||[]).filter(n=>n.sceneNumber===sceneNumber).at(-1);
+  if(last?.directionHash===directionHash && current.revisionPass-last.revisionPass<3 && last.revisionPass<=current.revisionPass)return last;
+  const director=crewFind('director');
+  const prompt=crewContext(director,{screenplayDevelopment:true})+'\nThe same scene has failed independent story review three drafts in a row. Rehearse it on paper with the writer. Your authority covers crew-invented staging. Preserve explicit filmmaker directions, source facts, story payoff and duration. You can replace an impossible sequence of crew-invented actions with a materially different way to achieve the same beat. Decide what the audience must notice, what to change, and what they see or hear from the opening position to the cut. Test that the next scene can start there. A decision needs to be playable, including contact and release when they matter. Leave out measurements the audience cannot perceive. Return JSON.'+
+    '\nFilmmaker direction: '+JSON.stringify(direction)+'\nOriginal crew plan: '+JSON.stringify(work.plan)+
+    '\nScene '+sceneNumber+': '+JSON.stringify(work.sceneDrafts[sceneNumber])+'\nNeighbors: '+JSON.stringify(edges)+
+    '\nRecent editorial objections: '+JSON.stringify(history.map(r=>r.problems.filter(n=>n.sceneNumber===sceneNumber && n.severity!=='minor').map(n=>n.issue)))+
+    (last?'\nPrevious staging decision: '+JSON.stringify(last):'');
+  const fields=['audienceBeat','change','blocking','handoff'];
+  const decision=await crewJsonAgentCall(director,prompt,{roleId:'director',schemaName:'scene_rehearsal',
+    workloadId:'department.director.rehearsal.'+current.revisionPass+'.'+sceneNumber,artifactType:'staging_note',temperature:0.4,
+    schema:{type:'object',properties:Object.fromEntries(fields.map(f=>[f,{type:'string'}])),required:fields}},value=>{
+    if(!fields.every(f=>typeof value?.[f]==='string' && value[f].trim()))throw Error('The rehearsal needs an audience beat, staging change, playable action and handoff.');
+    return Object.fromEntries(fields.map(f=>[f,value[f].trim()]));
+  });
+  const note={...decision,sceneNumber,directionHash,revisionPass:current.revisionPass,at:new Date().toISOString()};
+  work.stagingNotes=work.stagingNotes||[];work.stagingNotes.push(note);
+  if(productionCheckpoint()===false){work.stagingNotes.pop();throw Error('Could not save the director’s rehearsal.');}
+  return note;
+}
 async function crewReviseReviewedScenes(role,ask,work,adapting){
   const review=work.review, problems=Array.isArray(review&&review.problems)?review.problems:[];
   const sceneNumbers=[...new Set(problems.filter(problem=>problem.sceneNumber>0&&problem.severity!=='minor').map(problem=>problem.sceneNumber))].sort((a,b)=>a-b);
@@ -5055,17 +5095,19 @@ async function crewReviseReviewedScenes(role,ask,work,adapting){
       entry.review?.reviewedAt===review.reviewedAt && entry.review.pagesHash===review.pagesHash)) continue;
     const notes=problems.filter(problem=>problem.sceneNumber===sceneNumber);
     const edges={previousEnding:work.sceneDrafts[sceneNumber-1]?.blocks?.slice(-2),nextOpening:work.sceneDrafts[Number(sceneNumber)+1]?.blocks?.slice(0,2)};
+    const staging=work.reviews?.length>=3?await crewRestageScene(work,sceneNumber,edges):null;
     const user=crewContext(role,{taskFirst:true,extra:'WHOLE-FILM PLAN AT COMMISSIONING:\n'+JSON.stringify(work.plan)})
       +(ask?'\n\nPRODUCTION ASSIGNMENT:\n'+ask:'')
       +'\n\nCURRENT SCENE '+sceneNumber+':\n'+JSON.stringify(current)+'\nNEIGHBORING SCREENPLAY PAGES:\n'+JSON.stringify(edges)
       +'\nINDEPENDENT STORY-EDITOR NOTES:\n'+JSON.stringify({scene:notes,wholeFilm:review.globalNotes||[]})
       +'\n\nRevise only this scene. Follow the latest filmmaker direction wherever the original pitch, plan or earlier draft conflicts with it. Resolve the cited problems and keep the physical handoff to neighboring scenes playable within the available time. Preserve everything the review and filmmaker did not challenge. '
+      +(staging?'\nDIRECTOR’S REHEARSAL FOR THIS SCENE: '+JSON.stringify(staging)+'\nUse this decision in place of the obsolete crew staging. Put the resulting action on the page. Filmmaker direction still takes precedence. ':'')
       +(adapting?'Do not add unsupported facts or copy source prose. ':'')+'Return one complete scene object only.';
     const revised=aiParseJson(await aiStream(crewJsonRepairSystem(role),user,null,null,{temperature:0.45,json:true,
       schema:CREW_SCREENPLAY_SCENE_SCHEMA,schemaName:'screenplay_scene_revision',roleId:role.id,
       workloadId:'department.writer.revision.'+work.revisionPass+'.'+sceneNumber,artifactType:'screenplay_scene'}));
     crewStructuredScene(revised,sceneNumber-1);
-    work.revisionHistory.push({sceneNumber,at:new Date().toISOString(),review,prior:current});
+    work.revisionHistory.push({sceneNumber,at:new Date().toISOString(),review,prior:current,stagingAt:staging?.at});
     work.sceneDrafts[key]=revised;
     if (productionCheckpoint()===false){
       work.sceneDrafts[key]=current;work.revisionHistory.pop();
@@ -5202,6 +5244,7 @@ async function crewReviewScreenplay(role,ask){
   const followup=crewFollowupReview(work,pages,direction);
   const user=crewContext(role,{extra:'APPROVED WRITER PLAN:\n'+JSON.stringify(work.plan)
     +'\n\nDURABLE WRITER WORK:\n'+JSON.stringify({revisionPass:work.revisionPass||0,sceneCount:S.scenes.length})})
+    +(work.stagingNotes?.length?'\nDIRECTOR’S REHEARSALS (latest per scene supersedes the original crew staging; the filmmaker and source remain binding). Evaluate what the written pages actually show: '+JSON.stringify(Object.fromEntries(work.stagingNotes.map(n=>[n.sceneNumber,n]))):'')
     +(ask?'\n\nPRODUCTION ASSIGNMENT:\n'+ask:'')
     +(followup?'\n\nREVISION CHECK. Prior major findings (numbered from 1): '+JSON.stringify(followup.notes.map((finding,i)=>({number:i+1,...finding})))+
       '\nPages before this revision: '+JSON.stringify(Object.fromEntries(followup.earlier))+'\nCURRENT EVIDENCE IDS: '+JSON.stringify(followup.citations)+'\nSOURCES FOR REOPENING AN UNCHANGED BEAT: '+JSON.stringify(followup.reasons)+
@@ -8071,6 +8114,7 @@ function clientScreenplayReview(p,expanded){
   return '<details class="ai-panel" style="max-width:1120px" id="clientScriptReview"'+(expanded?' open':'')+'><summary>Screenplay review · Draft '+
     (Number(review.revisionPass||0)+1)+' · '+(review.verdict==='pass'?'Approved':'Revision requested')+'</summary><p>'+esc(review.clientUpdate||'')+'</p>'
     +(closed.length?'<h4>Resolved in this draft</h4><ul>'+closed.map(text=>'<li>'+esc(text)+'</li>').join('')+'</ul>':'')
+    +(p.writerWork.stagingNotes||[]).slice(-1).map(n=>'<article class="crew-message"><h4>Director’s rehearsal · Scene '+esc(n.sceneNumber)+' · Draft '+esc(n.revisionPass+1)+'</h4><p>'+esc(n.audienceBeat)+'</p><p>'+esc(n.change)+'</p><p>'+esc(n.blocking)+'</p><p>'+esc(n.handoff)+'</p></article>').join('')
     +findings.join('')+'</details>';
 }
 function renderClientRoom(){

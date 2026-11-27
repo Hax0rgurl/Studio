@@ -82,6 +82,38 @@ test('a booked handoff waits for a competing worker and honors Stop before claim
   }
 });
 
+test('renaming a tag merges scene membership and keeps both prop descriptions on a conflict',()=>{
+  const state={scenes:[{elements:{props:['old','new']},autoPropSeeds:['new','old']},{elements:{props:['old']}}],
+    bibles:{props:{old:{desc:'one'},new:{desc:'two'}}}};
+  const rename=loadFunction('function renameElementEverywhere','function renderElements','renameElementEverywhere',{S:state,toast(){}});
+  assert.equal(rename('props','old','new'),false);assert.deepEqual(state.scenes[0].elements.props,['old','new']);
+  assert.equal(state.bibles.props.new.desc,'two');assert.equal(state.bibles.props.old.desc,'one');
+  delete state.bibles.props.new;
+  assert.equal(rename('props','old','new'),true);
+  for(const sc of state.scenes)assert.deepEqual(Array.from(sc.elements.props),['new']);
+  assert.deepEqual(Array.from(state.scenes[0].autoPropSeeds),['new']);assert.equal(state.bibles.props.new.desc,'one');
+  assert.equal(Object.hasOwn(state.bibles.props,'old'),false);
+});
+
+test('recurring findings trigger a saved director rehearsal for the specific scene without approving the draft',async()=>{
+  let calls=0,saves=true,direction='Keep the sound of the latch';
+  const answer={audienceBeat:'A hand stops before the latch opens.',change:'Stage the release on the table.',blocking:'The hand lets go before the lid lifts.',handoff:'The lifted lid reveals the empty box.'};
+  const context={productionState:()=>({}),crewFind:id=>({id}),crewScreenplayDirection:()=>[direction],crewProgressHash:text=>text,
+    crewContext:()=>'',productionCheckpoint:()=>saves,crewJsonAgentCall:async(role,text,opts,validate)=>{
+      calls++;assert.equal(role.id,'director');assert.ok(text.includes(direction));assert.match(text,/Neighbors/);return validate(answer);}};
+  const rehearse=loadFunction('async function crewRestageScene','async function crewReviseReviewedScenes','crewRestageScene',context);
+  const review=n=>({revisionPass:n,reviewedAt:'r'+n,pagesHash:'h'+n,verdict:'revise',problems:[{sceneNumber:1,severity:'major',issue:'The lid opens before the hand lets go.'}]});
+  const work={plan:{},sceneDrafts:{1:{}},reviews:[review(1),review(2),review(3)]};work.review=work.reviews.at(-1);
+  assert.equal(await rehearse(work,2,{}),null);assert.equal(calls,0);
+  saves=false;await assert.rejects(rehearse(work,1,{}),/Could not save/);assert.equal(work.stagingNotes.length,0);
+  saves=true;const first=await rehearse(work,1,{});assert.equal(first.blocking,answer.blocking);
+  assert.equal(await rehearse(work,1,{}),first);
+  work.review=review(4);work.reviews.push(work.review);assert.equal(await rehearse(work,1,{}),first);
+  direction='Keep the latch shut';assert.notEqual(await rehearse(work,1,{}),first);assert.equal(calls,3);
+  assert.equal(work.review.verdict,'revise');assert.deepEqual(work.sceneDrafts,{1:{}});
+  work.reviews[1].problems[0].severity='minor';assert.equal(await rehearse(work,1,{}),null);
+});
+
 test('a writer retries only unsaved revision work and sees the neighboring scene as revised', async () => {
   const scene=text=>({blocks:[{type:'action',text}]});
   const original=scene('The second door is open.');
