@@ -8,10 +8,7 @@
    the local model server directly, so nothing about the UI has to know
    it moved. Contract: src/shared/types.ts → SlateApi.
 
-   Capabilities that genuinely needed a Node host — file dialogs, ffmpeg
-   frame extraction, audio fingerprinting — resolve empty rather than
-   throwing, so the app degrades instead of white-screening. Those are
-   listed in ARCHITECTURE.md as not yet ported.
+   Media selection and decoding use the browser APIs in slate-media.js.
    ============================================================ */
 (function () {
   'use strict';
@@ -63,6 +60,7 @@
       var message = event.data || {};
       if (message.channel !== 'studio-project-bridge' || message.version !== 1) return;
       if (message.module !== 'slate' || message.type !== 'project' || !message.project) return;
+      if(studioProject && studioProject.id!==message.project.id)SlateMedia.reset();
       studioProject = clone(message.project);
       var waiting = studioWaiters.splice(0);
       waiting.forEach(function (resolve) { resolve(clone(studioProject)); });
@@ -135,7 +133,7 @@
         return getJson(base + '/v1/models').then(function (v1) {
           if (v1 && Array.isArray(v1.data)) {
             cachedEndpoint = base;
-            return { endpoint: base, models: v1.data.map(function (m) { return { id: String(m.id) }; }) };
+            return { endpoint: base, compatible:true, models: v1.data.map(function (m) { return { id: String(m.id) }; }) };
           }
           return next();
         });
@@ -148,6 +146,18 @@
 
   function brainRun(req) {
     var started = Date.now();
+    if(EMBEDDED && studioProject?.studioCrewModel){
+      const ctrl=new AbortController(),project=studioProject;
+      running[req.id]=ctrl;
+      return window.parent.studioSlateCloudChat(project.id,project.studioCrewModel,req).then(text=>{
+        if(ctrl.signal.aborted||studioProject?.id!==project.id)throw Error('Cancelled');
+        return {id:req.id,ok:true,text,json:req.expectJson?JSON.parse(text):undefined,elapsedMs:Date.now()-started};
+      }).catch(error=>({id:req.id,ok:false,text:'',error:String(error.message||error),elapsedMs:Date.now()-started}))
+        .finally(()=>{delete running[req.id];});
+    }
+    if(req.backend && req.backend!=='local'){
+      return Promise.resolve({id:req.id,ok:false,text:'',error:'This backend is not connected in Studio. Select the local model in the Project Bible.'});
+    }
     return detectLocal(req && req.localEndpoint).then(function (hit) {
       if (!hit.endpoint) {
         return { id: req.id, ok: false, text: '', error: 'No local model server is running. Start Ollama and try again.', elapsedMs: Date.now() - started };
@@ -164,8 +174,23 @@
         stream: false,
         options: { temperature: 0.4, num_ctx: 16384 }
       };
+      if(req.images?.length){
+        if(req.images.some(frame=>!/^data:image\/(?:jpeg|png|webp);base64,/.test(frame))){
+          delete running[req.id];
+          return {id:req.id,ok:false,text:'',error:'Reimport the reference so Slate can read its frames.'};
+        }
+        body.messages[1].images=req.images.map(frame=>frame.split(',')[1]);
+      }
       if (req.expectJson) body.format = 'json';
-      return fetch(hit.endpoint + '/api/chat', {
+      if(hit.compatible){
+        delete body.options;delete body.format;body.temperature=0.4;
+        if(req.expectJson)body.response_format={type:'json_object'};
+        if(req.images?.length){
+          delete body.messages[1].images;
+          body.messages[1].content=[{type:'text',text:req.prompt||''},...req.images.map(url=>({type:'image_url',image_url:{url}}))];
+        }
+      }
+      return fetch(hit.endpoint + (hit.compatible?'/v1/chat/completions':'/api/chat'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body), signal: ctrl.signal
       }).then(function (r) {
@@ -173,7 +198,7 @@
         return r.json();
       }).then(function (j) {
         delete running[req.id];
-        var text = (j.message && j.message.content) || '';
+        var text = (hit.compatible?j.choices?.[0]?.message?.content:j.message?.content)||'';
         // Reasoning models leave a think block in content on some builds.
         text = text.replace(/<(think|thinking)>[\s\S]*?<\/\1>/gi, '').trim();
         var out = { id: req.id, ok: true, text: text, elapsedMs: Date.now() - started };
@@ -194,6 +219,7 @@
   }
 
   var api = {
+    openStudioProjects: EMBEDDED ? () => studioPost('projects') : null,
     listProjects: function () {
       if (EMBEDDED) return studioReady().then(function (project) { return [studioMeta(project)]; });
       var all = readAll();
@@ -265,22 +291,28 @@
     },
     brainTest: function (backend, local) {
       return brainRun({
-        id: 'test-' + Date.now(), task: 'self-test',
+        id: 'test-' + Date.now(), backend, task: 'self-test',
         system: 'You are a connectivity check. Reply with exactly one word.',
         prompt: 'Reply with exactly: READY', tier: 'fast',
         localEndpoint: local && local.endpoint, localModel: local && local.model
       });
     },
 
-    // Needed a Node host in Electron; not ported yet. Resolve empty so the
-    // UI shows "nothing found" instead of throwing.
-    pickMedia: function () { return Promise.resolve([]); },
-    pickAudio: function () { return Promise.resolve([]); },
-    ingestMedia: function () { return Promise.resolve({ kind: 'image', frames: [] }); },
-    stillsDiscover: function () { return Promise.resolve([]); },
-    stillsExtract: function () { return Promise.resolve([]); },
-    analyzeAudio: function () { return Promise.resolve(null); },
-    pathForFile: function (file) { return (file && file.name) || ''; },
+    pickMedia: () => SlateMedia.pick('image/*,video/*',true),
+    pickAudio: () => SlateMedia.pick('audio/*,video/*',false),
+    ingestMedia: async (projectId,path) => {
+      try{return await SlateMedia.ingest(path);}finally{SlateMedia.release(path);}
+    },
+    stillsDiscover: async () => {
+      const project=studioProject;
+      if(!project)return [];
+      return project.scenes.flatMap(scene=>scene.shots.flatMap(shot=>shot.takes.filter(t=>t.studioMediaUrl).map(t=>({
+        project:project.name,shot:shot.name,fileName:t.file.split('/').pop(),mediaPath:t.studioMediaUrl
+      }))));
+    },
+    stillsExtract: async (projectId,path,start,end) => (await SlateMedia.ingest(path,start,end)).frames,
+    analyzeAudio: path => SlateMedia.analyzeAudio(path),
+    pathForFile: file => file ? SlateMedia.remember(file) : '',
 
     copyText: function (text) {
       try {

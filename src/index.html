@@ -2964,8 +2964,14 @@ function importStyleGuide(pages, filename, owner){
   return true;
 }
 
-el('btnImport').addEventListener('click', ()=>{ el('fileInput').dataset.mode='script'; el('fileInput').click(); });
-el('btnOpen').addEventListener('click', ()=>{ el('fileInput').dataset.mode='project'; el('fileInput').click(); });
+const studioFileTypes=el('fileInput').accept;
+function chooseStudioFile(types=studioFileTypes){
+  const picker=el('fileInput');
+  picker.accept=types;
+  picker.click();
+}
+el('btnImport').addEventListener('click', ()=>chooseStudioFile('.fountain,.txt,.fdx,.spmd,.pdf,.md'));
+el('btnOpen').addEventListener('click', ()=>chooseStudioFile());
 el('fileInput').addEventListener('change', e=>{ if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value=''; });
 el('btnSaveProj').addEventListener('click', ()=>{
   download((S.title||'project').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'_')+'.ams', JSON.stringify(serialize(),null,2), 'application/json');
@@ -2976,7 +2982,7 @@ el('btnDemo').addEventListener('click', ()=>importText(DEMO_SCRIPT,'THE LAST TRA
 el('demoLink').addEventListener('click', e=>{ e.preventDefault(); importText(DEMO_SCRIPT,'THE LAST TRANSMISSION.fountain'); });
 
 const dz = el('dropzone');
-dz.addEventListener('click', ()=>el('fileInput').click());
+dz.addEventListener('click', ()=>chooseStudioFile());
 ;['dragover','dragenter'].forEach(ev=>document.body.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.add('drag'); }));
 ;['dragleave','drop'].forEach(ev=>document.body.addEventListener(ev, e=>{ e.preventDefault(); if (ev==='drop' && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); dz.classList.remove('drag'); }));
 
@@ -5044,7 +5050,7 @@ async function crewReviewScreenplay(role,ask){
     +'\n\nDURABLE WRITER WORK:\n'+JSON.stringify({revisionPass:work.revisionPass||0,sceneCount:S.scenes.length})})
     +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
     +'\n\nSCREENPLAY PAGES DELIVERED BY THE WRITER:\n'+JSON.stringify(pages)+'\nAssess these pages. Coverage belongs to the first AD after this review. Provisional breakdown suggestions are outside the screenplay.'
-    +'\nA major finding can be a storytelling failure even if every action is filmable. A purely predictable demonstration needs a rewrite when the filmmaker asks for wit, humor or drama. Judge these pages from a human viewer’s seat. What expectation does the opening create? What does the ending make us understand, feel or laugh at that was not already obvious? Quote two distinct, literal extracts from the screenplay in audience.setup and audience.payoff, and explain their relationship in audience.effect. When the film does not earn a payoff, return revise and cite the affected scene. A quiet, observational or absurd film can earn a pass on its own terms.'
+    +'\nA major finding can be a storytelling failure even if every action is filmable. A purely predictable demonstration needs a rewrite when the filmmaker asks for wit, humor or drama. Judge these pages from a human viewer’s seat. What expectation does the opening create? What does the ending make us understand, feel or laugh at that was not already obvious? Identify the first on-screen detail that would make someone stay. Explain what gives the ending meaning and why someone might want to share the moment. Do not predict popularity. Quote two distinct, literal extracts in story order from the screenplay in audience.setup and audience.payoff, and explain their relationship in audience.effect. When the film does not earn a payoff, return revise and cite the affected scene. A quiet, observational or absurd film can earn a pass on its own terms.'
     +'\n\nIndependently review the completed screenplay. Do not rewrite it. Check the causal progression, distinct scene turns, visual behavior, ending, duration, continuity, filmmaker direction, and approved treatment. '
     +(p.mode==='adaptation'?'Reject paper-section mimicry, copied prose, illustrated-lecture structure, unsupported facts, and narration that substitutes for filmable evidence. ':'')
     +'Every revise verdict must identify at least one blocking or major scene-specific problem with quoted or precisely paraphrased evidence and an executable required change. Return the review schema only.';
@@ -5053,14 +5059,19 @@ async function crewReviewScreenplay(role,ask){
     workloadId:'department.story_editor.screenplay_review.'+(work.revisionPass||0),artifactType:'screenplay_review'},review=>{
       if(!['pass','revise'].includes(review.verdict)||!Array.isArray(review.problems))
         throw Error('Return a pass or revise verdict and a problems array.');
-      if(review.verdict==='revise'&&!review.problems.some(problem=>problem.sceneNumber>0&&['blocking','major'].includes(problem.severity)))
+      const major=review.problems.filter(problem=>['blocking','major'].includes(problem.severity));
+      if(major.some(problem=>!pages.some(row=>String(row.scene)===String(problem.sceneNumber))))
+        throw Error('Attach each blocking or major finding to a scene in the delivered screenplay.');
+      if(major.length)review.verdict='revise';
+      if(review.verdict==='revise'&&!major.length)
         throw Error('A revise verdict requires a major or blocking finding about a numbered screenplay scene. If you found only minor notes, return pass with those notes.');
       if(review.verdict==='pass'){
         const normalized=text=>String(text||'').replace(/\s+/g,' ').trim().toLowerCase();
         const source=normalized(pages.map(row=>row.text).join(' ')),reading=review.audience||{};
-        const quotes=[reading.setup,reading.payoff].map(normalized);
-        if(quotes.some(q=>q.length<5||!source.includes(q))||quotes[0]===quotes[1]||normalized(reading.effect).length<12)
-          throw Error('A pass requires two different exact quotations from the delivered scene text and a specific explanation of their effect on a viewer.');
+        const [setup,payoff]=[reading.setup,reading.payoff].map(normalized);
+        const start=source.indexOf(setup);
+        if(setup.length<5||payoff.length<5||setup===payoff||start<0||!source.includes(payoff,start+setup.length)||normalized(reading.effect).length<12)
+          throw Error('A pass requires distinct setup and payoff quotations in screenplay order and a specific explanation of their effect on a viewer.');
       }
       return review;
     });
@@ -6279,6 +6290,7 @@ async function crewEditOnce(role, ask, runId, guard){
       if(selected){selected.editorSelectedAt=new Date().toISOString();selected.inCut=true;}
     }
   }
+  delete p.screening;
   S.cut={productionRunId:p.id,assemblyRunId:p.assemblyRunId||p.id,providerId,createdAt:new Date().toISOString(),outputPath:data.outputPath||'',mediaUrl:data.mediaUrl||data.url||'',jobIds:ordered.map(j=>j.id)};
   p.status='complete'; p.completedAt=new Date().toISOString(); p.currentStep='';
   crewShotReworkQueue(p).filter(item=>item.queuedAt&&!item.completedAt).forEach(item=>{ item.completedAt=p.completedAt; });
@@ -7145,13 +7157,47 @@ function studioMonitor(host,run){
     if(host.isConnected&&host.dataset.shot===key){video.src=src;video.muted=true;video.hidden=false;video.play().catch(()=>{});}
   }).catch(()=>{if(host.dataset.shot===key){delete host.dataset.shot;description.textContent='Preview unavailable. The original shot is saved.';}});
 }
+function dashboardScreenings(host){
+  const rows=studioScreenings();
+  const signature=JSON.stringify(rows);
+  if(host.dataset.version===signature)return;
+  host.dataset.version=signature;
+  host.replaceChildren();
+  if(!rows.length)return;
+  const heading=document.createElement('h4');heading.textContent='Crew screenings';host.append(heading);
+  for(const row of rows){
+    const detail=document.createElement('details');
+    const label=document.createElement('summary');label.textContent=row.title;detail.append(label);
+    for(const [caption,value] of [['What the editor saw',row.review.observation],['Change on screen',row.review.verdict],['Evidence',row.review.evidence],['Next film',row.review.lesson]]){
+      if(!value)continue;
+      const line=document.createElement('p'),name=document.createElement('strong');
+      name.textContent=caption+'. ';line.append(name,String(value));detail.append(line);
+    }
+    for(const [view,caption] of [['export','Watch cut'],['scenes','Script'],['boards','Storyboard'],['client','Crew chat']]){
+      const link=document.createElement('button');link.className='btn small';link.textContent=caption;
+      link.onclick=()=>{
+        if(ACTIVE.p!==row.projectId||ACTIVE.d!==row.draftId)openDraft(row.projectId,row.draftId);
+        if(ACTIVE.p===row.projectId&&ACTIVE.d===row.draftId)nav(view);
+      };detail.append(link);
+    }
+    host.append(detail);
+  }
+}
 function doubleFeatureControls(){
   clearInterval(doubleFeatureTimer);
   const daily=el('dfDaily');
   daily.checked=localStorage.getItem('studio.producer.daily')!=='off';
   daily.onchange=()=>localStorage.setItem('studio.producer.daily',daily.checked?'on':'off');
-  const booking=readBooking();el('dfBookingState').textContent=booking?(booking.phase==='complete'?'Screening complete':booking.phase==='held'?'Producer waiting · '+booking.error:'Film '+booking.number+' of '+(booking.count||2)):'Producer is opening the floor.';
-  const names=el('dfNames'),runs=el('dfRuns'),button=el('dfStart');
+  const names=el('dfNames'),runs=el('dfRuns'),button=el('dfStart'),state=el('dfBookingState'),screenings=el('dfScreenings');
+  let submitting=false;
+  const showBooking=()=>{
+    const book=readBooking(),active=book&&!['held','complete'].includes(book.phase);
+    state.textContent=!book?'Producer is opening the floor.':book.phase==='complete'?'Screening complete':book.phase==='held'?'Producer waiting · '+book.error:'Film '+book.number+' of '+(book.count||2);
+    button.textContent=book?.phase==='held'?'Retry this booking':active?'Crew is working':'Book two shorts · 4 storyboard photos and 4 video shots';
+    button.disabled=submitting||!!active;
+    dashboardScreenings(screenings);
+  };
+  showBooking();
   const renderChoice=el('dfPlugin');for(const plugin of studioPlugins())renderChoice.add(new Option(plugin.name,plugin.url));
   renderChoice.value=localStorage.getItem('studio.renderer')||'';if(renderChoice.selectedIndex<0)renderChoice.value='';renderChoice.onchange=()=>{localStorage.setItem('studio.renderer',renderChoice.value);crewConnect().then(renderCrew);};
   const choice=el('dfModel');choice.value=localStorage.getItem('studio.doubleFeatureModel')||'qwen3.8-max';choice.onchange=()=>localStorage.setItem('studio.doubleFeatureModel',choice.value);
@@ -7171,9 +7217,11 @@ function doubleFeatureControls(){
     }catch(e){toast(String(e));}
   };
   const refresh=async()=>{
-    if(!runs.isConnected){clearInterval(doubleFeatureTimer);return;}
+    if(!runs.isConnected)return;
+    showBooking();
     try{
       const rows=await crewInvoke('double_feature_library');
+      if(!runs.isConnected)return;
       const recent=rows.slice().sort((a,b)=>(b.modified||0)-(a.modified||0));
       if(floorProduction())el('dashboardMonitor').textContent=[S.title,productionState().currentStep||productionState().status,productionState().error].filter(Boolean).join(' · ');
       else studioMonitor(el('dashboardMonitor'),recent.find(r=>!String(r.status).startsWith('Stopped'))||recent[0]);
@@ -7202,13 +7250,13 @@ function doubleFeatureControls(){
     }catch(e){runs.textContent=String(e);}
   };
   button.onclick=async()=>{
-    button.disabled=true;
+    submitting=true;showBooking();
     try{
       const old=readBooking();
-      if(old?.phase==='held'){old.phase='ready';saveBooking(old);if(productionState()?.booking)await crewResume();}
+      if(old?.phase==='held'){old.phase='ready';old.directedResume=true;delete old.error;saveBooking(old);}
       else bookFilms((el('crewAsk')?.value||'').trim());
       await wakeProducer();await refresh();}
-    catch(e){toast(String(e));}finally{button.disabled=false;}
+    catch(e){toast(String(e));}finally{submitting=false;showBooking();}
   };
   refresh();doubleFeatureTimer=setInterval(refresh,4000);
 }
@@ -7373,7 +7421,7 @@ function renderCrew(){
     h+='</div>';
   });
   h+='</details>';
-  w.innerHTML = '<section class="ai-panel" style="max-width:1120px;margin-bottom:14px"><div id="dashboardMonitor"></div><h4>Double feature</h4><p id="dfBookingState" role="status"></p><label><input type="checkbox" id="dfDaily"> Produce one short each day after this booking, using the selected credits</label><p>Follow the director’s brief through script, casting, wardrobe, photography, storyboard and final cut.</p><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Start crew · 4 storyboard photos and 4 video shots</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><div id="dfRuns"></div></section>'+h;
+  w.innerHTML = '<section class="ai-panel" style="max-width:1120px;margin-bottom:14px"><div id="dashboardMonitor"></div><h4>Double feature</h4><p id="dfBookingState" role="status"></p><label><input type="checkbox" id="dfDaily"> Produce one short each day after this booking, using the selected credits</label><p>Follow the director’s brief through script, casting, wardrobe, photography, storyboard and final cut.</p><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Start crew · 4 storyboard photos and 4 video shots</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><div id="dfScreenings"></div><div id="dfRuns"></div></section>'+h;
   doubleFeatureControls();
 
   const on = (id, ev, fn)=>{ const n = el(id); if (n) n.addEventListener(ev, fn); };
@@ -8687,8 +8735,13 @@ function crewLiveActivity(opts,phase,characters,force){
 }
 
 /** Stream one completion. Resolves with the full raw text. */
+function projectCloudModel(){
+  const model=typeof floorProduction==='function' && floorProduction()?.textModel;
+  return /^qwen(3\.8|4)-/.test(model)?model:'';
+}
+function projectTextAvailable(){return !!projectCloudModel()||AI.status==='on';}
 async function aiStream(system, user, onDelta, onThink, opts){
-  const cloudModel=typeof floorProduction==='function' && /^qwen(3\.8|4)-/.test(floorProduction()?.textModel);
+  const cloudModel=projectCloudModel();
   if (!cloudModel&&!AI.base) throw new Error('Not connected to a local model server.');
   if (!cloudModel&&!AI.model) throw new Error('No model selected.');
   const startedMs=Date.now();
@@ -8736,10 +8789,9 @@ async function aiStream(system, user, onDelta, onThink, opts){
     if (isOllama) body.options.temperature = opts.temperature; else body.temperature = opts.temperature;
   }
 
-  const cloud=typeof floorProduction==='function' && floorProduction()?.textModel;
-  if(cloud && cloud!=='qwen3.5:latest'){
+  if(cloudModel){
     try{
-      const out=await floorChat(cloud,system,user,[],!!(opts?.schema||opts?.json),opts||{});
+      const out=await floorChat(cloudModel,system,user,[],!!(opts?.schema||opts?.json),opts||{});
       if(ctrl.signal.aborted)throw Error('Cancelled');
       if(onDelta)onDelta(out);await settle('completed',out,'');return out;
     }catch(e){await settle(ctrl.signal.aborted?'cancelled':'failed','',String(e));throw e;}
@@ -9424,7 +9476,7 @@ function docFillJobs(){
 async function docFillRun(key){
   if (DOC.running) return;
   if (canonicalWorkerLocked()){ toast('Another project worker is still running.'); return; }
-  if (AI.status !== 'on'){
+  if (!projectTextAvailable()){
     const ok = await aiConnect(el('docBase') ? el('docBase').value : '');
     if (!ok){ renderDoctor(); toast('No local model server is answering.'); return; }
   }
@@ -9591,14 +9643,15 @@ function renderDoctor(){
   }
   if (DOC.sceneIdx >= S.scenes.length) DOC.sceneIdx = 0;
   const m = aiMove(DOC.move);
-  const dot = AI.status==='on' ? 'on' : AI.status==='off' ? 'off' : AI.status==='probing' ? 'busy' : '';
-  const statusText = AI.status==='on'
+  const dot = projectTextAvailable() ? 'on' : AI.status==='off' ? 'off' : AI.status==='probing' ? 'busy' : '';
+  const cloud=projectCloudModel();
+  const statusText = cloud ? cloud+' · Qwen Token Plan' : AI.status==='on'
       ? (AI.kind==='ollama' ? 'Ollama' : 'Local server') + ' · ' + AI.base.replace(/^https?:\/\//,'')
       : AI.status==='probing' ? 'Looking for a local server…'
       : AI.status==='off' ? 'No local model server found'
       : 'Not connected';
 
-  const modelSel = AI.models.length
+  const modelSel = !cloud && AI.models.length
     ? '<select id="docModel" style="min-width:190px" title="Model">' + AI.models.map(x=>'<option value="'+esc(x)+'"'+(x===AI.model?' selected':'')+'>'+esc(x)+'</option>').join('') + '</select>'
     : '';
 
@@ -9624,11 +9677,11 @@ function renderDoctor(){
   +  '<b style="font-size:12.5px">'+esc(statusText)+'</b>'
   +  modelSel
   +  '<div class="tb-spacer"></div>'
-  +  '<input id="docBase" placeholder="http://127.0.0.1:11434" value="'+esc(AI.base)+'" style="width:190px" title="Server address — Ollama listens on 11434">'
-  +  '<button class="btn small" id="docConnect">'+(AI.status==='on'?'Reconnect':'Connect')+'</button>'
+  +  (cloud?'':'<input id="docBase" placeholder="http://127.0.0.1:11434" value="'+esc(AI.base)+'" style="width:190px" title="Server address — Ollama listens on 11434">'
+  +  '<button class="btn small" id="docConnect">'+(AI.status==='on'?'Reconnect':'Connect')+'</button>')
   +  '<button class="btn small" id="docSettings" title="Temperature, context window, thinking">⚙</button>'
   + '</div>'
-  + (AI.status==='off'
+  + (!cloud && AI.status==='off'
       ? '<div class="ai-bar" style="border-color:rgba(217,107,107,.4);background:rgba(217,107,107,.07)">'
         + '<span style="font-size:12.5px;line-height:1.6">Nothing is listening on this machine. Start Ollama and pull a model — in Terminal: '
         + '<span class="kbd">ollama serve</span>, install any compatible model you choose, then press Connect. Studio lists the model IDs the server actually reports. '
@@ -9638,7 +9691,7 @@ function renderDoctor(){
   +   '<h4>Auto-fill from the script</h4>'
   +   '<div class="ai-fills">'
   +     docFillJobs().map(j=>
-          '<button class="ai-fill" data-fill="'+j.k+'"'+((j.n===0||DOC.running||AI.status!=='on')?' disabled':'')+'>'
+          '<button class="ai-fill" data-fill="'+j.k+'"'+((j.n===0||DOC.running||!projectTextAvailable())?' disabled':'')+'>'
         +   '<span class="t">'+j.ic+' '+esc(j.n ? j.label : j.done)+'</span>'
         +   '<span class="d">'+esc(j.sub)+'</span></button>').join('')
   +   '</div>'
@@ -9673,7 +9726,7 @@ function renderDoctor(){
         ? '<input id="docRange" style="width:100%;margin-top:7px" placeholder="e.g. 1-20, 34, 50A" value="'+esc(DOC.range)+'">'
         : '')
   +    '<div style="display:flex;gap:8px;margin-top:14px">'
-  +      '<button class="btn primary" id="docRun" style="flex:1"'+((DOC.running||(AI.status!=='on' && !(DOC.move==='repair' && DOC.mechOnly)))?' disabled':'')+'>'+runLabel+'</button>'
+  +      '<button class="btn primary" id="docRun" style="flex:1"'+((DOC.running||(!projectTextAvailable() && !(DOC.move==='repair' && DOC.mechOnly)))?' disabled':'')+'>'+runLabel+'</button>'
   +      (DOC.running ? '<button class="btn danger" id="docStop">Stop</button>' : '')
   +    '</div>'
   +    (targets.length > 6 && !DOC.running
@@ -9706,7 +9759,7 @@ function renderDoctor(){
   if (stopBtn) stopBtn.addEventListener('click', ()=>{ aiCancel(); toast('Stopping after this scene…'); });
 
   // ---- connection wiring
-  el('docConnect').addEventListener('click', async ()=>{
+  el('docConnect')?.addEventListener('click', async ()=>{
     AI.status = 'probing'; renderDoctor();
     const ok = await aiConnect(el('docBase') ? el('docBase').value : '');
     renderDoctor();
@@ -9892,7 +9945,7 @@ function settingsWire(initialTab){
   }));
   const library=el('settingsProjectLibrary'); if (library) library.addEventListener('click',()=>{ closeModal(); nav('projects'); });
   const saveProject=el('settingsSaveProject'); if (saveProject) saveProject.addEventListener('click',()=>el('btnSaveProj').click());
-  const importProject=el('settingsImportProject'); if (importProject) importProject.addEventListener('click',()=>el('btnOpen').click());
+  const importProject=el('settingsImportProject'); if (importProject) importProject.addEventListener('click',()=>chooseStudioFile('.ams,.studio,.scriptbreak'));
   const copyPath=el('settingsCopyAdapterPath'); if (copyPath) copyPath.addEventListener('click',async()=>{
     try{ await copyText(CREW.providerDirectory); toast('Adapter folder path copied.',true); }
     catch(e){ toast('Adapter folder: '+CREW.providerDirectory); }
@@ -10130,7 +10183,7 @@ async function docRun(only){
   if (DOC.running) return;
   if (canonicalWorkerLocked()){ toast('Another project worker is still running.'); return; }
   const m = aiMove(DOC.move);
-  if (AI.status !== 'on' && !(DOC.move==='repair' && DOC.mechOnly)){
+  if (!projectTextAvailable() && !(DOC.move==='repair' && DOC.mechOnly)){
     const ok = await aiConnect(el('docBase') ? el('docBase').value : '');
     if (!ok){ renderDoctor(); toast('No local model server is answering.'); return; }
   }
@@ -10528,7 +10581,7 @@ async function styleBibles(){
     nav('look');
     return;
   }
-  if (AI.status !== 'on'){
+  if (!projectTextAvailable()){
     const ok = await aiConnect();
     if (!ok){ toast('Styling needs a local model — start Ollama, then try again.'); return; }
   }
@@ -11225,7 +11278,7 @@ async function boardWriteFromScript(shotId){
   if (boardEditingLocked()){ toast('This render manifest is locked. Finish it or archive it before rewriting storyboard direction.'); return; }
   const hit = allShotsB().find(x=>x.sh.id === shotId);
   if (!hit) return;
-  if (AI.status !== 'on' && !(await aiConnect())){ toast('Connect a local model first.'); return; }
+  if (!projectTextAvailable() && !(await aiConnect())){ toast('Connect a local model first.'); return; }
   const { sc, sh } = hit;
   toast('Writing shot ' + (sh.num||'') + '…');
   const user = 'FILM: ' + S.title + '\n'
@@ -11251,7 +11304,7 @@ async function boardVision(shotId){
   if (!hit) return;
   const b = boardOf(hit.sh);
   if (!b.frame){ toast('Upload a frame first — this reads the picture.'); return; }
-  if (AI.status !== 'on' && !(await aiConnect())){ toast('Connect a local model first.'); return; }
+  if (!projectTextAvailable() && !(await aiConnect())){ toast('Connect a local model first.'); return; }
   const blob = await FrameStore.get(b.frame);
   if (!blob){ toast('That frame is missing from storage.'); return; }
   const b64 = await new Promise(res=>{ const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]||''); r.readAsDataURL(blob); });
@@ -11268,15 +11321,15 @@ async function boardVision(shotId){
 }
 
 /** Ollama's native API takes base64 images on the message. */
-async function aiVisionChat(system, prompt, images){
-  const model=typeof floorProduction==='function' && floorProduction()?.textModel;
+async function aiVisionChat(system, prompt, images, selectedModel, temperature=0.2){
+  const model=selectedModel || typeof floorProduction==='function' && floorProduction()?.textModel;
   if(model && model!=='qwen3.5:latest')return floorChat(model,system,prompt,images);
   if (AI.kind !== 'ollama') throw new Error('Reading images needs Ollama.');
   const res = await fetch(AI.base + '/api/chat', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
-      model: AI.model, stream:false, format:'json',
-      options:{ temperature:0.2, num_ctx:AI.numCtx },
+      model: model||AI.model, stream:false, format:'json', ...(AI.noThink?{think:false}:{}),
+      options:{ temperature, num_ctx:AI.numCtx, num_predict:4096 },
       messages:[{role:'system',content:system},{role:'user',content:prompt,images:images}],
     }),
   });
@@ -12515,7 +12568,7 @@ function plClean(raw){
 async function plRun(only, crewRole){
   if (PL.running) return;
   if (canonicalWorkerLocked()){ toast('Another project worker is still running.'); return; }
-  if (AI.status !== 'on'){
+  if (!projectTextAvailable()){
     const ok = await aiConnect(el('plBase') ? el('plBase').value : '');
     if (!ok){ renderPrompts(); toast('No local model server is answering — connect one in Script Doctor.'); return; }
   }
@@ -12556,7 +12609,7 @@ async function plRun(only, crewRole){
         // The script is canon: name anything the prompt introduced that the project never established.
         const offScript = PL.licence ? [] : plCanonAudit(text, plCanonVocab(sc, t.j >= 0 ? sc.shots[t.j] : null));
         target.prompt = {
-          text, target:PL.target, seconds:PL.seconds, model:AI.model,
+          text, target:PL.target, seconds:PL.seconds, model:projectCloudModel()||AI.model,
           at:new Date().toISOString(), short, offScript,
           licence: PL.licence || false,
         };
@@ -12709,16 +12762,16 @@ function renderPrompts(){
   const { have, total } = plCount();
   const scoped = plTargets();
   const pending = plPending(scoped).length;
-  const dot = AI.status==='on' ? 'on' : AI.status==='off' ? 'off' : AI.status==='probing' ? 'busy' : '';
+  const dot = projectTextAvailable() ? 'on' : AI.status==='off' ? 'off' : AI.status==='probing' ? 'busy' : '';
 
   w.innerHTML =
     '<div class="ai-bar">'
   +   '<span class="ai-dot '+dot+'"></span>'
-  +   '<b style="font-size:12.5px">'+esc(AI.status==='on' ? AI.model : 'No local model connected')+'</b>'
+  +   '<b style="font-size:12.5px">'+esc(projectCloudModel()?projectCloudModel()+' · Qwen Token Plan':AI.status==='on'?AI.model:'No local model connected')+'</b>'
   +   '<span class="ai-stat">'+have+' of '+total+' shots have a prompt</span>'
   +   '<div class="tb-spacer"></div>'
-  +   (AI.status==='on' ? '' : '<input id="plBase" placeholder="http://127.0.0.1:11434" value="'+esc(AI.base)+'" style="width:180px">')
-  +   '<button class="btn small" id="plConnect">'+(AI.status==='on'?'Reconnect':'Connect')+'</button>'
+  +   (projectTextAvailable() ? '' : '<input id="plBase" placeholder="http://127.0.0.1:11434" value="'+esc(AI.base)+'" style="width:180px">')
+  +   (projectCloudModel()?'':'<button class="btn small" id="plConnect">'+(AI.status==='on'?'Reconnect':'Connect')+'</button>')
   + '</div>'
   + '<div class="ai-panel" style="margin-bottom:16px;max-width:1080px">'
   +   '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">'
@@ -12746,7 +12799,7 @@ function renderPrompts(){
   +     '<label style="font-size:12px;display:flex;gap:7px;align-items:center"><input type="checkbox" id="plRedo" '+(PL.redo?'checked':'')+' style="width:auto">Rewrite existing</label>'
   +   '</div>'
   +   '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center">'
-  +     '<button class="btn primary" id="plRun"'+((PL.running||AI.status!=='on')?' disabled':'')+'>'
+  +     '<button class="btn primary" id="plRun"'+((PL.running||!projectTextAvailable())?' disabled':'')+'>'
   +       (PL.running ? 'Writing…' : 'Write ' + pending + ' prompt' + (pending===1?'':'s')) + '</button>'
   +     (PL.running ? '<button class="btn danger" id="plStop">Stop</button>' : '')
   +     '<div class="tb-spacer"></div>'
@@ -12870,7 +12923,7 @@ function renderPrompts(){
     const sc = S.scenes[i], sh = j >= 0 ? sc.shots[j] : null;
     const holder = sh || sc;
     if (!holder.prompt || !holder.prompt.text) return;
-    if (AI.status !== 'on' && !(await aiConnect())){ toast('Connect a local model first.'); return; }
+    if (!projectTextAvailable() && !(await aiConnect())){ toast('Connect a local model first.'); return; }
     b.textContent = 'reading…'; b.disabled = true;
     try{
       holder.prompt.verdict = await critique('prompt', holder.prompt.text, {
@@ -13175,6 +13228,7 @@ const StudioModuleBridge = (()=>{
     },saved,{defaults});
     project.id='studio-slate-'+projectKey();
     project.name=S.title||project.name||'Untitled Project'; project.updatedAt=stamp;
+    project.studioCrewModel=typeof projectCloudModel==='function'?projectCloudModel():'';
     for (const key of ['characters','artDept','locations','lookbook','references','mySetups','music','voices']){
       if (!Array.isArray(project[key])) project[key]=[];
     }
@@ -13201,7 +13255,8 @@ const StudioModuleBridge = (()=>{
             id:t.id, loggedAt:t.at||bt.loggedAt||stamp, model:t.model||bt.model||'',
             prompt:t.prompt||bt.prompt||promptText,
             rating:t.rating==='ng'?'no-good':(t.rating||'good'), notes:t.notes||'',
-            file:t.file||bt.file||'', seed:t.seed||bt.seed||''
+            file:t.file||bt.file||'', seed:t.seed||bt.seed||'',
+            studioMediaUrl:t.outputPath&&window.__TAURI__?.core?.convertFileSrc?window.__TAURI__.core.convertFileSrc(t.outputPath):''
           });
         });
         return Object.assign({
@@ -13346,6 +13401,7 @@ const StudioModuleBridge = (()=>{
     if (!['cork-board','slate'].includes(message.module)) return;
     const frame=frameFor(message.module);
     if (!frame || event.source!==frame.contentWindow) return;
+    if (message.type==='projects' && message.module==='slate'){nav('projects');return;}
     if (message.type==='request') send(message.module,frame);
     if (message.type==='update'){
       // A hosted module can have a delayed save message in flight after its
@@ -13368,8 +13424,20 @@ const StudioModuleBridge = (()=>{
       else applySlateProject(message.project);
     }
   });
-  return { mount, corkProject, slateProject, applyCorkProject, applySlateProject };
+  async function slateCloudChat(projectId,model,request){
+    const owns=()=>projectId==='studio-slate-'+projectKey() && model && model===projectCloudModel();
+    if(!owns())throw Error('Open the same Studio draft before running this Slate request.');
+    const images=(request.images||[]).map(frame=>{
+      if(!/^data:image\/jpeg;base64,/.test(frame))throw Error('Reimport the reference to read its frames.');
+      return frame.split(',')[1];
+    });
+    const text=await floorChat(model,request.system||'',request.prompt||'',images,!!request.expectJson);
+    if(!owns())throw Error('The active film changed during this request.');
+    return text;
+  }
+  return { mount, corkProject, slateProject, applyCorkProject, applySlateProject, slateCloudChat };
 })();
+window.studioSlateCloudChat=StudioModuleBridge.slateCloudChat;
 /* STUDIO MODULE BRIDGE END */
 
 /** Mount the real Cork Board over Studio's active project. */

@@ -1244,3 +1244,22 @@ test('an ambiguous lost queue receipt reuses its attempt, while a known terminal
   await queue({}, '');
   assert.equal(attempts[2], 4, 'explicit authorization must advance an otherwise unproven attempt');
 });
+
+test('a screenplay cannot pass on a major story flaw or a payoff quoted before its setup', async () => {
+  const work={plan:{},reviews:[]};
+  const pages=[{num:'1',slug:'INT. OFFICE',text:'The clerk stamps his own hand. He holds it up for approval.'}];
+  const review={verdict:'pass',problems:[],audience:{setup:'The clerk stamps his own hand.',payoff:'He holds it up for approval.',effect:'The authority has become the applicant.'}};
+  const ctx={productionState:()=>({mode:'idea'}),crewWriterWork:()=>work,S:{scenes:pages},crewContext:()=>'',CREW_SCREENPLAY_REVIEW_SCHEMA:{},
+    crewJsonAgentCall:async(_role,_user,_opts,validate)=>validate(structuredClone(review)),crewProgressHash:()=>'',productionCheckpoint:()=>true,crewArtifactRef:()=>({})};
+  const run=loadFunction('async function crewReviewScreenplay','function crewCoverageConstraintText','crewReviewScreenplay',ctx);
+  await run({id:'story_review'},'');
+  assert.equal(work.review.verdict,'pass');
+  review.problems=[{sceneNumber:1,severity:'major',issue:'The opening gives away the ending.'}];
+  await run({id:'story_review'},'');
+  assert.equal(work.review.verdict,'revise');
+  review.problems[0].sceneNumber=42;
+  await assert.rejects(run({id:'story_review'},''),/delivered screenplay/);
+  review.problems=[];
+  [review.audience.setup,review.audience.payoff]=[review.audience.payoff,review.audience.setup];
+  await assert.rejects(run({id:'story_review'},''),/screenplay order/);
+});

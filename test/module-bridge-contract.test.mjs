@@ -145,3 +145,25 @@ test('a delayed hosted-module save cannot cross into the newly active draft', ()
   assert.equal(state.title, 'Shared Feature');
   assert.equal(posts.at(-1).project.id, 'studio-cork-draft-2', 'parent must resend the newly active canonical snapshot');
 });
+
+test('Slate sends the reference image to the selected local server and reports unsupported backends', async()=>{
+  const shim=fs.readFileSync(new URL('src/modules/slate/slate-shim.js',root),'utf8');
+  const requests=[];
+  const window={};window.parent=window;
+  const fetch=async(url,options)=>{
+    if(url.endsWith('/api/tags'))return {ok:false};
+    if(url.endsWith('/v1/models'))return {ok:true,json:async()=>({data:[{id:'vision'}]})};
+    requests.push({url,body:JSON.parse(options.body)});
+    return {ok:true,json:async()=>({choices:[{message:{content:'{"color":"red"}'}}]})};
+  };
+  vm.runInNewContext(shim,{window,crypto,fetch,AbortController,setTimeout,clearTimeout,console});
+  const ref='data:image/jpeg;base64,YQ==';
+  const result=await window.slate.brainRun({id:'ref',backend:'local',expectJson:true,prompt:'Describe it.',images:[ref]});
+  assert.equal(requests.length,1);
+  assert.match(requests[0].url,/\/v1\/chat\/completions$/);
+  assert.equal(requests[0].body.messages[1].content[1].image_url.url,ref);
+  assert.equal(result.json.color,'red');
+  const unavailable=await window.slate.brainTest('codex');
+  assert.equal(unavailable.ok,false);
+  assert.equal(requests.length,1);
+});

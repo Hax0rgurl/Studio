@@ -56,24 +56,44 @@ function pitchDirectionChanged(active,foundation){
        !['complete','cancelled'].includes(active.status) && !Object.keys(active.jobs||{}).length &&
        !active.images?.done && !allShots().some(({sh})=>boardOf(sh).frame);
 }
+function studioScreenings(){
+  const seen=new Set(), rows=[];
+  for(const project of DB.projects){
+    for(const draft of project.drafts){
+      const state=draft.state, p=state?.production;
+      if(!p?.id || p.status!=='complete' || state.cut?.productionRunId!==p.id || !p.screening?.observation)continue;
+      rows.push({runId:p.id,projectId:project.id,draftId:draft.id,title:state.title,at:p.completedAt||state.cut.createdAt||'',review:p.screening});
+    }
+  }
+  return rows.sort((a,b)=>b.at.localeCompare(a.at)).filter(row=>{
+    if(seen.has(row.runId))return false;
+    seen.add(row.runId);return true;
+  });
+}
+function screeningBrief(rows){
+  if(!rows?.length)return '';
+  return '\nEarlier screenings from this studio. Treat these as craft experiments. The current filmmaker direction and supplied material take priority. Apply a relevant lesson to a specific beat, or explain why it does not fit. Preserve uncertainty about earlier results.\n'+
+    JSON.stringify(rows.map(({title,review})=>({title,observation:review.observation,nextTest:review.lesson,verdict:review.verdict,evidence:review.evidence})));
+}
 async function commissionOriginal(book,foundation){
   const key='commission'+book.number;
   const existing=book[key];
   if(existing?.choice && existing.foundation===foundation)return existing;
   const consult=async(role,prompt,temperature)=>{
-    const raw=book.textModel==='qwen3.5:latest'?await aiVisionChat(role,prompt,[]):
+    const raw=book.textModel==='qwen3.5:latest'?await aiVisionChat(role,prompt,[],book.textModel,temperature):
       await floorChat(book.textModel,role,prompt,[],true,{temperature});
     return aiParseJson(raw);
   };
   const mandate='Filmmaker’s words, binding: '+foundation+'\nFilm-specific direction: '+(book.direction||'Crew original.')+
     '\nRunning time: '+(book.options?.targetMinutes?book.options.targetMinutes*60:10)+' seconds.';
+  const lessons=screeningBrief(book['screenings'+book.number]);
   const prior=existing?.rejection||'';
-  const slate=await consult('Director in a film studio pitch meeting',mandate+
+  const slate=await consult('Director in a film studio pitch meeting',mandate+lessons+
     '\nPitch three genuinely different stories to the producer before any camera decisions. Write the actual image, line or action that hooks a viewer, the specific human tension or comic premise, and the payoff. Let the genre and the filmmaker guide you. A demonstration of materials or a predictable chain reaction does not constitute a story unless the filmmaker explicitly requests it. No camera specs. Return JSON with pitches, each containing title, opening, ending, and whyWatch.'+
     (prior?'\nProducer rejected the previous slate because: '+prior:''),0.9);
   if(!Array.isArray(slate.pitches)||slate.pitches.length!==3||slate.pitches.some(p=>!['title','opening','ending','whyWatch'].every(k=>typeof p[k]==='string'&&p[k].trim())))
     throw Error('The director returned an incomplete pitch slate.');
-  const ballot=await consult('Independent commissioning producer',mandate+
+  const ballot=await consult('Independent commissioning producer',mandate+lessons+
     '\nRead these shorts as a viewer deciding whether to keep watching. Disregard the director’s promotional claims. Which ending earns a laugh, surprise, unease, recognition or emotional consequence on screen? Reject slates that merely show objects moving as expected. Return JSON with index (0, 1, 2 or -1 to reject all) and reason naming the specific viewer experience and how it follows the filmmaker’s direction.\n'+JSON.stringify(slate.pitches),0.35);
   if(!Number.isInteger(ballot.index)||ballot.index< -1||ballot.index>2||!String(ballot.reason||'').trim())throw Error('The producer returned an incomplete commissioning decision.');
   const choice=slate.pitches[ballot.index];
@@ -100,8 +120,7 @@ async function wakeProducer(){
     }
     if(queue[0]?.id===book.requestId && book.requestId)localStorage.setItem(inboxKey,JSON.stringify(queue.slice(1)));
     if(book.phase==='complete' && book.finishedDay && book.finishedDay!==productionDay() && localStorage.getItem('studio.producer.daily')!=='off'){
-      const lesson=book.films.at(-1)?.review;
-      book=bookFilms(lesson?'Consider the previous screening: '+JSON.stringify(lesson):'');book.count=1;saveBooking(book);
+      book=bookFilms();book.count=1;saveBooking(book);
     }
     const active=productionState();
     if(typeof tasteLoadSnapshot==='function'){
@@ -159,12 +178,22 @@ async function wakeProducer(){
         const first=book.films[0];
         brief+='\nCreate a companion short to '+(first.title||'film one')+'. Carry forward a craft lesson the audience can see in a specific shot. Choose a new subject and story when that better serves the filmmaker. The first film is screening evidence, never a mandatory premise.\nFirst film: '+JSON.stringify(first.scenes||[])+'\nScreening: '+JSON.stringify(first.review);
       }
+      const memoryKey='screenings'+book.number;
+      if(!book[memoryKey]){
+        book[memoryKey]=studioScreenings().slice(0,3);
+        if(book.number===2 && book.films[0] && !book[memoryKey].some(row=>row.runId===book.films[0].runId)){
+          const {title,runId,review}=book.films[0];
+          book[memoryKey].unshift({title,runId,review});
+        }
+        saveBooking(book);
+      }
+      brief+=screeningBrief(book[memoryKey]);
       const shelf=JSON.parse(localStorage.getItem('studio.plays.v1')||'[]');
       if(!book.script&&shelf.length){
         const label='shelfChoice'+book.number;
         if(!book[label]){
-          const prompt='Choose a play to adapt into a ten-second short or choose an original. Return JSON with index (zero-based, -1 for an original) and reason.\n'+JSON.stringify(shelf.map(p=>({name:p.name,opening:p.text.slice(0,1000)})));
-          const raw=book.textModel==='qwen3.5:latest'?await aiVisionChat('Producer',prompt,[]):await floorChat(book.textModel,'Producer',prompt);
+          const prompt='Choose a play to adapt for the requested film or choose an original. Respect the filmmaker’s direction: '+foundation+'\n'+brief+'\n Return JSON with index (zero-based, -1 for an original) and reason.\n'+JSON.stringify(shelf.map(p=>({name:p.name,opening:p.text.slice(0,1000)})));
+          const raw=book.textModel==='qwen3.5:latest'?await aiVisionChat('Producer',prompt,[],book.textModel):await floorChat(book.textModel,'Producer',prompt);
           const choice=aiParseJson(raw);
           if(!Number.isInteger(choice.index)||choice.index< -1||choice.index>=shelf.length)throw Error('The producer returned an unknown play.');
           book[label]=choice.index<0?{reason:choice.reason}:{...shelf[choice.index],reason:choice.reason};saveBooking(book);
@@ -181,7 +210,7 @@ async function wakeProducer(){
       }
       if(foundation)brief='STANDING FILMMAKER DIRECTION (binding): '+foundation+'\n'+brief;
       if(!book.script && !book.options?.targetMinutes)brief+='\nMake exactly two five-second scenes, exactly one shot per scene. Total ten seconds.';
-      assigningFilm={id:book.id,number:book.number,foundationAtPitch:foundation,fromSource,commission,renderer:book.renderer,textModel:book.textModel,short:!book.script&&!book.options?.targetMinutes};
+      assigningFilm={id:book.id,number:book.number,foundationAtPitch:foundation,fromSource,commission,screeningSources:book[memoryKey],renderer:book.renderer,textModel:book.textModel,short:!book.script&&!book.options?.targetMinutes};
       if(activeDraft()&&!persistNow())throw Error('Could not save the open draft.');
       if(book.script){
         if(book.script.draftId){
@@ -204,26 +233,41 @@ async function wakeProducer(){
       }else await crewStart(book.options?.text?'adaptation':'idea',brief,{targetMinutes:1/6,...book.options,booking:assigningFilm});
       return;
     }
+    if(book.directedResume && p.status==='complete'){delete book.directedResume;saveBooking(book);}
     if(book.directedResume && !crewUnprovenJobs(p).length){
       delete book.directedResume;saveBooking(book);await crewResume();return;
     }
     if(p.status==='complete'&&S.cut?.productionRunId===p.id){
-      const screening=await floorCall('screen',{runId:p.id});
-      const frames=screening.images;
-      if(frames.length!==4||frames.some(x=>!x))throw Error('The screening could not decode all four frames.');
-      const prior=book.films[0];
-      const content=book.number===1
-        ? 'The supplied frames are at '+screening.seconds.join(', ')+' seconds. Describe a visible problem with its time. Consider how the story reads for a human as well as how it was photographed. Give one testable adjustment for the next director. Return JSON with observation and lesson.'
-        : 'The first four frames are film one; the last four are film two. The second group is at '+screening.seconds.join(', ')+' seconds. Compare against the first screening '+JSON.stringify(prior.review)+'. Also evaluate the filmmaker’s standing direction: '+foundation+'. Film two’s approved story reading: '+JSON.stringify(p.writerWork?.review?.audience||{})+'. Separate what the pages promised from what the images show. A still cannot establish shutter speed. Return JSON with observation, verdict (visible, partial, or unproven), and evidence citing both films. Do not claim an improvement without a visible difference.';
-      const images=book.number===1?frames:[...(await floorCall('screen',{runId:prior.runId})).images,...frames];
-      const raw=book.textModel==='qwen3.5:latest'?await aiVisionChat('Screening editor',content,images):await floorChat(book.textModel,'You are the screening editor. Describe only visible evidence.',content,images);
-      const review=aiParseJson(raw);
-      if(!review.observation||!(book.number===1?review.lesson:review.evidence))throw Error('The screening returned incomplete evidence.');
-      p.screening=review;
-      if(!productionCheckpoint())throw Error('Could not save the screening.');
+      const projectId=ACTIVE.p,draftId=ACTIVE.d;
+      const sameFilm=()=>productionState()?.id===p.id && ACTIVE.p===projectId && ACTIVE.d===draftId;
+      let review=p.screening;
+      if(!review?.observation){
+        const sample=async runId=>{
+          const result=await floorCall('screen',{runId});
+          if(result.images?.length!==4||result.images.some(x=>!x)||result.seconds?.length!==4)throw Error('The screening could not read four timed frames.');
+          return result;
+        };
+        const current=await sample(p.id);
+        const prior=book.number===2?book.films[0]:null;
+        const previous=prior?await sample(prior.runId):null;
+        const content='Filmmaker direction: '+foundation+'\nFilm brief: '+p.brief+'\nThe screenplay editor expected: '+JSON.stringify(p.writerWork?.review?.audience||{})+
+          '\nRead the opening and payoff as a viewer. Identify what is legible or confusing in the sampled images. Cite a supplied time for the observation. Give one concrete, testable adjustment for the next director in lesson. Stills cannot establish audio, audience retention, or what happened between samples.'+
+          (prior?'\nFirst four images: '+prior.title+' at '+previous.seconds.join(', ')+' seconds. Its review: '+JSON.stringify(prior.review)+'. Next four: this film at '+current.seconds.join(', ')+' seconds. Compare the intended change against both sets. Return JSON with observation, lesson, verdict (visible, partial or unproven), and evidence citing both films.':
+          '\nThis film at '+current.seconds.join(', ')+' seconds. Return JSON with observation and lesson.');
+        const images=previous?[...previous.images,...current.images]:current.images;
+        if(!sameFilm())return;
+        const raw=book.textModel==='qwen3.5:latest'?await aiVisionChat('Screening editor',content,images,book.textModel):await floorChat(book.textModel,'You are the screening editor. Describe only visible evidence.',content,images);
+        review=aiParseJson(raw);
+        const hasText=k=>typeof review?.[k]==='string' && review[k].trim();
+        if(!hasText('observation')||!hasText('lesson')||(prior&&(!hasText('evidence')||!['visible','partial','unproven'].includes(review.verdict))))throw Error('The screening returned incomplete evidence.');
+        if(!sameFilm())return;
+        p.screening=review;
+        if(!productionCheckpoint()){delete p.screening;throw Error('Could not save the screening.');}
+      }
       const note=Object.values(review).join('\n');
       const event=await crewSendConversation({eventId:'screen_'+p.id,eventType:'reply',intent:'fyi',fromRoleId:'editor',toRoleId:'director',summary:'The editor screened '+S.title,details:note,actionRequested:'Use this screening as evidence in the next film.'});
       await crewFinishConversation(event,'ack');
+      if(!sameFilm())return;
       book.films.push({runId:p.id,title:S.title,projectId:ACTIVE.p,draftId:ACTIVE.d,path:S.cut.outputPath,scenes:S.scenes.map(sc=>({slug:sc.slug,summary:sc.synopsis,shots:sc.shots.map(sh=>({id:sh.id,description:sh.desc}))})),review});
       if(book.number===(book.count||2)){book.phase='complete';book.finishedDay=productionDay();}else book.number=2;
       saveBooking(book);return;

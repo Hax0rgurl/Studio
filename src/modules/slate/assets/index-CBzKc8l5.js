@@ -8111,16 +8111,17 @@ function ProjectMetaEditor() {
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "field",
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { children: "Brain" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-						value: p.defaults.brain,
+						value: p.studioCrewModel || p.defaults.brain,
+						disabled: !!p.studioCrewModel,
 						onChange: (e) => store.mutate((proj) => void (proj.defaults.brain = e.target.value)),
-						children: [
+						children: [p.studioCrewModel && (0, import_jsx_runtime.jsx)("option", {value:p.studioCrewModel,children:p.studioCrewModel+" · Studio booking"}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-								value: "claude",
-								children: "Claude Code (subscription)"
+								value: "claude", disabled: !!window.slate.openStudioProjects,
+								children: window.slate.openStudioProjects ? "Claude Code (not connected)" : "Claude Code (subscription)"
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-								value: "codex",
-								children: "Codex CLI (subscription)"
+								value: "codex", disabled: !!window.slate.openStudioProjects,
+								children: window.slate.openStudioProjects ? "Codex CLI (not connected)" : "Codex CLI (subscription)"
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
 								value: "local",
@@ -8129,7 +8130,7 @@ function ProjectMetaEditor() {
 						]
 					})]
 				}),
-				p.defaults.brain === "local" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LocalBrainFields, {})
+				!p.studioCrewModel && p.defaults.brain === "local" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LocalBrainFields, {})
 			]
 		})]
 	});
@@ -30366,6 +30367,7 @@ async function fillVoice(p, description, characterName) {
 	});
 }
 function fingerprintText(fp) {
+  if (Array.isArray(fp.energyDb)) return `Measured locally across the whole recording: ${fp.durationSec}s, ${fp.channels} channels at ${fp.sampleRate} Hz. The RMS energy in each third is ${fp.energyDb.join(", ")} dBFS. Active-material dynamic range: ${fp.dynamicRangeDb} dB (5th to 95th percentile). Below -50 dBFS for ${Math.round(fp.silenceRatio*100)}%, longest quiet interval ${fp.longestSilenceSec}s. Tempo, pitch, lyrics and instruments were not measured. Describe only supported properties and the director's notes.`;
 	return `MEASURED ACOUSTIC FINGERPRINT (local signal analysis of the reference — objective numbers, no listening involved):
 - Duration ${fp.durationSec}s (analyzed first ${fp.sampledSec}s)
 - Tempo estimate: ${fp.bpmEstimate ? `${fp.bpmEstimate} BPM (confidence ${fp.bpmConfidence})` : "no stable pulse detected"}
@@ -32115,7 +32117,7 @@ function SheetStills({ images, onRemove }) {
 		children: images.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 			className: "sheet-still",
 			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
-				src: `file://${p}`,
+				src: p.startsWith("data:image/") ? p : `file://${p}`,
 				alt: "",
 				title: p
 			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
@@ -32140,6 +32142,7 @@ function ReferencesPanel() {
 			setError(null);
 			try {
 				const { kind, frames } = await window.slate.ingestMedia(project.id, path);
+				if (useProject.getState().project?.id !== project.id) break;
 				store.addReference({
 					id: uid("ref"),
 					path,
@@ -32196,7 +32199,7 @@ function ReferencesPanel() {
 							color: "var(--ink-3)",
 							marginTop: 6
 						},
-						children: "Clips are broken into key frames locally (ffmpeg). Media stays where it lives — Slate links it, never copies it."
+						children: "Studio extracts frames on this device and saves them with the project."
 					}),
 					error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						style: {
@@ -32243,7 +32246,7 @@ function ReferencesPanel() {
 					ref.frames.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						className: "ref-frames",
 						children: ref.frames.slice(0, 6).map((f) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
-							src: `file://${f}`,
+							src: f.startsWith("data:image/") ? f : `file://${f}`,
 							alt: ""
 						}, f))
 					}),
@@ -32519,7 +32522,7 @@ function StillGrid({ paths }) {
 		children: paths.map((f) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 			className: "still-cell",
 			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
-				src: `file://${f}`,
+				src: f.startsWith("data:image/") ? f : `file://${f}`,
 				alt: ""
 			}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
 				defaultValue: "",
@@ -34479,7 +34482,7 @@ function App() {
 			offAbout();
 		};
 	}, [refreshMetas, refreshBrain]);
-	const brainReady = brain?.claude.available || brain?.codex.available || brain?.local?.available;
+	const brainReady = project?.studioCrewModel || brain?.claude.available || brain?.codex.available || brain?.local?.available;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "shell",
 		children: [
@@ -34507,7 +34510,7 @@ function App() {
 								"data-ok": testState === "fail" ? "0" : brainReady ? "1" : "0",
 								onClick: () => void runBrainTest(),
 								title: "Click to test the brain with a tiny live call",
-								children: testState === "busy" ? "Testing…" : testState === "ok" ? "✓ Brain online" : brainReady ? `Brain: ${project.defaults.brain === "claude" ? "Claude Code" : project.defaults.brain === "codex" ? "Codex" : "Local model"} — test` : "Brain offline"
+								children: testState === "busy" ? "Testing…" : testState === "ok" ? "✓ Brain online" : project.studioCrewModel ? `${project.studioCrewModel} · Token Plan — test` : brainReady ? `Brain: ${project.defaults.brain === "claude" ? "Claude Code" : project.defaults.brain === "codex" ? "Codex" : "Local model"} — test` : "Brain offline"
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								className: `btn btn-sm ad-toggle ${adOpen ? "on" : ""}`,
@@ -34517,8 +34520,8 @@ function App() {
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								className: "btn btn-ghost btn-sm",
-								onClick: close,
-								children: "Close Project"
+								onClick: window.slate.openStudioProjects || close,
+								children: window.slate.openStudioProjects ? "Studio Projects" : "Close Project"
 							})
 						] })
 					]

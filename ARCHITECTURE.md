@@ -158,14 +158,13 @@ AVA/private project boot and exchanges its native project shape with Studio.
 
 An app that does use a bridge needs a shim: a script that defines the same global its
 preload defined, backed by browser and shell services instead of Electron IPC. Slate's
-`window.slate` is 20 methods; `src/modules/slate/slate-shim.js` preserves that API, uses
-the Studio project bridge for embedded project persistence, and uses the local model server
-for the whole `brain*` family, so Slate's AI runs on Ollama with no API key. Standalone mode
-retains Slate's original private local store and byte-compatible project factory.
+`window.slate` uses the Studio project bridge for embedded project persistence. A cloud-booked
+film uses its selected Qwen model in Slate. Other projects can use the local model server.
+Standalone mode retains Slate's original private local store and project factory.
 
-Capabilities that genuinely needed a Node host — file dialogs, ffmpeg frame extraction,
-audio fingerprinting — resolve empty rather than throwing, so the app degrades instead of
-white-screening.
+Slate's file picker accepts user-selected image, video and sound references. WebKit extracts
+JPEG frames on the device and measures audio level, dynamic range and silence. Reference frames
+are saved with the project. Scan Dailies reads the active film's saved video takes.
 
 One real upstream fix came out of this: Slate's `Home.tsx` gated its "no brain found"
 warning on `!claude.available && !codex.available`, ignoring the `local` backend entirely,
