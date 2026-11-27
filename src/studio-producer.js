@@ -50,6 +50,9 @@ function bookFilms(direction='',script=null,requestId='',options={}){
   const book={options,requestId,count:requestId?1:2,renderer,id:crypto.randomUUID(),phase:'ready',films:[],direction,script,textModel,number:1};
   saveBooking(book);return book;
 }
+function bookingNeedsPhotoDecision(book){
+  return book?.phase==='held'&&/Storyboard rendering failed: Submission interrupted before provider receipt/.test(book.error||'');
+}
 function pitchDirectionChanged(active,foundation){
   return active?.booking && active.mode==='idea' &&
        ((foundation && foundation!==(active.booking.foundationAtPitch||'')) || (!active.booking.commission && !active.booking.fromSource)) &&
@@ -61,8 +64,11 @@ function studioScreenings(){
   for(const project of DB.projects){
     for(const draft of project.drafts){
       const state=draft.state, p=state?.production;
-      if(!p?.id || p.status!=='complete' || state.cut?.productionRunId!==p.id || !p.screening?.observation)continue;
-      rows.push({runId:p.id,projectId:project.id,draftId:draft.id,title:state.title,at:p.completedAt||state.cut.createdAt||'',review:p.screening});
+      if(!p?.id || p.status!=='complete' || state.cut?.productionRunId!==p.id)continue;
+      const filmmakerNotes=(p.clientNotes||[]).filter(note=>note.kind==='screening' && typeof note.text==='string')
+        .map(({text,targetRoleId,at})=>({text,targetRoleId,at}));
+      if(!p.screening?.observation&&!filmmakerNotes.length)continue;
+      rows.push({filmmakerNotes,runId:p.id,projectId:project.id,draftId:draft.id,title:state.title,at:p.completedAt||state.cut.createdAt||'',review:p.screening||{}});
     }
   }
   return rows.sort((a,b)=>b.at.localeCompare(a.at)).filter(row=>{
@@ -70,10 +76,10 @@ function studioScreenings(){
     seen.add(row.runId);return true;
   });
 }
-function screeningBrief(rows){
+function screeningBrief(rows, pitching=false){
   if(!rows?.length)return '';
-  return '\nEarlier screenings from this studio. Treat these as craft experiments. The current filmmaker direction and supplied material take priority. Apply a relevant lesson to a specific beat, or explain why it does not fit. Preserve uncertainty about earlier results.\n'+
-    JSON.stringify(rows.map(({title,review})=>({title,observation:review.observation,nextTest:review.lesson,verdict:review.verdict,evidence:review.evidence})));
+  return '\nEarlier screenings from this studio. Treat these as craft experiments. The filmmaker’s own notes take precedence over the editor’s interpretation of that film. Treat them as feedback on that specific work. The current direction and supplied material take priority. Apply a relevant lesson to a specific beat, or explain why it does not fit. Preserve uncertainty about earlier results.\n'+
+    JSON.stringify(rows.map(({title,review,filmmakerNotes})=>({title,filmmakerNotes,observation:pitching?undefined:review.observation,nextTest:review.lesson,verdict:review.verdict,evidence:pitching?undefined:review.evidence})));
 }
 async function commissionOriginal(book,foundation){
   const key='commission'+book.number;
@@ -86,18 +92,29 @@ async function commissionOriginal(book,foundation){
   };
   const mandate='Filmmaker’s words, binding: '+foundation+'\nFilm-specific direction: '+(book.direction||'Crew original.')+
     '\nRunning time: '+(book.options?.targetMinutes?book.options.targetMinutes*60:10)+' seconds.';
-  const lessons=screeningBrief(book['screenings'+book.number]);
+  const lessons=screeningBrief(book['screenings'+book.number],true);
   const prior=existing?.rejection||'';
   const slate=await consult('Director in a film studio pitch meeting',mandate+lessons+
-    '\nPitch three genuinely different stories to the producer before any camera decisions. Write the actual image, line or action that hooks a viewer, the specific human tension or comic premise, and the payoff. Let the genre and the filmmaker guide you. A demonstration of materials or a predictable chain reaction does not constitute a story unless the filmmaker explicitly requests it. No camera specs. Return JSON with pitches, each containing title, opening, ending, and whyWatch.'+
+    '\nPitch three genuinely different stories to the producer before any camera decisions. Write the actual image, line or action that hooks a viewer, the specific human tension or comic premise, and the payoff. Let the genre and the filmmaker guide you. A demonstration of materials or a predictable chain reaction does not constitute a story unless the filmmaker explicitly requests it. Let the current brief supply the characters, objects and world. A previous film’s craft note can change how this story reads. Only reuse its story elements when they serve this brief. Plant what the ending depends on. Describe actions a viewer can follow in the available seconds. No camera specs. Return JSON with pitches, each containing title, opening, ending, and whyWatch.'+
     (prior?'\nProducer rejected the previous slate because: '+prior:''),0.9);
   if(!Array.isArray(slate.pitches)||slate.pitches.length!==3||slate.pitches.some(p=>!['title','opening','ending','whyWatch'].every(k=>typeof p[k]==='string'&&p[k].trim())))
     throw Error('The director returned an incomplete pitch slate.');
+  const pages=slate.pitches.map(({title,opening,ending})=>({title,opening,ending}));
   const ballot=await consult('Independent commissioning producer',mandate+lessons+
-    '\nRead these shorts as a viewer deciding whether to keep watching. Disregard the director’s promotional claims. Which ending earns a laugh, surprise, unease, recognition or emotional consequence on screen? Reject slates that merely show objects moving as expected. Return JSON with index (0, 1, 2 or -1 to reject all) and reason naming the specific viewer experience and how it follows the filmmaker’s direction.\n'+JSON.stringify(slate.pitches),0.35);
+    '\nRead only what a viewer will see. What makes the opening worth staying for? What in that opening earns the ending? A coincidence, an unintroduced prop solving the story, or physically incompatible actions need another pitch. Surreal and observational films can earn the ending through a legible visual or emotional connection. Check whether someone can read the change in the allotted time. An earlier film’s prop or technique is never evidence for a beat on these pages.'+
+    '\nReturn JSON with index (0, 1, 2 or -1 to reject all) and reason. For a selection also include setupQuote copied exactly from opening, payoffQuote copied exactly from ending, and blockingGap (an empty string only if there is no missing connection). In reason explain how those specific beats connect and why watching the payoff matters. If all three need a missing event to work, reject all and explain what to fix.\n'+JSON.stringify(pages),0.35);
   if(!Number.isInteger(ballot.index)||ballot.index< -1||ballot.index>2||!String(ballot.reason||'').trim())throw Error('The producer returned an incomplete commissioning decision.');
-  const choice=slate.pitches[ballot.index];
-  book[key]={foundation,pitches:slate.pitches,choice,reason:ballot.reason,rejection:choice?'':ballot.reason};
+  const pick=pages[ballot.index];
+  let rejection=pick?'':ballot.reason;
+  if(pick){
+    const quoted=(line,quote)=>typeof quote==='string' && quote.trim().length>=3 && line.includes(quote.trim());
+    if(typeof ballot.blockingGap!=='string' || !quoted(pick.opening,ballot.setupQuote) || !quoted(pick.ending,ballot.payoffQuote)){
+      rejection='The producer must identify the setup and payoff in the actual pitch before commissioning it.';
+    }else if(ballot.blockingGap.trim())rejection=ballot.blockingGap.trim();
+  }
+  const choice=rejection?null:slate.pitches[ballot.index];
+  const storyEvidence=choice?{setup:ballot.setupQuote.trim(),payoff:ballot.payoffQuote.trim()}:null;
+  book[key]={foundation,pitches:slate.pitches,choice,reason:ballot.reason,storyEvidence,rejection};
   saveBooking(book);
   return book[key];
 }

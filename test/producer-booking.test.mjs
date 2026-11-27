@@ -14,7 +14,7 @@ function floor(){
   vm.createContext(ctx);
   vm.runInContext(producer,ctx);
   ctx.aiParseJson=JSON.parse;
-  ctx.floorChat=async (model,role)=>JSON.stringify(role.startsWith('Director')?{pitches:['A','B','C'].map(title=>({title,opening:'Setup',ending:'Payoff',whyWatch:'A reversal'}))}:{index:1,reason:'The second ending resolves the opening question.'});
+  ctx.floorChat=async (model,role)=>JSON.stringify(role.startsWith('Director')?{pitches:['A','B','C'].map(title=>({title,opening:'Setup',ending:'Payoff',whyWatch:'A reversal'}))}:{index:1,reason:'The second ending resolves the opening question.',setupQuote:'Setup',payoffQuote:'Payoff',blockingGap:''});
   return {ctx,starts,run:source=>vm.runInContext(source,ctx)};
 }
 
@@ -154,4 +154,43 @@ test('switching drafts while the editor reads a cut cannot attach its review to 
   assert.equal(p.screening,undefined);
   assert.equal(run('readBooking().films.length'),0);
   assert.equal(run('readBooking().phase'),'ready');
+});
+
+test('a filmmaker screening goes from the finished cut to both commissioning roles',async()=>{
+  const {ctx,run,starts}=floor();
+  const note='Hold on the receipt until the last word can be read.';
+  const production={id:'run',status:'complete',clientNotes:[
+    {kind:'screening',text:note,targetRoleId:'editor'},
+    {kind:'direction',text:'Only for the old shoot.'}
+  ]};
+  ctx.DB.projects=[{id:'film',drafts:[{id:'screened',state:{title:'Till',production,cut:{productionRunId:'run'}}},
+    {id:'wrong-cut',state:{title:'Other cut',production,cut:{productionRunId:'different'}}}]}];
+  const prompts=[],chat=ctx.floorChat;
+  ctx.floorChat=(model,role,prompt)=>{prompts.push(prompt);return chat(model,role,prompt);};
+  await run('wakeProducer()');
+  assert.equal(prompts.length,2);
+  for(const text of [...prompts,starts[0][1]]){
+    assert.ok(text.includes(note));
+    assert.match(text,/"targetRoleId":"editor"/);
+    assert.doesNotMatch(text,/Only for the old shoot|Other cut/);
+  }
+});
+
+test('the written beats must support the commissioning decision and any blocking gap sends the slate back',async()=>{
+  for(const [setupQuote,blockingGap,expected] of [
+    ['a missing ladder','','actual pitch'],
+    ['She climbs','The suitcase arrives without any setup.','suitcase']
+  ]){
+    const {ctx,run,starts}=floor();
+    ctx.floorChat=async(_,role,prompt)=>{
+      if(role.startsWith('Director'))return JSON.stringify({pitches:['One','Two','Three'].map(title=>({
+        title,opening:'She climbs onto the luggage scale.',ending:'A suitcase falls from the ceiling.',whyWatch:'Guaranteed viral sensation!'
+      }))});
+      assert.doesNotMatch(prompt,/Guaranteed viral sensation!/);
+      return JSON.stringify({index:0,reason:'She is crushed under her own belongings.',setupQuote,payoffQuote:'falls from the ceiling',blockingGap});
+    };
+    await run('wakeProducer()');
+    assert.equal(starts.length,0);
+    assert.ok(run('readBooking().commission1.rejection').includes(expected));
+  }
 });

@@ -3415,9 +3415,12 @@ function crewContext(role, options){
   };
   const foundation=typeof tasteStatement==='function'?tasteStatement():'';
   if(foundation)add('FILMMAKER’S STANDING DIRECTION — ALL PRODUCTIONS',foundation,12000);
-  const notes=crewClientNotes(p);
-  if (notes.length) add('FILMMAKER DIRECTION — BINDING, LATEST WORDS WIN',notes.slice(-30).reverse()
-    .map(note=>'['+String(note.at||'').slice(0,19)+'] '+(note.targetRoleId?'TO @'+String((crewFind(note.targetRoleId)||{}).at||note.targetRoleId)+': ':'TO THE CREW: ')+String(note.text||'')).join('\n'),8000);
+  const notes=crewClientNotes(p).slice().reverse();
+  const department=role?.greenroomRoleId||roleId;
+  const direct=note=>!note.targetRoleId||note.targetRoleId===roleId||note.targetRoleId===department;
+  const noteText=note=>'['+String(note.at||'').slice(0,19)+'] '+(note.targetRoleId?'TO @'+String((crewFind(note.targetRoleId)||{}).at||note.targetRoleId)+': ':'TO THE CREW: ')+String(note.text||'');
+  add('FILMMAKER DIRECTION — BINDING, LATEST WORDS WIN',notes.filter(direct).slice(0,30).map(noteText).join('\n'),8000);
+  add('FILMMAKER DIRECTION TO OTHER DEPARTMENTS',notes.filter(note=>!direct(note)).slice(0,30).map(noteText).join('\n'),4000);
   add('PRODUCTION',[
     'Film: '+(S.title||'Untitled'),
     p&&p.mode ? 'Mode: '+p.mode : '',
@@ -3634,34 +3637,37 @@ function productionState(){ return S.production && typeof S.production==='object
 function crewClientNotes(p){ return Array.isArray(p&&p.clientNotes) ? p.clientNotes : []; }
 function crewAddClientNote(text,targetRoleId){
   const p=productionState(), note=String(text||'').trim();
-  if(note && typeof submitProduction==='function' && window.__TAURI__?.core && (!p||p.status==='complete')){submitProduction(note);return true;}
+  if(note && typeof submitProduction==='function' && window.__TAURI__?.core && !p && !targetRoleId){submitProduction(note);return true;}
   if (!p){ toast('Start or open a production before sending direction to the crew.'); return false; }
   if (!note){ toast('Write the direction you want the crew to follow.'); return false; }
   const prior=crewClientNotes(p).slice();
   const target=String(targetRoleId||'').trim();
   if (target && !crewFind(target)){ toast('That department is not in the canonical crew roster.'); return false; }
+  const screening=p.status==='complete'&&S.cut?.productionRunId===p.id;
+  const guard=p.orchestration?.loopGuard, previousStages=guard?.stages;
   p.clientNotes=prior.concat([{
-    id:'client_'+uid(), text:note.slice(0,4000), at:new Date().toISOString(),
+    id:'client_'+uid(), text:note, kind:screening?'screening':'direction', at:new Date().toISOString(),
     afterStep:p.currentStep||'', projectId:ACTIVE.p, draftId:ACTIVE.d, targetRoleId:target
-  }]).slice(-100);
+  }]);
   // Human direction is an explicit new phase input. It is the only UI action
   // that clears a no-progress retry latch without changing the artifact graph.
   if (p.orchestration&&p.orchestration.loopGuard) p.orchestration.loopGuard.stages={};
   if (productionCheckpoint()===false){
     p.clientNotes=prior;
+    if(guard)guard.stages=previousStages;
     toast('Agentic Movie Studio could not save your direction. Free local storage and try again.');
     return false;
   }
   if(p.booking && ['needs_attention','paused','cancelled'].includes(p.status) && !crewUnprovenJobs(p).length){
     const book=readBooking();
-    if(book?.id===p.booking.id){book.phase='ready';book.directedResume=true;delete book.error;saveBooking(book);wakeProducer();}
+    if(book?.id===p.booking.id && book.number===p.booking.number && !bookingNeedsPhotoDecision(book)){book.phase='ready';book.directedResume=true;delete book.error;saveBooking(book);wakeProducer();}
   }
-  toast('Direction saved. The next department will receive it.',true);
+  toast(screening?'Screening note saved with '+S.title+'.':'Direction saved for the next crew checkpoint.',true);
   if (typeof tasteRecordFeedback==='function') tasteRecordFeedback({
     kind:'direction',source:'client_room',projectId:ACTIVE.p,draftId:ACTIVE.d,
     artifactType:'production',artifactId:p.id,role:target||'taste',verdict:'direction',
     note,scopeHint:'project',occurredAt:new Date().toISOString()
-  },true).catch(error=>{ p.tasteOsError=String((error&&error.message)||error); productionCheckpoint(); });
+  },true).catch(error=>{ if(productionState()===p){p.tasteOsError=String((error&&error.message)||error);productionCheckpoint();} });
   return true;
 }
 function crewArtifactRef(kind,label,view,summary,meta){
@@ -3908,7 +3914,7 @@ function crewTranscriptEntries(p){
   crewClientNotes(p).forEach(note=>entries.push({
     id:note.id||uid(), at:note.at||'',
     who:note.targetRoleId?'You → @'+String((crewFind(note.targetRoleId)||{}).at||note.targetRoleId):'You → crew',
-    kind:'client', status:'direction', text:String(note.text||''), targetRoleId:String(note.targetRoleId||'')
+    kind:'client', status:note.kind==='screening'?'screening note':'direction', text:String(note.text||''), targetRoleId:String(note.targetRoleId||'')
   }));
   const collaboration=crewCollaborationState(p);
   (collaboration&&collaboration.events||[]).forEach(event=>{
@@ -6729,9 +6735,10 @@ async function crewCall(ask){
       const loopTicket=crewLoopTicket(p,id);
       if (!loopTicket.ok){
         p.status='needs_attention';
-        p.error='@'+((crewFind(id)||{}).at||id)+' was stopped after '+loopTicket.failures
-          +' attempts made no canonical progress on the same artifact. Give the crew new direction or change the blocked input before Resume.';
-        productionCheckpoint(); toast(p.error); return;
+        const role=crewFind(id);
+        p.error=(role?.title||id)+' paused after '+loopTicket.failures+' attempts without a saved result.'
+          +(loopTicket.error?' Last reported issue: '+loopTicket.error:'');
+        productionCheckpoint(); toast(crewAttentionMessage(p)); return;
       }
       const result=await crewRun(id, ask);
       const loopResult=crewLoopRecord(p,loopTicket,result);
@@ -6958,10 +6965,27 @@ async function crewResumeOnce(owner){
   }
   if (crewResumeOwnerMatches(owner)) await crewCall(current.brief||'Finish this film.');
 }
+function heldPhotoBooking(p){
+  if (!p?.booking) return null;
+  const book=readBooking();
+  return bookingNeedsPhotoDecision(book)&&book.id===p.booking.id&&book.number===p.booking.number?book:null;
+}
+function crewAttentionMessage(p){
+  if (!heldPhotoBooking(p)) return p?.error||'';
+  const shot=crewStoryboardCurrentRow(p)?.sh.num;
+  return 'Storyboard photography is on hold'+(shot?' at shot '+shot:'')+'. Studio has no photo or confirmation from Qwen. Open Review missing photo in Dashboard before using another image credit.';
+}
 async function crewResume(){
   const p=productionState(); if (!p) return;
   if (canonicalWorkerLocked()) { toast('Finish or stop the current project worker before resuming production.'); return; }
   if (CREW.busy || CREW.calling || CREW.refreshPromise || CREW.assemblyPromise || CREW.resumePromise) return;
+  const held=heldPhotoBooking(p);
+  if (held){
+    try {
+      if (!await reviewMissingPhoto(held)) toast('Studio could not find a pending photo attempt. Check the booking in Dashboard.');
+    } catch(error){toast(String(error.message||error));}
+    return;
+  }
   if (crewUnprovenJobs(p).length){
     toast('One or more provider submissions cannot be proven. Review and authorize a fresh attempt before Resume.');
     return;
@@ -7173,6 +7197,11 @@ function dashboardScreenings(host){
       const line=document.createElement('p'),name=document.createElement('strong');
       name.textContent=caption+'. ';line.append(name,String(value));detail.append(line);
     }
+    for(const note of row.filmmakerNotes||[]){
+      const line=document.createElement('p'),name=document.createElement('strong');
+      name.textContent='Your screening note'+(note.targetRoleId?' to @'+(crewFind(note.targetRoleId)?.at||note.targetRoleId):'')+'. ';
+      line.append(name,note.text);detail.append(line);
+    }
     for(const [view,caption] of [['export','Watch cut'],['scenes','Script'],['boards','Storyboard'],['client','Crew chat']]){
       const link=document.createElement('button');link.className='btn small';link.textContent=caption;
       link.onclick=()=>{
@@ -7214,8 +7243,8 @@ function doubleFeatureControls(){
   let submitting=false;
   const showBooking=()=>{
     const book=readBooking(),active=book&&!['held','complete'].includes(book.phase);
-    state.textContent=!book?'Producer is opening the floor.':book.phase==='complete'?'Screening complete':book.phase==='held'?'Producer waiting · '+book.error:'Film '+book.number+' of '+(book.count||2);
-    button.textContent=book?.phase==='held'?(/Storyboard rendering failed: Submission interrupted before provider receipt/.test(book.error||'')?'Review missing photo':'Retry this booking'):active?'Crew is working':'Book two shorts · 4 storyboard photos and 4 video shots';
+    state.textContent=!book?'Producer is opening the floor.':book.phase==='complete'?'Screening complete':book.phase==='held'?(bookingNeedsPhotoDecision(book)?'Photography is on hold. Qwen has not confirmed the storyboard photo.':'Producer waiting · '+book.error):'Film '+book.number+' of '+(book.count||2);
+    button.textContent=book?.phase==='held'?(bookingNeedsPhotoDecision(book)?'Review missing photo':'Retry this booking'):active?'Crew is working':'Book two shorts · 4 storyboard photos and 4 video shots';
     button.disabled=submitting||!!active;
     dashboardScreenings(screenings);
   };
@@ -7275,7 +7304,7 @@ function doubleFeatureControls(){
     submitting=true;showBooking();
     try{
       const old=readBooking();
-      if(old?.phase==='held' && /Storyboard rendering failed: Submission interrupted before provider receipt/.test(old.error||'') && await reviewMissingPhoto(old))return;
+      if(bookingNeedsPhotoDecision(old) && await reviewMissingPhoto(old))return;
       if(old?.phase==='held'){old.phase='ready';old.directedResume=true;delete old.error;saveBooking(old);}
       else bookFilms((el('crewAsk')?.value||'').trim());
       await wakeProducer();await refresh();}
@@ -7285,6 +7314,11 @@ function doubleFeatureControls(){
 }
 function renderCrew(){
   const w = el('crewWrap'); if (!w) return;
+  const owner=JSON.stringify([ACTIVE.p,ACTIVE.d,productionState()?.id]);
+  const inputs=w.dataset.directionOwner===owner?['crewAsk','crewClientDirection'].map(id=>el(id)).filter(Boolean).map(field=>({
+    id:field.id,value:field.value,focused:field===document.activeElement,start:field.selectionStart,end:field.selectionEnd
+  })):[];
+  w.dataset.directionOwner=owner;
   crewApplyMutationLock();
   const p=productionState(), svc=CREW.services||{}, steps=(p&&p.steps)||{};
   const badge=(name,key,detail)=>{
@@ -7357,7 +7391,7 @@ function renderCrew(){
     + '<button class="btn primary" id="crewIdea"'+(active?' disabled':'')+'>Make a new film from this idea</button>'
     + '<button class="btn primary" id="crewAdapt"'+(active?' disabled':'')+'>Develop attached source into a film</button>'
     + '<button class="btn" id="crewScript"'+((active||!S.scenes.length||!canRestartScript)?' disabled':'')+'>Make the current script</button>'
-    + (p&&p.status!=='complete' ? '<button class="btn" id="crewResume"'+(active?' disabled':'')+'>Resume production</button>' : '')
+    + (p&&p.status!=='complete' ? '<button class="btn" id="crewResume"'+(active?' disabled':'')+'>'+(heldPhotoBooking(p)?'Review missing photo':'Resume production')+'</button>' : '')
     + (uncertain.length ? '<button class="btn danger" id="crewRetryUnproven"'+(active?' disabled':'')+'>Authorize fresh render attempt ('+uncertain.length+')</button>' : '')
     + (active ? '<button class="btn danger" id="crewStop">'
         +(CREW.assemblyPromise?'Pause finishing':(p&&p.status==='rendering'?'Pause render checks':(p&&p.status==='assembling'?'Pause finishing':'Stop safely')))+'</button>' : '')
@@ -7380,7 +7414,7 @@ function renderCrew(){
       + (flaggedShots.length?'<span class="ai-badge err">'+flaggedShots.length+' shot'+(flaggedShots.length===1?'':'s')+' flagged for targeted rework</span>':'')
       + '</div><div class="ai-prog" style="margin-top:11px"><i style="width:'+pct+'%"></i></div>'
       + (p.currentStep?'<div class="auto-note" id="crewLiveActivity" style="margin-top:8px">'+esc(crewLiveActivityText(p.currentStep))+'</div>':'')
-      + (p.error?'<div class="crit bad" style="margin-top:10px"><div class="crit-head">needs attention</div>'+esc(p.error)+'</div>':'')
+      + (p.error?'<div class="crit bad" style="margin-top:10px"><div class="crit-head">needs attention</div>'+esc(crewAttentionMessage(p))+'</div>':'')
       + (p.pollError?'<div class="auto-note" style="margin-top:8px">Last render check: '+esc(p.pollError)+'</div>':'')
       + '</div>';
 
@@ -7405,8 +7439,8 @@ function renderCrew(){
       +'</div>'
       +'<label class="bd-f" style="margin-top:12px"><span>Your direction to the working crew</span>'
       +'<textarea id="crewClientDirection" rows="3" placeholder="Keep the kitchen practical and ordinary. Shot 7 feels too polished; make the next pass harsher and closer."></textarea></label>'
-      +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><button class="btn primary" id="crewSendDirection">Send direction</button>'
-      +'<span class="auto-note">Saved in this production and included in every department brief from the next checkpoint forward.</span></div>'
+      +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><button class="btn primary" id="crewSendDirection">'+(p.status==='complete'?'Save screening note':'Send direction')+'</button>'
+      +'<span class="auto-note">'+(p.status==='complete'?'Your note accompanies this film when the crew reviews earlier work.':'Saved in this production and included in every department brief from the next checkpoint forward.')+'</span></div>'
       +'</div>';
 
     h+='<div class="pl-shot" style="padding:0;overflow:hidden;max-width:1120px;margin-bottom:14px">'
@@ -7445,6 +7479,15 @@ function renderCrew(){
   });
   h+='</details>';
   w.innerHTML = '<section class="ai-panel" style="max-width:1120px;margin-bottom:14px"><div id="dashboardMonitor"></div><h4>Double feature</h4><p id="dfBookingState" role="status"></p><label><input type="checkbox" id="dfDaily"> Produce one short each day after this booking, using the selected credits</label><p>Follow the director’s brief through script, casting, wardrobe, photography, storyboard and final cut.</p><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Start crew · 4 storyboard photos and 4 video shots</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><div id="dfScreenings"></div><div id="dfRuns"></div></section>'+h;
+  for(const draft of inputs){
+    const field=el(draft.id);
+    if(!field)continue;
+    field.value=draft.value;
+    if(draft.focused){
+      field.focus({preventScroll:true});
+      field.setSelectionRange(draft.start,draft.end);
+    }
+  }
   doubleFeatureControls();
 
   const on = (id, ev, fn)=>{ const n = el(id); if (n) n.addEventListener(ev, fn); };
@@ -7484,7 +7527,9 @@ function renderCrew(){
   on('crewResume','click', ()=>crewResume());
   on('crewSendDirection','click', ()=>{
     const input=el('crewClientDirection');
-    if (crewAddClientNote((input||{}).value||'') && input) input.value='';
+    if(!input)return;
+    const text=input.value;input.value='';
+    if(!crewAddClientNote(text)&&el('crewClientDirection'))el('crewClientDirection').value=text;
   });
   on('crewRefreshRecord','click', async ()=>{
     await crewRefreshRecord(); renderCrew();
@@ -7609,7 +7654,7 @@ async function refreshTownRun(){
     const latest=rows.slice().sort((a,b)=>(b.modified||0)-(a.modified||0));
     if(floorProduction()){
       townRun=null;el('townMonitor').replaceChildren();el('townFilmNav').replaceChildren();
-      const p=productionState();el('townCrewStatus').textContent=[S.title,p.currentStep||p.status,p.error].filter(Boolean).join(' · ');
+      const p=productionState();el('townCrewStatus').textContent=[S.title,p.currentStep||p.status,crewAttentionMessage(p)].filter(Boolean).join(' · ');
       STUDIO_TOWN_CONTROLLER?.refresh();return;
     }
     townRun=latest.find(r=>!String(r.status).startsWith('Stopped')&&r.status!=='Complete')||latest[0]||null;
@@ -7715,10 +7760,17 @@ function wireClientRoom(wrap){
       await crewRefreshRecord();
       renderClientRoom(); return;
     }
-    if (button.id==='clientSend'){
-      const input=el('clientDirection'),target=(el('clientTarget')||{}).value||'';
-      if (crewAddClientNote((input||{}).value||'',target)&&input) input.value='';
-      renderClientRoom(); return;
+    if (button.id==='clientSend'||button.id==='clientBook'){
+      const input=el('clientDirection'),text=input?.value||'',target=el('clientTarget')?.value||'';
+      if(!text.trim()){toast('Write your direction first.');return;}
+      input.value='';
+      if(button.id==='clientBook'){
+        try{submitProduction(text.trim());}
+        catch(error){input.value=text;toast(String(error.message||error));}
+      }else if(!crewAddClientNote(text,target)){
+        const current=el('clientDirection');if(current)current.value=text;
+      }
+      renderClientRoom();return;
     }
     if (button.dataset.clientArtifact){ nav(button.dataset.clientArtifact); return; }
     if (button.dataset.clientKeep){
@@ -7761,9 +7813,10 @@ function renderClientRoom(){
       +(current?' · working now: @'+esc(current.at):'')+(p.greenroomMessageCount?' · '+Number(p.greenroomMessageCount)+' Greenroom messages':'')+'</div>'
       :'<div class="auto-note" style="margin-top:9px">No active production. Start one from the Dashboard, or run a department from Studio Town.</div>')+'</div>'
     +'<div class="ai-panel" style="max-width:1120px;margin-bottom:14px"><h4 style="margin-top:0">Your direction</h4>'
-    +'<div class="client-direction-grid"><label class="bd-f"><span>Send to</span><select data-town-direction id="clientTarget"><option value="">Entire crew</option>'+roleOptions+'</select></label>'
-    +'<label class="bd-f"><span>Direction</span><textarea data-town-direction id="clientDirection" rows="3" placeholder="Tell this department exactly what to keep, question, or change at its next checkpoint."></textarea></label></div>'
-    +'<button class="btn primary" data-town-ui id="clientSend" style="margin-top:8px">Send direction</button></div>'
+    +'<div class="client-direction-grid"><label class="bd-f"><span>Send to</span><select data-town-direction id="clientTarget"'+(!p?' disabled':'')+'><option value="">Entire crew</option>'+roleOptions+'</select></label>'
+    +'<label class="bd-f"><span>Direction</span><textarea data-town-direction id="clientDirection" rows="3" placeholder="'+(p?.status==='complete'?'What worked or fell short in the finished film?':p?'What should this department keep or change at its next checkpoint?':'Give the producer a film idea.')+'"></textarea></label></div>'
+    +'<button class="btn primary" data-town-ui id="clientSend" style="margin-top:8px">'+(p?.status==='complete'?'Save screening note':!p?'Book a film':'Send direction')+'</button>'
+    +(p?.status==='complete'&&window.__TAURI__?.core?'<button class="btn small" data-town-ui id="clientBook">Book a new film from this idea</button>':'')+'</div>'
     +'<div class="ai-panel" style="max-width:1120px"><div class="crew-transcript">'
     +(transcript.length?transcript.map(clientTranscriptHtml).join(''):'<div class="auto-note">No department checkpoint exists yet. Nothing is being simulated here; messages appear only after real work starts or you send direction.</div>')
     +'</div></div>';

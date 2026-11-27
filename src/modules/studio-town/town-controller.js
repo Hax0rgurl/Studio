@@ -192,7 +192,7 @@
         +(agent.canRun?'<button class="btn small" data-town-ui id="townRunAgent">Run department</button>':'')+'</div>'
         +(agent.artifact?'<div class="studio-town-review"><b>Human review</b><textarea rows="2" data-town-direction id="townReviewNote" placeholder="What must this department keep or change?"></textarea><div><button class="btn small" data-town-ui id="townKeep">Keep</button><button class="btn small danger" data-town-ui id="townRevise">Flag & rework</button></div></div>':'')
         +(exchanges.length?'<div class="studio-town-agent-messages"><b>Recent Greenroom exchanges</b>'+exchanges.map(row=>'<article><span>'+esc(row.type)+' · @'+esc(row.fromRoleId||'system')+(row.toRoleIds.length?' → '+row.toRoleIds.map(id=>'@'+id).join(', '):'')+'</span><p>'+esc(row.text||row.status)+'</p></article>').join('')+'</div>':'')
-        +'<div class="studio-town-direction"><b>Direction to @'+esc(agent.at)+'</b><textarea rows="3" data-town-direction id="townDirection" placeholder="Give this department a precise instruction for its next checkpoint."></textarea><button class="btn primary small" data-town-ui id="townSendDirection">Send direction</button></div>'
+        +'<div class="studio-town-direction"><b>Direction to @'+esc(agent.at)+'</b><textarea rows="3" data-town-direction id="townDirection" placeholder="Give this department a precise instruction for its next checkpoint."></textarea><button class="btn primary small" data-town-ui id="townSendDirection">'+(this.vm.productionStatus==='complete'?'Save screening note':'Send direction')+'</button></div>'
         +'</article>';
       const owner=[this.vm.projectId,this.vm.draftId,this.vm.runId,agent.roleId].join('/');
       const sameAgent=this.drawerAgent===owner;
@@ -216,7 +216,11 @@
       });
       on('townSendDirection',()=>{
         const input=drawer.querySelector('#townDirection'),text=String((input||{}).value||'').trim();
-        if(this.options.onDirection&&this.options.onDirection(agent.roleId,text)!==false&&input)input.value='';
+        if(!this.options.onDirection||!input)return;
+        input.value='';
+        if(this.options.onDirection(agent.roleId,text)===false&&this.drawerAgent===owner){
+          const field=drawer.querySelector('#townDirection');if(field)field.value=text;
+        }
       });
     }
 
