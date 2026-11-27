@@ -39,6 +39,23 @@ test('a booked handoff waits for a competing worker and honors Stop before claim
   }
 });
 
+test('a writer retries only unsaved revision work and sees the neighboring scene as revised', async () => {
+  const scene=text=>({blocks:[{type:'action',text}]});
+  const original=scene('The second door is open.');
+  const work={revisionPass:1,plan:{scenePlan:[{},{}]},sceneDrafts:{1:scene('She shuts the first door.'),2:original},
+    review:{reviewedAt:'today',pagesHash:'pages',problems:[2,1].map(sceneNumber=>({sceneNumber,severity:'major'})),globalNotes:['Make the handoff visible.']}};
+  const prompts=[];let saves=0;
+  const context={crewContext:()=>'',crewJsonRepairSystem:()=>'',crewStructuredScene(){},CREW_SCREENPLAY_SCENE_SCHEMA:{},aiParseJson:JSON.parse,
+    aiStream:async(role,prompt)=>{prompts.push(prompt);return JSON.stringify(scene(prompts.length===1?'The latch clicks shut.':'She checks the latch.'));},
+    productionCheckpoint:()=>++saves!==2};
+  const revise=loadFunction('async function crewReviseReviewedScenes','async function crewWriteScript','crewReviseReviewedScenes',context);
+  await assert.rejects(revise({},'',work,false),/could not be saved/);
+  assert.equal(work.sceneDrafts[2],original);assert.equal(work.revisionHistory.length,1);
+  await revise({},'',work,false);
+  assert.equal(prompts.length,3);assert.match(prompts[2],/The latch clicks shut/);assert.match(prompts[2],/Make the handoff visible/);
+  assert.deepEqual(Array.from(work.revisionHistory,r=>r.sceneNumber),[1,2]);
+});
+
 function providerStubs() {
   return {
     crewConnect: async () => ({ pitchdeck: { ok: true } }),

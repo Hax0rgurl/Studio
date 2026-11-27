@@ -53,6 +53,20 @@ function bookFilms(direction='',script=null,requestId='',options={}){
 function bookingNeedsPhotoDecision(book){
   return book?.phase==='held'&&/Storyboard rendering failed: Submission interrupted before provider receipt/.test(book.error||'');
 }
+function canShelveOriginal(p,book){
+  if(!p?.booking?.commission?.choice || p.mode!=='idea' || !book || p.booking.id!==book.id || p.booking.number!==book.number) return false;
+  const development=['producer','director','story_editor','writer','story_review'];
+  return !['complete','superseded','rendering','assembling'].includes(p.status) && !p.images && !p.expectedShotIds?.length &&
+    !Object.keys(p.jobs||{}).length && Object.keys(p.steps||{}).every(role=>development.includes(role));
+}
+function requestFreshPremises(){
+  const p=productionState(),book=readBooking();
+  if(!canShelveOriginal(p,book)||p.shelveRequestedAt) return;
+  p.shelveRequestedAt=new Date().toISOString();
+  if(!productionCheckpoint()){delete p.shelveRequestedAt;toast('Could not save the request to shelve this premise.');return;}
+  if(CREW.calling) CREW.cancel=true;
+  wakeProducer();
+}
 function pitchDirectionChanged(active,foundation){
   return active?.booking && active.mode==='idea' &&
        ((foundation && foundation!==(active.booking.foundationAtPitch||'')) || (!active.booking.commission && !active.booking.fromSource)) &&
@@ -133,7 +147,9 @@ async function commissionOriginal(book,foundation){
   };
   const fit=personal?'\nTasteOS publishing standard for new crew originals: '+posting.brief+
     '\nExcluded premise terms: '+JSON.stringify(posting.excluded)+'. Use the filmmaker’s stated taste and examples to decide whether they would actually post the finished film. Never claim that they posted or liked a work without evidence. Treat examples as evidence of what the filmmaker notices. Find the detail that makes this particular scene. Choose its look from the material.':'';
+  const shelved=Object.values(book.shelvedOriginals||{}).filter(row=>row.number===book.number).map(row=>row.pitch);
   const mandate='Filmmaker’s words, binding: '+foundation+'\nFilm-specific direction: '+(book.direction||'Crew original.')+fit+(rules.length?'\nGlobal TasteOS instructions: '+JSON.stringify(rules):'')+
+    (shelved.length?'\nThe filmmaker shelved the following premises for this production. Pitch different stories with different dramatic situations and payoffs. Reject renamed or cosmetically altered repeats: '+JSON.stringify(shelved):'')+
     '\nRunning time: '+(book.options?.targetMinutes?book.options.targetMinutes*60:10)+' seconds.';
   const lessons=screeningBrief(book['screenings'+book.number],true);
   const sameBrief=existing?.foundation===foundation&&existing.postingSignature===postingSignature;
@@ -152,9 +168,10 @@ async function commissionOriginal(book,foundation){
     saveBooking(book);
   }
   const pages=pitches.map(({title,opening,ending})=>({title,opening,ending}));
-  const permitted=pages.map((p,index)=>({...p,index})).filter(p=>!excludedPitchSubject(pitches[p.index],posting.excluded));
+  const permitted=pages.map((p,index)=>({...p,index})).filter(p=>!excludedPitchSubject(pitches[p.index],posting.excluded) &&
+    !shelved.some(old=>old.title.trim().toLowerCase()===p.title.trim().toLowerCase() || (old.opening===p.opening&&old.ending===p.ending)));
   if(!permitted.length){
-    const rejection='All three premises contain subjects excluded in TasteOS: '+posting.excluded.join(', ')+'. Pitch different subjects.';
+    const rejection=shelved.length?'The slate repeats shelved premises or violates the publishing brief. Pitch different stories.':'All three premises contain subjects excluded in TasteOS: '+posting.excluded.join(', ')+'. Pitch different subjects.';
     book[key]={foundation,postingSignature,stage:'rewrite',pitches,choice:null,reason:rejection,rejection};saveBooking(book);return book[key];
   }
   // Restrict citation fields to the pages and taste evidence actually on the ballot.
@@ -232,6 +249,22 @@ async function wakeProducer(){
       await tasteLoadSnapshot();
     }
     const foundation=typeof tasteStatement==='function' ? tasteStatement() : '';
+    if(active?.shelveRequestedAt && canShelveOriginal(active,book)){
+      const booking=active.booking;
+      book.shelvedOriginals=book.shelvedOriginals||{};
+      book.shelvedOriginals[active.id]={number:book.number,pitch:booking.commission.choice,at:active.shelveRequestedAt};
+      delete book['commission'+book.number];delete book.directedResume;delete book.error;
+      delete book.pitchRetryAt;delete book.pitchRetryCount;book.phase='ready';saveBooking(book);
+      const previous={status:active.status,currentStep:active.currentStep,error:active.error};
+      active.supersededBooking=booking;delete active.booking;
+      active.status='superseded';active.currentStep='';active.error='';
+      active.supersededReason='The filmmaker shelved this premise before photography.';
+      if(!productionCheckpoint()){
+        Object.assign(active,previous,{booking});delete active.supersededBooking;delete active.supersededReason;
+        throw Error('Could not preserve the shelved draft in Projects.');
+      }
+      return;
+    }
     // Keep an unshot, superseded pitch in Projects. Reopen development from
     // the filmmaker's current brief before any storyboard or render spend.
     if(active?.booking?.id===book.id && active.booking.number===book.number && pitchDirectionChanged(active,foundation)){

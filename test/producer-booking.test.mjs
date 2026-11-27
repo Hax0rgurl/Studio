@@ -82,6 +82,27 @@ test('the producer respects a stopped production',async()=>{
   assert.equal(starts.length,0);
 });
 
+test('shelving an unshot original preserves the draft and requests different pitches for the same booking',async()=>{
+  const {ctx,starts,run}=floor(),book=run('bookFilms()');
+  const old={title:'Previous premise',opening:'Keys drop.',ending:'Door opens.',whyWatch:'The original pitch.'};
+  const film={id:'old',mode:'idea',status:'cancelled',steps:{writer:{status:'done'}},booking:{id:book.id,number:1,commission:{choice:old}}};
+  ctx.productionState=()=>film;ctx.productionCheckpoint=()=>true;
+  book.phase='held';book.error='cancelled';ctx.bookingForTest=book;run('saveBooking(bookingForTest)');
+  ctx.CREW.calling=true;
+  run('requestFreshPremises()');
+  assert.ok(film.shelveRequestedAt);assert.equal(ctx.CREW.cancel,true);
+  ctx.CREW.calling=false;
+  await run('wakeProducer()');
+  assert.equal(film.status,'superseded');assert.equal(film.supersededBooking.commission.choice,old);
+  assert.equal(run('readBooking().phase'),'ready');assert.equal(starts.length,0);
+  const calls=[],chat=ctx.floorChat;
+  ctx.floorChat=(model,role,prompt,...args)=>{calls.push(prompt);return chat(model,role,prompt,...args);};
+  await run('wakeProducer()');
+  assert.equal(starts.length,1);assert.equal(starts[0][2].booking.id,book.id);
+  assert.ok(calls.every(prompt=>prompt.includes(old.opening)&&prompt.includes('different stories')));
+  assert.notEqual(starts[0][2].booking.commission.choice.title,old.title);
+});
+
 test('an older busy-worker hold wakes after the worker exits and preserves the original brief',async()=>{
   const {ctx,run}=floor();
   const book=run('bookFilms()'), error='Another project worker is running.';

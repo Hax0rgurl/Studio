@@ -1711,11 +1711,17 @@ function renderSceneDetail(){
   if (!sc) return;
   el('sdSlug').textContent = `SC ${sc.num} · ${sc.slug} · ${eighthsFmt(sc.eighths)} pg`;
   el('sdScript').innerHTML = highlightElements(sc);
-  const sugg = suggestFor(sc);
+  const readOnly=crewMutationLocked()||crewCanonicalLocked();
+  el('sdSide').dataset.readOnly=String(readOnly);
+  const sugg = readOnly?{}:suggestFor(sc);
   let side = `<h4>Cast in scene</h4><div class="el-row">${sc.characters.map(c=>`<span class="el-pill">${esc(c)}</span>`).join('')||'<span style="color:var(--tx3);font-size:12px">None detected</span>'}</div>`;
   for (const cat of cats()){
     if (cat.auto) continue;
     const items = sc.elements[cat.k]||[];
+    if (readOnly){
+      if (items.length) side += '<h4>'+esc(cat.label)+'</h4><div class="el-row">'+items.map(n=>'<span class="el-pill">'+esc(n)+'</span>').join('')+'</div>';
+      continue;
+    }
     const sg = sugg[cat.k]||[];
     if (!items.length && !sg.length && !['props','wardrobe','vehicles','vfx'].includes(cat.k)) continue;
     side += `<h4>${cat.label}</h4><div class="el-row">`
@@ -1724,6 +1730,7 @@ function renderSceneDetail(){
       + `</div>
       <div class="el-add"><input placeholder="Add ${cat.label.toLowerCase()}…" data-cat="${cat.k}"><button class="btn small" data-addcat="${cat.k}">Add</button></div>`;
   }
+  if (readOnly){ el('sdSide').innerHTML=side; hideCatPicker(); return; }
   side += `<h4>Add to any category</h4><div class="el-add">
     <select id="sdCatSel" style="min-width:130px">${cats().filter(c=>!c.auto).map(c=>`<option value="${c.k}">${c.label}</option>`).join('')}</select>
     <input id="sdCatInput" placeholder="Element name…" style="flex:1">
@@ -1979,6 +1986,7 @@ function runAutoBreakdown(){
 /* selection tagging in script text */
 const catPicker = el('catPicker');
 el('sdScript').addEventListener('mouseup', ()=>{
+  if (crewMutationLocked()||crewCanonicalLocked()){ hideCatPicker(); return; }
   const sel = window.getSelection();
   const txt = sel? sel.toString().trim() : '';
   if (!txt || txt.length>60 || txt.includes('\n')){ hideCatPicker(); return; }
@@ -2221,7 +2229,7 @@ function renderBibles(){
   if (ub) ub.addEventListener('click', unstyleBibles);
   const bs = el('bibleSearch');
   if (bs){
-    bs.addEventListener('input', ()=>{ S._bibleQ = bs.value; renderBibles(); const nb = el('bibleSearch'); nb.focus(); nb.setSelectionRange(nb.value.length, nb.value.length); });
+    bs.addEventListener('input', ()=>{ S._bibleQ = bs.value; renderBibles(); crewApplyMutationLock(); const nb = el('bibleSearch'); nb.focus(); nb.setSelectionRange(nb.value.length, nb.value.length); });
   }
 }
 
@@ -3248,6 +3256,7 @@ function crewActivateLoadedProduction(){
 }
 function crewApplyMutationLock(){
   const locked=crewMutationLocked(), canonical=crewCanonicalLocked();
+  if (curScene>=0 && el('sdSide').dataset.readOnly!==String(locked||canonical)) renderSceneDetail();
   document.querySelectorAll('.nav-btn').forEach(button=>{
     // A working studio never traps the filmmaker in one status screen. Every
     // department writes the one shared project, so every sidebar view remains
@@ -3259,7 +3268,7 @@ function crewApplyMutationLock(){
     const readOnly=(locked||canonical)&&view.id!=='view-crew';
     view.classList.toggle('production-readonly',readOnly);
     view.querySelectorAll('input,textarea,select,button').forEach(control=>{
-      const reviewSafe=control.matches('[data-review-flag],[data-review-note],[data-review-approve],[data-board-review],[data-town-ui],[data-town-direction],#takeFilter,[data-bopen],[data-bedit],[data-bprompt],[data-bdown],[data-tkprompt]');
+      const reviewSafe=control.matches('[data-review-flag],[data-review-note],[data-review-approve],[data-board-review],[data-town-ui],[data-town-direction],#sceneSearch,#charFilter,#locFilter,#bibleSearch,#boardFilter,#takeFilter,[data-bopen],[data-bedit],[data-bprompt],[data-bdown],[data-tkprompt]');
       if (readOnly&&!reviewSafe&&!control.disabled){
         control.disabled=true; control.dataset.crewReadOnly='1';
       }else if ((!readOnly||reviewSafe)&&control.dataset.crewReadOnly==='1'){
@@ -3452,7 +3461,7 @@ function crewContext(role, options){
   add('PRODUCTION',[
     'Film: '+(S.title||'Untitled'),
     p&&p.mode ? 'Mode: '+p.mode : '',
-    p&&p.brief ? 'Filmmaker brief: '+p.brief : '',
+    p&&p.brief ? 'Production brief: '+p.brief : '',
     p&&p.targetMinutes ? 'Film target: approximately '+p.targetMinutes+' minute(s)' : '',
     p&&p.mode==='adaptation' ? 'Binding mode: develop a new visual adaptation. The source document is evidence, not screenplay prose.' : ''
   ].filter(Boolean).join('\n'),6000);
@@ -5018,17 +5027,21 @@ async function crewWritePlannedScene(role,ask,plan,row,index,work,adapting){
 }
 async function crewReviseReviewedScenes(role,ask,work,adapting){
   const review=work.review, problems=Array.isArray(review&&review.problems)?review.problems:[];
-  const sceneNumbers=[...new Set(problems.filter(problem=>problem.sceneNumber>0&&problem.severity!=='minor').map(problem=>problem.sceneNumber))];
+  const sceneNumbers=[...new Set(problems.filter(problem=>problem.sceneNumber>0&&problem.severity!=='minor').map(problem=>problem.sceneNumber))].sort((a,b)=>a-b);
   if (!sceneNumbers.length) throw new Error('The story editor requested revision without identifying a blocking or major scene.');
   work.revisionHistory=work.revisionHistory||[];
   for (const sceneNumber of sceneNumbers){
     const key=String(sceneNumber),current=work.sceneDrafts[key],row=(work.plan.scenePlan||[])[sceneNumber-1];
     if (!current||!row) throw new Error('Revision target scene '+sceneNumber+' is missing from the saved writer work.');
+    if (review.reviewedAt && review.pagesHash && work.revisionHistory.some(entry=>entry.sceneNumber===sceneNumber &&
+      entry.review?.reviewedAt===review.reviewedAt && entry.review.pagesHash===review.pagesHash)) continue;
     const notes=problems.filter(problem=>problem.sceneNumber===sceneNumber);
-    const user=crewContext(role,{extra:'APPROVED WHOLE-FILM PLAN:\n'+JSON.stringify(work.plan)
-      +'\n\nCURRENT SCENE '+sceneNumber+':\n'+JSON.stringify(current)+'\n\nINDEPENDENT STORY-EDITOR NOTES:\n'+JSON.stringify(notes)})
-      +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
-      +'\n\nRevise only this scene. Satisfy every cited problem while preserving facts, approved intention, neighboring continuity, and everything the review did not challenge. '
+    const edges={previousEnding:work.sceneDrafts[sceneNumber-1]?.blocks?.slice(-2),nextOpening:work.sceneDrafts[Number(sceneNumber)+1]?.blocks?.slice(0,2)};
+    const user=crewContext(role,{taskFirst:true,extra:'WHOLE-FILM PLAN AT COMMISSIONING:\n'+JSON.stringify(work.plan)})
+      +(ask?'\n\nPRODUCTION ASSIGNMENT:\n'+ask:'')
+      +'\n\nCURRENT SCENE '+sceneNumber+':\n'+JSON.stringify(current)+'\nNEIGHBORING SCREENPLAY PAGES:\n'+JSON.stringify(edges)
+      +'\nINDEPENDENT STORY-EDITOR NOTES:\n'+JSON.stringify({scene:notes,wholeFilm:review.globalNotes||[]})
+      +'\n\nRevise only this scene. Follow the latest filmmaker direction wherever the original pitch, plan or earlier draft conflicts with it. Resolve the cited problems and keep the physical handoff to neighboring scenes playable within the available time. Preserve everything the review and filmmaker did not challenge. '
       +(adapting?'Do not add unsupported facts or copy source prose. ':'')+'Return one complete scene object only.';
     const revised=aiParseJson(await aiStream(crewJsonRepairSystem(role),user,null,null,{temperature:0.45,json:true,
       schema:CREW_SCREENPLAY_SCENE_SCHEMA,schemaName:'screenplay_scene_revision',roleId:role.id,
@@ -5036,7 +5049,10 @@ async function crewReviseReviewedScenes(role,ask,work,adapting){
     crewStructuredScene(revised,sceneNumber-1);
     work.revisionHistory.push({sceneNumber,at:new Date().toISOString(),review,prior:current});
     work.sceneDrafts[key]=revised;
-    if (productionCheckpoint()===false) throw new Error('Revised scene '+sceneNumber+' could not be saved.');
+    if (productionCheckpoint()===false){
+      work.sceneDrafts[key]=current;work.revisionHistory.pop();
+      throw new Error('Revised scene '+sceneNumber+' could not be saved.');
+    }
   }
   work.lastReview=review; work.review=null; work.revisionPass=Number(work.revisionPass||0)+1;
 }
@@ -5082,8 +5098,9 @@ async function crewReviewScreenplay(role,ask){
   const pages=S.scenes.map(sc=>({scene:sc.num,slug:sc.slug,text:sc.text}));
   const user=crewContext(role,{extra:'APPROVED WRITER PLAN:\n'+JSON.stringify(work.plan)
     +'\n\nDURABLE WRITER WORK:\n'+JSON.stringify({revisionPass:work.revisionPass||0,sceneCount:S.scenes.length})})
-    +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
-    +'\n\nSCREENPLAY PAGES DELIVERED BY THE WRITER:\n'+JSON.stringify(pages)+'\nAssess these pages. Coverage belongs to the first AD after this review. Provisional breakdown suggestions are outside the screenplay.'
+    +(ask?'\n\nPRODUCTION ASSIGNMENT:\n'+ask:'')
+    +(work.lastReview?'\n\nPREVIOUS REVIEW TO CHECK AGAINST THE NEW PAGES:\n'+JSON.stringify(work.lastReview.problems||[]):'')
+    +'\n\nSCREENPLAY PAGES DELIVERED BY THE WRITER:\n'+JSON.stringify(pages)+'\nAssess these pages against the latest filmmaker direction, including anything it supersedes in the original pitch. Check whether earlier findings have been resolved. Request a further rewrite for a concrete problem on screen. Coverage belongs to the first AD after this review. Provisional breakdown suggestions are outside the screenplay.'
     +'\nA major finding can be a storytelling failure even if every action is filmable. A purely predictable demonstration needs a rewrite when the filmmaker asks for wit, humor or drama. Judge these pages from a human viewer’s seat. What expectation does the opening create? What does the ending make us understand, feel or laugh at that was not already obvious? Identify the first on-screen detail that would make someone stay. Explain what gives the ending meaning and why someone might want to share the moment. Do not predict popularity. Quote two distinct, literal extracts in story order from the screenplay in audience.setup and audience.payoff, and explain their relationship in audience.effect. When the film does not earn a payoff, return revise and cite the affected scene. A quiet observation, a sonic change, a laugh or a question that earns the next scene can carry the ending. Read each in its own form.'
     +'\n\nIndependently review the completed screenplay. Do not rewrite it. Check the causal progression, distinct scene turns, visual behavior, ending, duration, continuity, filmmaker direction, and approved treatment. '
     +(p.mode==='adaptation'?'Reject paper-section mimicry, copied prose, illustrated-lecture structure, unsupported facts, and narration that substitutes for filmable evidence. ':'')
@@ -7321,8 +7338,11 @@ function doubleFeatureControls(){
         (meeting.pitches||[]).map(p=>'<div class="pl-shot"><strong>'+esc(p.title)+'</strong><p>'+esc(p.opening)+'</p><p>'+esc(p.ending)+'</p></div>').join('');
     }
     button.disabled=submitting||!!active;
+    el('dfShelve').hidden=!canShelveOriginal(productionState(),book);
+    el('dfShelve').disabled=!!productionState()?.shelveRequestedAt;
     dashboardScreenings(screenings);
   };
+  el('dfShelve').onclick=()=>{requestFreshPremises();showBooking();};
   showBooking();
   const renderChoice=el('dfPlugin');for(const plugin of studioPlugins())renderChoice.add(new Option(plugin.name,plugin.url));
   renderChoice.value=localStorage.getItem('studio.renderer')||'';if(renderChoice.selectedIndex<0)renderChoice.value='';renderChoice.onchange=()=>{localStorage.setItem('studio.renderer',renderChoice.value);crewConnect().then(renderCrew);};
@@ -7555,7 +7575,7 @@ function renderCrew(){
     h+='</div>';
   });
   h+='</details>';
-  w.innerHTML = '<section class="ai-panel" style="max-width:1120px;margin-bottom:14px"><div id="dashboardMonitor"></div><h4>Double feature</h4><p id="dfBookingState" role="status"></p><label><input type="checkbox" id="dfDaily"> Produce one short each day after this booking, using the selected credits</label><p>Follow the director’s brief through script, casting, wardrobe, photography, storyboard and final cut.</p><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Start crew · 4 storyboard photos and 4 video shots</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><details hidden id="dfMeeting" style="margin:8px 0"><summary>Pitch meeting</summary><div style="white-space:pre-line;margin-top:8px"></div></details><div id="dfScreenings"></div><div id="dfRuns"></div></section>'+h;
+  w.innerHTML = '<section class="ai-panel" style="max-width:1120px;margin-bottom:14px"><div id="dashboardMonitor"></div><h4>Double feature</h4><p id="dfBookingState" role="status"></p><label><input type="checkbox" id="dfDaily"> Produce one short each day after this booking, using the selected credits</label><p>Follow the director’s brief through script, casting, wardrobe, photography, storyboard and final cut.</p><label class="settings-field"><span>Crew model</span><select id="dfModel"><option value="qwen3.8-max">Qwen 3.8 Max · Token Plan</option><option value="qwen4-max">Qwen 4 Max · Token Plan</option><option value="qwen3.5:latest">Qwen 3.5 · on this Mac</option></select></label><p class="auto-note">Cloud crew models receive the play, shot directions and screening frames. Token Plan rates apply.</p><label class="settings-field"><span>Video renderer</span><select id="dfPlugin"><option value="">Wan 3 · Qwen Token Plan</option></select></label><label class="btn small">Add plays<input type="file" multiple accept=".txt,.md,.fountain,.pdf" id="dfShelf" hidden></label> <button class="btn primary" id="dfStart">Start crew · 4 storyboard photos and 4 video shots</button> <button class="btn" id="dfShelve" hidden>Shelve premise and get new pitches</button><details><summary>Qwen connection</summary><input id="dfToken" type="password" autocomplete="off" placeholder="Qwen Token Plan key"> <button class="btn small" id="dfSave">Save key on this Mac</button></details><div class="auto-note" id="dfNames"></div><details hidden id="dfMeeting" style="margin:8px 0"><summary>Pitch meeting</summary><div style="white-space:pre-line;margin-top:8px"></div></details><div id="dfScreenings"></div><div id="dfRuns"></div></section>'+h;
   for(const draft of inputs){
     const field=el(draft.id);
     if(!field)continue;
@@ -10952,6 +10972,9 @@ function boardActiveVideoJobs(){
 async function renderBoards(){
   const w = el('boardsWrap');
   if (!w) return;
+  const viewVersion=Symbol(),owner=boardDraftOwner();
+  BOARD.viewVersion=viewVersion;
+  const stillCurrent=()=>BOARD.viewVersion===viewVersion && boardDraftOwnerMatches(owner);
   const styleSelect=el('boardStyleSel'), renderAll=el('btnBoardRenderAll'), refresh=el('btnBoardRefresh');
   const agentPhotos=el('btnBoardAgentPhotos'), agentMovie=el('btnBoardAgentMovie');
   if (styleSelect) styleSelect.disabled=boardEditingLocked();
@@ -10979,8 +11002,9 @@ async function renderBoards(){
     const key = boardOf(sh).frame;
     if (!key || frameUrls.has(key)) return;
     const blob = await FrameStore.get(key);
-    if (blob) frameUrls.set(key, URL.createObjectURL(blob));
+    if (blob && stillCurrent() && !frameUrls.has(key)) frameUrls.set(key, URL.createObjectURL(blob));
   }));
+  if (!stillCurrent()) return;
 
   const bySce = new Map();
   shown.forEach(x=>{ if (!bySce.has(x.i)) bySce.set(x.i, []); bySce.get(x.i).push(x); });
@@ -11057,6 +11081,7 @@ async function renderBoards(){
   });
   w.innerHTML = html;
   wireBoards();
+  crewApplyMutationLock();
   if (boardActiveVideoJobs().length && !BOARD.pollTimer && !BOARD.pollPromise) boardScheduleVideoPoll(1200);
 }
 
