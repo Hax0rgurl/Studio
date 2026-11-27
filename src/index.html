@@ -3434,6 +3434,9 @@ function crewContext(role, options){
   const noteText=note=>'['+String(note.at||'').slice(0,19)+'] '+(note.targetRoleId?'TO @'+String((crewFind(note.targetRoleId)||{}).at||note.targetRoleId)+': ':'TO THE CREW: ')+String(note.text||'');
   add('FILMMAKER DIRECTION — BINDING, LATEST WORDS WIN',notes.filter(direct).slice(0,30).map(noteText).join('\n'),8000);
   add('FILMMAKER DIRECTION TO OTHER DEPARTMENTS',notes.filter(note=>!direct(note)).slice(0,30).map(noteText).join('\n'),4000);
+  if(typeof postingTaste==='function'){
+    add('PERSONAL PUBLISHING TASTE — EXAMPLES OF WHAT THE FILMMAKER NOTICES. CHOOSE THE LOOK FOR THIS FILM FROM ITS OWN BRIEF.',postingTaste().brief,4000);
+  }
   add('PRODUCTION',[
     'Film: '+(S.title||'Untitled'),
     p&&p.mode ? 'Mode: '+p.mode : '',
@@ -5069,7 +5072,7 @@ async function crewReviewScreenplay(role,ask){
     +'\n\nDURABLE WRITER WORK:\n'+JSON.stringify({revisionPass:work.revisionPass||0,sceneCount:S.scenes.length})})
     +(ask?'\n\nFILMMAKER REQUEST:\n'+ask:'')
     +'\n\nSCREENPLAY PAGES DELIVERED BY THE WRITER:\n'+JSON.stringify(pages)+'\nAssess these pages. Coverage belongs to the first AD after this review. Provisional breakdown suggestions are outside the screenplay.'
-    +'\nA major finding can be a storytelling failure even if every action is filmable. A purely predictable demonstration needs a rewrite when the filmmaker asks for wit, humor or drama. Judge these pages from a human viewer’s seat. What expectation does the opening create? What does the ending make us understand, feel or laugh at that was not already obvious? Identify the first on-screen detail that would make someone stay. Explain what gives the ending meaning and why someone might want to share the moment. Do not predict popularity. Quote two distinct, literal extracts in story order from the screenplay in audience.setup and audience.payoff, and explain their relationship in audience.effect. When the film does not earn a payoff, return revise and cite the affected scene. A quiet, observational or absurd film can earn a pass on its own terms.'
+    +'\nA major finding can be a storytelling failure even if every action is filmable. A purely predictable demonstration needs a rewrite when the filmmaker asks for wit, humor or drama. Judge these pages from a human viewer’s seat. What expectation does the opening create? What does the ending make us understand, feel or laugh at that was not already obvious? Identify the first on-screen detail that would make someone stay. Explain what gives the ending meaning and why someone might want to share the moment. Do not predict popularity. Quote two distinct, literal extracts in story order from the screenplay in audience.setup and audience.payoff, and explain their relationship in audience.effect. When the film does not earn a payoff, return revise and cite the affected scene. A quiet observation, a sonic change, a laugh or a question that earns the next scene can carry the ending. Read each in its own form.'
     +'\n\nIndependently review the completed screenplay. Do not rewrite it. Check the causal progression, distinct scene turns, visual behavior, ending, duration, continuity, filmmaker direction, and approved treatment. '
     +(p.mode==='adaptation'?'Reject paper-section mimicry, copied prose, illustrated-lecture structure, unsupported facts, and narration that substitutes for filmable evidence. ':'')
     +'Every revise verdict must identify at least one blocking or major scene-specific problem with quoted or precisely paraphrased evidence and an executable required change. Return the review schema only.';
@@ -5440,7 +5443,7 @@ async function critiqueStillBatch(rows,role){
     +'Quote the exact offending words for every finding. Do not manufacture faults. Calling the artifact a photograph is allowed. '
     +'“At the instant”, “caught as”, and comparable language identify a frozen state and are allowed unless the same prompt actually describes multiple states or a sequence. '
     +'FILM STOCK, IMPERFECTION, AESTHETIC REFUSALS, and AVOID are required Studio blocks; never fail their existence. '
-    +'Use high severity only for a real canon, multi-instant, impossible-physics, identity, geography, or continuity defect that could materially spoil the generated frame. '
+    +'Use high severity for material faults in canon, the frozen instant, physical interaction, identity, geography or continuity. Judge contact, support and scale within the established premise. Preserve deliberate impossibilities in the script. '
     +'Use medium or low for optional clarification. Return exactly one review for every assigned shotId.';
   const values=await crewJsonAgentCall(role,user,{temperature:0.1,schema:crewStillReviewBatchSchema(rows),
     schemaName:'storyboard_photo_review_batch',roleId:role.id,workloadId:'review.'+role.id+'.still.batch',
@@ -11964,7 +11967,7 @@ const PROMPT_CRITERIA=[
   ['Timing and sequencing','Can each beat happen in order within the available time, including enough time to read the consequence?'],
   ['Contradictions','Do any instructions require incompatible states, positions, intentions or actions?'],
   ['Grammar','Does any wording or pronoun ambiguity change what gets shown?'],
-  ['Visual outcome','Can a viewer see what happened and to whom? Preserve intended ambiguity; distinguish an observable reaction from assuming guilt or honesty.'],
+  ['Visual outcome','Can a viewer see what happened and to whom? Which visible detail makes the intended result legible while preserving deliberate ambiguity?'],
   ['Detail','Which details produce a distinctive image, and which compete with the main beat?'],
   ['Audio','Is each important sound, line, or intentional silence tied to an observable moment?']
 ];

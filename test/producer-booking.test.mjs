@@ -248,3 +248,23 @@ test('publishing taste excludes listed subjects before the vote and requires evi
   assert.equal((await ctx.commissionOriginal(book,'')).choice,null);
   assert.equal(seen.length,2);
 });
+
+test('local commissioning requests a structured slate and a ballot tied to personal taste',async()=>{
+  const {ctx,run}=floor(),calls=[];
+  ctx.localStorage.setItem('studio.taste.publishing.v1',JSON.stringify({brief:'One sound that catches my ear.'}));
+  ctx.aiVisionChat=async(role,prompt,images,model,temperature,schema)=>{
+    calls.push({role,prompt,schema});
+    if(calls.length===1)return JSON.stringify({pitches:['One','Two','Three'].map(title=>({
+      title,opening:'The machine whistles.',ending:'A bird answers.',whyWatch:'The outside answers the factory.'}))});
+    return JSON.stringify({index:0,reason:'The whistle gets an unexpected answer.',setupQuote:'machine whistles',
+      payoffQuote:'bird answers',blockingGap:'',postingEvidence:'One sound that catches my ear.',postingReason:'The two calls make the exchange legible.'});
+  };
+  const book=run('bookFilms()');book.textModel='qwen3.5:latest';
+  const decision=await ctx.commissionOriginal(book,'');
+  assert.equal(decision.choice.title,'One');
+  assert.equal(calls[0].schema.properties.pitches.minItems,3);
+  assert.equal(calls[0].schema.properties.pitches.maxItems,3);
+  assert.deepEqual(Array.from(calls[0].schema.properties.pitches.items.required),['title','opening','ending','whyWatch']);
+  assert.ok(calls[1].schema.required.includes('postingEvidence'));
+  assert.match(calls[1].prompt,/One sound that catches my ear/);
+});
