@@ -3480,6 +3480,9 @@ function crewContext(role, options){
   if(typeof postingTaste==='function'){
     add('PERSONAL PUBLISHING TASTE — EXAMPLES OF WHAT THE FILMMAKER NOTICES. CHOOSE THE LOOK FOR THIS FILM FROM ITS OWN BRIEF.',postingTaste().brief,4000);
   }
+  const pitch=developing && p?.booking?.commission?.choice;
+  if(pitch?.opening && pitch?.ending)add('PRODUCER-APPROVED OPENING AND ENDING',
+    'Opening: '+pitch.opening+'\nEnding: '+pitch.ending+'\nRead the verbs literally: what moves, what stays in place, who acts, and in what order? The writer’s plan and department proposals are interpretations. Discard invented intermediate actions that contradict these pages. Later filmmaker direction overrides the pitch.');
   add('PRODUCTION',[
     'Film: '+(S.title||'Untitled'),
     p&&p.mode ? 'Mode: '+p.mode : '',
@@ -5063,19 +5066,25 @@ async function crewRestageScene(work,sceneNumber,edges){
   if(!history.every((r,i)=>r.verdict==='revise' && Number(r.revisionPass)===Number(current.revisionPass)-2+i &&
       r.problems.some(n=>n.sceneNumber===sceneNumber && n.severity!=='minor')))return null;
   const p=productionState(),direction=crewScreenplayDirection(p),directionHash=crewProgressHash(JSON.stringify(direction));
+  const pitch=p.booking?.commission?.choice;
+  const beats=[pitch?.opening,pitch?.ending].filter(Boolean);
   const last=(work.stagingNotes||[]).filter(n=>n.sceneNumber===sceneNumber).at(-1);
-  if(last?.directionHash===directionHash && current.revisionPass-last.revisionPass<3 && last.revisionPass<=current.revisionPass)return last;
+  if(last?.directionHash===directionHash && (!beats.length||beats.some(beat=>last.pitchQuote && beat.includes(last.pitchQuote))) && current.revisionPass-last.revisionPass<3 && last.revisionPass<=current.revisionPass)return last;
   const director=crewFind('director');
   const prompt=crewContext(director,{screenplayDevelopment:true})+'\nThe same scene has failed independent story review three drafts in a row. Rehearse it on paper with the writer. Your authority covers crew-invented staging. Preserve explicit filmmaker directions, source facts, story payoff and duration. You can replace an impossible sequence of crew-invented actions with a materially different way to achieve the same beat. Decide what the audience must notice, what to change, and what they see or hear from the opening position to the cut. Test that the next scene can start there. A decision needs to be playable, including contact and release when they matter. Leave out measurements the audience cannot perceive. Return JSON.'+
     '\nFilmmaker direction: '+JSON.stringify(direction)+'\nOriginal crew plan: '+JSON.stringify(work.plan)+
     '\nScene '+sceneNumber+': '+JSON.stringify(work.sceneDrafts[sceneNumber])+'\nNeighbors: '+JSON.stringify(edges)+
     '\nRecent editorial objections: '+JSON.stringify(history.map(r=>r.problems.filter(n=>n.sceneNumber===sceneNumber && n.severity!=='minor').map(n=>n.issue)))+
+    (beats.length?'\nProducer-approved beats: '+JSON.stringify(beats)+'\nFirst quote the clause in the approved opening or ending that constrains this action in pitchQuote. In change, identify any extra mechanic invented after the pitch and remove or replace it when it conflicts. Do not repair a detour by inventing another event. Describe only actions the next scene can inherit.':'')+
     (last?'\nPrevious staging decision: '+JSON.stringify(last):'');
   const fields=['audienceBeat','change','blocking','handoff'];
+  if(beats.length)fields.push('pitchQuote');
   const decision=await crewJsonAgentCall(director,prompt,{roleId:'director',schemaName:'scene_rehearsal',
     workloadId:'department.director.rehearsal.'+current.revisionPass+'.'+sceneNumber,artifactType:'staging_note',temperature:0.4,
     schema:{type:'object',properties:Object.fromEntries(fields.map(f=>[f,{type:'string'}])),required:fields}},value=>{
     if(!fields.every(f=>typeof value?.[f]==='string' && value[f].trim()))throw Error('The rehearsal needs an audience beat, staging change, playable action and handoff.');
+    if(beats.length && (value.pitchQuote.trim().length<6 || !beats.some(beat=>beat.includes(value.pitchQuote.trim()))))
+      throw Error('Copy the relevant clause verbatim from the approved opening or ending.');
     return Object.fromEntries(fields.map(f=>[f,value[f].trim()]));
   });
   const note={...decision,sceneNumber,directionHash,revisionPass:current.revisionPass,at:new Date().toISOString()};
@@ -5249,7 +5258,7 @@ async function crewReviewScreenplay(role,ask){
     +(followup?'\n\nREVISION CHECK. Prior major findings (numbered from 1): '+JSON.stringify(followup.notes.map((finding,i)=>({number:i+1,...finding})))+
       '\nPages before this revision: '+JSON.stringify(Object.fromEntries(followup.earlier))+'\nCURRENT EVIDENCE IDS: '+JSON.stringify(followup.citations)+'\nSOURCES FOR REOPENING AN UNCHANGED BEAT: '+JSON.stringify(followup.reasons)+
       '\nCompare the changed pages to those directions. An earlier note based solely on a department proposal that is absent from this writing brief cannot bind the screenplay. Resolve it unless the current film, a filmmaker instruction or supplied source establishes the problem independently. List the numbers that are resolved in resolved. For each remaining major finding identify its priorFinding, put the matching current sentence ID in evidence, and describe in viewerConsequence what someone would actually see or hear go wrong. Use priorFinding 0 for a new material problem. Review the actual change and its effects first. An unchanged beat can become a problem if the edit changed what comes before or after it, or if it conflicts with the filmmaker. Cite that source in reopenSource. Leave preferences for different staging or prose as minor notes. Explain the on-screen consequence of the new problem. Wording, articles, units, and alternative ways to photograph an equally readable event belong in minor notes unless they change what a viewer experiences or break explicit filmmaker direction. Before reversing an earlier direction, identify the conflict and follow the filmmaker. Acknowledge a successful correction and move on.':'')
-    +'\n\nSCREENPLAY PAGES DELIVERED BY THE WRITER:\n'+JSON.stringify(pages)+'\nAssess these pages against the latest filmmaker direction, including anything it supersedes in the original pitch. Check whether earlier findings have been resolved. Request a further rewrite for a concrete problem on screen. Coverage belongs to the first AD after this review. Provisional breakdown suggestions are outside the screenplay.'
+    +'\n\nSCREENPLAY PAGES DELIVERED BY THE WRITER:\n'+JSON.stringify(pages)+'\nBefore issuing another note, compare the action on the page to the producer-approved opening and ending when supplied. If an extra action invented by the crew caused the contradiction, recommend dropping it and returning to the approved beat. Do not insist on preserving it. Assess these pages against the latest filmmaker direction, including anything it supersedes in the original pitch. Check whether earlier findings have been resolved. Request a further rewrite for a concrete problem on screen. Coverage belongs to the first AD after this review. Provisional breakdown suggestions are outside the screenplay.'
     +'\nA major finding can be a storytelling failure even if every action is filmable. A purely predictable demonstration needs a rewrite when the filmmaker asks for wit, humor or drama. Judge these pages from a human viewer’s seat. What expectation does the opening create? What does the ending make us understand, feel or laugh at that was not already obvious? Identify the first on-screen detail that would make someone stay. Explain what gives the ending meaning and why someone might want to share the moment. Do not predict popularity. Quote two distinct, literal extracts in story order from the screenplay in audience.setup and audience.payoff, and explain their relationship in audience.effect. When the film does not earn a payoff, return revise and cite the affected scene. A quiet observation, a sonic change, a laugh or a question that earns the next scene can carry the ending. Read each in its own form.'
     +'\n\nIndependently review the completed screenplay. Do not rewrite it. Check the causal progression, distinct scene turns, visual behavior, ending, duration, continuity, filmmaker direction, and approved treatment. '
     +(p.mode==='adaptation'?'Reject paper-section mimicry, copied prose, illustrated-lecture structure, unsupported facts, and narration that substitutes for filmable evidence. ':'')
@@ -8114,7 +8123,7 @@ function clientScreenplayReview(p,expanded){
   return '<details class="ai-panel" style="max-width:1120px" id="clientScriptReview"'+(expanded?' open':'')+'><summary>Screenplay review · Draft '+
     (Number(review.revisionPass||0)+1)+' · '+(review.verdict==='pass'?'Approved':'Revision requested')+'</summary><p>'+esc(review.clientUpdate||'')+'</p>'
     +(closed.length?'<h4>Resolved in this draft</h4><ul>'+closed.map(text=>'<li>'+esc(text)+'</li>').join('')+'</ul>':'')
-    +(p.writerWork.stagingNotes||[]).slice(-1).map(n=>'<article class="crew-message"><h4>Director’s rehearsal · Scene '+esc(n.sceneNumber)+' · Draft '+esc(n.revisionPass+1)+'</h4><p>'+esc(n.audienceBeat)+'</p><p>'+esc(n.change)+'</p><p>'+esc(n.blocking)+'</p><p>'+esc(n.handoff)+'</p></article>').join('')
+    +(p.writerWork.stagingNotes||[]).slice(-1).map(n=>'<article class="crew-message"><h4>Director’s rehearsal · Scene '+esc(n.sceneNumber)+' · Draft '+esc(n.revisionPass+1)+'</h4>'+(n.pitchQuote?'<blockquote>'+esc(n.pitchQuote)+'</blockquote>':'')+'<p>'+esc(n.audienceBeat)+'</p><p>'+esc(n.change)+'</p><p>'+esc(n.blocking)+'</p><p>'+esc(n.handoff)+'</p></article>').join('')
     +findings.join('')+'</details>';
 }
 function renderClientRoom(){

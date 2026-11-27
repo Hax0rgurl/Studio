@@ -111,6 +111,10 @@ test('recurring findings trigger a saved director rehearsal for the specific sce
   work.review=review(4);work.reviews.push(work.review);assert.equal(await rehearse(work,1,{}),first);
   direction='Keep the latch shut';assert.notEqual(await rehearse(work,1,{}),first);assert.equal(calls,3);
   assert.equal(work.review.verdict,'revise');assert.deepEqual(work.sceneDrafts,{1:{}});
+  context.productionState=()=>({booking:{commission:{choice:{opening:'Her hand stops at the latch.',ending:'The lid stays closed.'}}}});
+  await assert.rejects(rehearse(work,1,{}),/rehearsal needs/);
+  answer.pitchQuote='The lid falls again.';await assert.rejects(rehearse(work,1,{}),/verbatim/);
+  answer.pitchQuote='The lid stays closed.';assert.equal((await rehearse(work,1,{})).pitchQuote,answer.pitchQuote);
   work.reviews[1].problems[0].severity='minor';assert.equal(await rehearse(work,1,{}),null);
 });
 
